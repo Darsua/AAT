@@ -63,8 +63,8 @@ flowchart TD
     end
 
     %% Ingestion Flow
-    BMKG -->|HTTP Polling (every 3s)| Aggregator
-    PVMBG -->|HTTP Polling (every 3s)| Aggregator
+    BMKG -->|HTTP Polling every 3s| Aggregator
+    PVMBG -->|HTTP Polling every 3s| Aggregator
     Aggregator <-->|ACID Read / Write| Postgres
     Aggregator -->|Transactional Outbox Relay| Broker
 
