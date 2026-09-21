@@ -50,7 +50,7 @@ flowchart TD
 
 ### 1. Zero In-Memory Session State in Compute Services
 * **`client-api`**: Holds no local state. Authentication is verified statelessly via cryptographic signature verification on self-contained JWT tokens (HMAC-SHA256 with 60-second expiration). Any incoming request can be served by any `client-api` container replica.
-* **`auth`**: Issues signed JWTs containing user identities and scopes (`media`, `field`, `internal`). Token verification requires only the shared verification key, eliminating central session lookup bottlenecks during high-throughput queries.
+* **`auth`**: Issues signed JWTs containing user identities and a `scope` claim (`hazards:read:summary` or `hazards:read:all`; see `contracts/auth_api.yaml`). Token verification requires only the shared verification key, eliminating central session lookup bottlenecks during high-throughput queries.
 * **`aggregator`**: Polling cursors and ingestion timestamps are committed transactionally to `canonical-db`. Restarting or replicating the aggregator does not lose cursor progress.
 
 ### 2. Time-Ordered Identifiers (UUIDv7)

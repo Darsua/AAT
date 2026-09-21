@@ -54,9 +54,9 @@ The `client-api` service acts as the **Public Edge Gateway** for all external co
 - If absent, invalid, or expired, return `401 Unauthorized`.
 
 ### 2.3 Scope-Based Access Control & Filtering
-Tokens issued by `auth` contain a `scopes` claim (`media`, `field`, or `internal`):
+Tokens issued by `auth` contain a `scope` claim with one of two literal values: `hazards:read:summary` (Media) or `hazards:read:all` (Field/Internal) — see `contracts/auth_api.yaml` and `services/auth/README.md` §2.5. `client-api` only ever checks these two literal strings; it has no knowledge of `media`/`field`/`internal` as role names.
 
-1. **`media` Scope:**
+1. **`hazards:read:summary` Scope (Media):**
    - Designed for news agencies and public information dashboards.
    - Summarized view only (`fields=summary` by default).
    - **403 Forbidden Rule:** If a `media` client requests raw telemetry or sets query param `fields=all`, `client-api` must reject the request with **`403 Forbidden`**:
@@ -67,11 +67,11 @@ Tokens issued by `auth` contain a `scopes` claim (`media`, `field`, or `internal
      }
      ```
 
-2. **`field` Scope:**
+2. **`hazards:read:all` Scope (Field):**
    - Permitted access to operational coordinates, evacuation zones, severity levels, and field responder dispatches (`fields=all`).
 
-3. **`internal` Scope:**
-   - Full unrestricted access to all canonical domain models and operational metadata (`fields=all`).
+3. **`hazards:read:all` Scope (Internal):**
+   - Full unrestricted access to all canonical domain models and operational metadata (`fields=all`). Same scope value as Field — `role` in the JWT (not `scope`) distinguishes them for audit/logging purposes only; access level is identical.
 
 ### 2.4 Distributed Tracing: `X-Correlation-ID` Propagation
 - Inspect incoming request headers for `X-Correlation-ID`.
@@ -181,7 +181,7 @@ curl -i http://localhost:8080/api/v1/hazards?fields=summary \
 
 - [ ] Middleware: Read `X-Correlation-ID` or generate new UUID; set on context and response header.
 - [ ] Middleware: Parse and validate JWT from `Authorization: Bearer <token>` using `jwt.Parse` and `JWT_SECRET`.
-- [ ] Middleware / Guard: Check token claims for required scopes. Return `403 Forbidden` if client with `media` scope requests `fields=all` or attempts to access raw telemetry.
+- [ ] Middleware / Guard: Check the JWT `scope` claim. Return `403 Forbidden` if a token with `scope: hazards:read:summary` (Media) requests `fields=all` or attempts to access raw telemetry.
 - [ ] Implement reverse proxy / HTTP client forwarder to `AGGREGATOR_URL + "/internal/hazards"`.
 - [ ] Forward `X-Correlation-ID` to downstream `aggregator`.
 - [ ] Handle aggregator network errors gracefully (return `502 Bad Gateway` or `504 Gateway Timeout`).

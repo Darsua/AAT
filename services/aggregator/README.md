@@ -59,7 +59,7 @@ The `aggregator` service is the central ingestion and event-sourcing engine in t
 
 2. **Deduplication & Canonical Normalization:**
    - Transform disparate upstream payloads into the canonical `domain.HazardEvent` struct.
-   - Deduplicate incoming events using composite unique key `(source, source_event_id)` to ensure idempotent ingestion.
+   - Deduplicate incoming events using composite unique key `(source, source_ref_id)` to ensure idempotent ingestion (matches the `uq_source_ref` constraint in §4).
 
 3. **Transactional Outbox Pattern:**
    - In a single PostgreSQL ACID transaction (`pgx.Tx`):

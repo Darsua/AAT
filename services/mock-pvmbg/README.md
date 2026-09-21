@@ -33,12 +33,12 @@ Additionally, this service includes **Admin Chaos Toggles (P1 & P2)** to simulat
 - Base URL: `http://localhost:8082` or `http://mock-pvmbg:8082` in Docker network.
 
 ### 2.2 Authentication Requirement
-- Public/admin endpoints (`/health`, `/admin/*`) do not require bearer tokens (or use an internal admin token).
-- Data endpoint `GET /volcanic-reports` must validate standard HTTP `Authorization` header:
+- `GET /health` is the only public, unauthenticated endpoint.
+- `GET /volcanic-reports`, `POST /admin/schema-version`, and `POST /admin/outage` **all** require the same standard HTTP `Authorization` header (per `contracts/pvmbg.yaml`'s `BearerAuth` security scheme — there is no separate "internal admin token"):
   ```http
   Authorization: Bearer <PVMBG_TOKEN>
   ```
-- If token is missing, malformed, or invalid, respond with `401 Unauthorized`:
+- If token is missing, malformed, or invalid on any of the three endpoints above, respond with `401 Unauthorized`:
   ```json
   {"error": "Unauthorized", "message": "Missing or invalid Bearer token"}
   ```
