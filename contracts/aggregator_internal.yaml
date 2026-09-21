@@ -1,0 +1,329 @@
+openapi: 3.0.3
+info:
+  title: Aggregator Internal API
+  version: 1.0.0
+  description: >
+    Internal private API for the Aggregator service (Port 8083).
+    Exposes canonical, normalized hazard events to the Client-Facing API gateway and background processors.
+servers:
+  - url: http://localhost:8083
+    description: Local Aggregator Internal Server
+paths:
+  /internal/hazards:
+    get:
+      summary: Query Canonical Hazard Events
+      description: Retrieve normalized and deduplicated hazard records with filtering, pagination, and circuit status metadata.
+      operationId: getInternalHazards
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return events occurred at or after this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-09-05T15:30:00Z"
+        - name: type
+          in: query
+          required: false
+          description: Filter events by hazard classification type.
+          schema:
+            type: string
+            enum:
+              - SEISMIC
+              - VOLCANIC
+            example: "SEISMIC"
+        - name: severity
+          in: query
+          required: false
+          description: Filter events by national alert severity level.
+          schema:
+            type: string
+            enum:
+              - NORMAL
+              - WASPADA
+              - SIAGA
+              - AWAS
+            example: "WASPADA"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of hazard records to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+            example: 50
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based record offset for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: End-to-end distributed trace correlation identifier.
+          schema:
+            type: string
+            example: "corr-8f92a10e-1234-4a56-b789-0123456789ab"
+      responses:
+        '200':
+          description: Paginated canonical hazard events along with degradation metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HazardEvent'
+                  meta:
+                    type: object
+                    required:
+                      - total
+                      - degraded
+                      - stale_since
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of records matching filter criteria.
+                        example: 42
+                      degraded:
+                        type: boolean
+                        description: Indicates if upstream polling is degraded or experiencing circuit breaks.
+                        example: false
+                      stale_since:
+                        type: string
+                        format: date-time
+                        nullable: true
+                        description: Timestamp since when upstream data became stale (null if fully healthy).
+                        example: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /health:
+    get:
+      summary: Aggregator Health and Dependency Check
+      description: Health probe verifying internal service health, PostgreSQL database, and message broker connectivity.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Aggregator and all backing infrastructure dependencies are operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: "UP"
+                service: "aggregator"
+                database: "UP"
+                broker: "UP"
+        '503':
+          description: Service or one of its critical dependencies is down.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: "DOWN"
+                service: "aggregator"
+                database: "DOWN"
+                broker: "UP"
+
+components:
+  responses:
+    BadRequest:
+      description: Invalid query parameters or headers.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "BAD_REQUEST"
+            message: "Invalid query parameter 'limit': must be between 1 and 500"
+    InternalServerError:
+      description: Internal server error while processing query or interacting with storage.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "INTERNAL_ERROR"
+            message: "An unexpected error occurred while querying hazard events"
+
+  schemas:
+    HazardEvent:
+      type: object
+      description: Canonical hazard event data model ingested and stored by the Aggregator.
+      required:
+        - hazard_id
+        - source
+        - source_ref_id
+        - hazard_type
+        - severity
+        - area_name
+        - occurred_at
+        - ingested_at
+        - attributes
+      properties:
+        hazard_id:
+          type: string
+          description: "Canonical unique identifier for the hazard event (Summary Field)."
+          example: "haz-bmkg-20260905-001"
+        source:
+          type: string
+          enum:
+            - BMKG
+            - PVMBG
+          description: "Reporting source agency (Summary Field)."
+          example: "BMKG"
+        source_ref_id:
+          type: string
+          description: "Native source event ID from upstream agency (Raw Field)."
+          example: "bmkg-seis-20260905-001"
+        hazard_type:
+          type: string
+          enum:
+            - SEISMIC
+            - VOLCANIC
+          description: "Hazard classification type (Summary Field)."
+          example: "SEISMIC"
+        severity:
+          type: string
+          enum:
+            - NORMAL
+            - WASPADA
+            - SIAGA
+            - AWAS
+          description: "Standardized national severity alert level (Summary Field)."
+          example: "WASPADA"
+        area_name:
+          type: string
+          description: "Descriptive name of affected geographic area or volcano (Summary Field)."
+          example: "124 km BaratDaya KAB-BANTUL-DIY"
+        latitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90.0
+          maximum: 90.0
+          description: "Latitude coordinate in WGS84 decimal degrees (Raw Field)."
+          example: -7.5407
+        longitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180.0
+          maximum: 180.0
+          description: "Longitude coordinate in WGS84 decimal degrees (Raw Field)."
+          example: 110.4456
+        attributes:
+          type: object
+          description: "Dynamic JSON payload containing domain-specific attributes per IF4031 M1 mapping (Raw Field)."
+          properties:
+            magnitude:
+              type: number
+              description: "Earthquake magnitude on Mw scale (BMKG)."
+              example: 5.6
+            depth_km:
+              type: number
+              description: "Hypocenter depth in kilometers (BMKG)."
+              example: 15.0
+            potential_tsunami:
+              type: boolean
+              description: "Tsunami potential indicator (BMKG)."
+              example: false
+            tsunami_warning:
+              type: object
+              description: "Correlated tsunami advisory details if issued by BMKG."
+              properties:
+                warning_id: { type: string, example: "tsu-bmkg-20260905-01" }
+                threat_level: { type: string, enum: [Waspada, Siaga, Awas], example: "Waspada" }
+                affected_zones: { type: array, items: { type: string }, example: ["Pesisir Kulonprogo"] }
+                estimated_arrival: { type: string, format: date-time, example: "2026-09-05T15:55:00Z" }
+            volcano_id:
+              type: string
+              description: "Standard volcano reference ID (PVMBG)."
+              example: "VLC-001"
+            eruption_count_24h:
+              type: integer
+              description: "24-hour eruption count (PVMBG)."
+              example: 12
+            ash_column_height_m:
+              type: number
+              description: "Ash column height in meters (PVMBG)."
+              example: 750.0
+            confidence_level:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: "Dynamic confidence level score [0.0 - 1.0]."
+              example: 0.95
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+          description: "ISO 8601 UTC timestamp of occurrence (Summary Field)."
+          example: "2026-09-05T15:30:00Z"
+        ingested_at:
+          type: string
+          format: date-time
+          description: "ISO 8601 UTC timestamp of database ingestion (Summary Field)."
+          example: "2026-09-05T15:35:00Z"
+
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - service
+        - database
+        - broker
+      properties:
+        status:
+          type: string
+          enum:
+            - UP
+            - DOWN
+            - DEGRADED
+          example: "UP"
+        service:
+          type: string
+          enum:
+            - aggregator
+          example: "aggregator"
+        database:
+          type: string
+          enum:
+            - UP
+            - DOWN
+          example: "UP"
+        broker:
+          type: string
+          enum:
+            - UP
+            - DOWN
+          example: "UP"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: "BAD_REQUEST"
+        message:
+          type: string
+          example: "Invalid parameters provided"

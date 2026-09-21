@@ -1,0 +1,247 @@
+openapi: 3.0.3
+info:
+  title: BMKG Mock Upstream API
+  version: 1.0.0
+  description: >
+    Upstream mock service for Badan Meteorologi, Klimatologi, dan Geofisika (BMKG).
+    Provides seismic sensor telemetry and tsunami warning advisories.
+servers:
+  - url: http://localhost:8081
+    description: Local Mock BMKG Server
+paths:
+  /seismic-events:
+    get:
+      summary: Get Seismic Events
+      description: Retrieve list of recent earthquake events detected by BMKG seismic monitoring stations.
+      operationId: getSeismicEvents
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return events recorded at or after this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-09-05T15:30:00Z"
+      responses:
+        '200':
+          description: Array of seismic events matching query criteria.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeismicEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /tsunami-warnings:
+    get:
+      summary: Get Tsunami Warnings
+      description: Retrieve active or recent tsunami warning advisories issued by BMKG.
+      operationId: getTsunamiWarnings
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return warnings issued at or after this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-09-05T15:30:00Z"
+      responses:
+        '200':
+          description: Array of active tsunami warnings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TsunamiWarning'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /health:
+    get:
+      summary: Health Check
+      description: Health and liveness probe for BMKG mock service.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy and operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "UP"
+                service: "mock-bmkg"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-BMKG-Key
+      description: API Key authentication token required in header `X-BMKG-Key`.
+
+  responses:
+    Unauthorized:
+      description: Missing or malformed authentication key in `X-BMKG-Key` header.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Missing or invalid X-BMKG-Key header"
+    Forbidden:
+      description: Forbidden - API key lacks sufficient permissions or is revoked.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "FORBIDDEN"
+            message: "Access forbidden with provided credentials"
+
+  schemas:
+    SeismicEvent:
+      type: object
+      description: Earthquake sensor telemetry record from BMKG as defined in official IF4031 M1 specification.
+      required:
+        - event_id
+        - magnitude
+        - depth_km
+        - epicenter_lat
+        - epicenter_lon
+        - region_name
+        - occurred_at
+        - potential_tsunami
+      properties:
+        event_id:
+          type: string
+          description: Unique event identifier assigned by BMKG.
+          example: "bmkg-seis-20260905-001"
+        magnitude:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 10.0
+          description: Earthquake magnitude on the Mw scale.
+          example: 5.6
+        depth_km:
+          type: number
+          format: float
+          minimum: 0.0
+          description: Hypocenter depth in kilometers.
+          example: 15.0
+        epicenter_lat:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+          description: Latitude coordinate in decimal degrees.
+          example: -7.5407
+        epicenter_lon:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+          description: Longitude coordinate in decimal degrees.
+          example: 110.4456
+        region_name:
+          type: string
+          description: Human-readable affected region name.
+          example: "124 km BaratDaya KAB-BANTUL-DIY"
+        occurred_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of earthquake occurrence.
+          example: "2026-09-05T15:30:00Z"
+        potential_tsunami:
+          type: boolean
+          description: Indicator if the earthquake has tsunami potential.
+          example: false
+
+    TsunamiWarning:
+      type: object
+      description: Official tsunami advisory notice from BMKG as defined in official IF4031 M1 specification.
+      required:
+        - warning_id
+        - related_event_id
+        - threat_level
+        - affected_zones
+        - estimated_arrival
+      properties:
+        warning_id:
+          type: string
+          description: Unique identifier for the tsunami advisory.
+          example: "tsu-bmkg-20260905-01"
+        related_event_id:
+          type: string
+          description: Reference to the triggering SeismicEvent event_id.
+          example: "bmkg-seis-20260905-001"
+        threat_level:
+          type: string
+          enum:
+            - Waspada
+            - Siaga
+            - Awas
+          description: National tsunami warning tier.
+          example: "Waspada"
+        affected_zones:
+          type: array
+          items:
+            type: string
+          description: Coastal districts and zones under advisory.
+          example:
+            - "Pesisir Kulonprogo"
+            - "Pesisir Kebumen"
+        estimated_arrival:
+          type: string
+          format: date-time
+          description: Estimated initial wave arrival timestamp.
+          example: "2026-09-05T15:55:00Z"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+      properties:
+        status:
+          type: string
+          enum:
+            - "UP"
+            - "DOWN"
+          example: "UP"
+        service:
+          type: string
+          enum:
+            - "mock-bmkg"
+          example: "mock-bmkg"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          description: Human-readable error description.
+          example: "Missing or invalid X-BMKG-Key header"

@@ -1,0 +1,41 @@
+# Environment configs & secrets
+.env
+.env.local
+.env.*.local
+
+# Binaries & build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+tmp/
+dist/
+/server
+/auth
+/client-api
+/mock-bmkg
+/mock-pvmbg
+/dashboard
+/notifier
+
+# OS-specific artifacts
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test coverage & logs
+coverage.out
+*.log
+*.out
+
+# IDE & editor settings
+.idea/
+.vscode/
+*.swp
+*~

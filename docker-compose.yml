@@ -1,0 +1,175 @@
+name: bnpb-aat
+
+services:
+  canonical-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bnpb_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bnpb_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-bnpb_hazards}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./services/aggregator/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+    networks:
+      - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-bnpb_user} -d $${POSTGRES_DB:-bnpb_hazards}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    command: redpanda start --smp 1 --memory 256M --overprovisioned --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092 --advertise-kafka-addr internal://redpanda:9092,external://localhost:${REDPANDA_PORT:-19092}
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    ports:
+      - "${REDPANDA_PORT:-19092}:19092"
+    networks:
+      - bnpb-internal
+      - bnpb-public
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mock-bmkg:
+    build: ./services/mock-bmkg
+    ports:
+      - "${MOCK_BMKG_PORT:-8081}:8081"
+    environment:
+      PORT: 8081
+      BMKG_API_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
+    networks:
+      - bnpb-internal
+      - bnpb-public
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mock-pvmbg:
+    build: ./services/mock-pvmbg
+    ports:
+      - "${MOCK_PVMBG_PORT:-8082}:8082"
+    environment:
+      PORT: 8082
+      PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
+    networks:
+      - bnpb-internal
+      - bnpb-public
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  aggregator:
+    build: ./services/aggregator
+    environment:
+      PORT: 8083
+      DATABASE_URL: ${DATABASE_URL:-postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable}
+      REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
+      BMKG_URL: ${BMKG_URL:-http://mock-bmkg:8081}
+      BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
+      PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
+      PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
+      POLL_INTERVAL_SECS: ${POLL_INTERVAL_SECS:-3}
+    depends_on:
+      canonical-db:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      mock-bmkg:
+        condition: service_healthy
+      mock-pvmbg:
+        condition: service_healthy
+    networks:
+      - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  auth:
+    build: ./services/auth
+    ports:
+      - "${AUTH_PORT:-8084}:8084"
+    environment:
+      PORT: 8084
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-60}
+    networks:
+      - bnpb-internal
+      - bnpb-public
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8084/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  client-api:
+    build: ./services/client-api
+    ports:
+      - "${CLIENT_API_PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
+      AUTH_URL: ${AUTH_URL:-http://auth:8084}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
+    depends_on:
+      aggregator:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    networks:
+      - bnpb-internal
+      - bnpb-public
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ==============================================================================
+  # Downstream Consumers (Jenka / Member C)
+  # Consumers are designed, structured, and created entirely by Jenka.
+  # See services/consumers/README.md for specifications and pub-sub guidelines.
+  # Once your consumer services are created, uncomment and configure below:
+  # ==============================================================================
+  # dashboard-consumer:
+  #   build: ./services/consumers/dashboard
+  #   environment:
+  #     REDPANDA_BROKERS: redpanda:9092
+  #     CONSUMER_GROUP: bnpb-dashboard-group
+  #     TOPIC: bnpb.hazard-events
+  #   depends_on:
+  #     redpanda:
+  #       condition: service_healthy
+  #   networks:
+  #     - bnpb-internal
+  #
+  # notifier-consumer:
+  #   build: ./services/consumers/notifier
+  #   environment:
+  #     REDPANDA_BROKERS: redpanda:9092
+  #     CONSUMER_GROUP: bnpb-notifier-group
+  #     TOPIC: bnpb.hazard-events
+  #   depends_on:
+  #     redpanda:
+  #       condition: service_healthy
+  #   networks:
+  #     - bnpb-internal
+
+volumes:
+  db-data:
+  redpanda-data:
+
+networks:
+  bnpb-internal:
+    internal: true
+  bnpb-public:
+    driver: bridge

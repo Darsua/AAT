@@ -1,0 +1,279 @@
+openapi: 3.0.3
+info:
+  title: PVMBG Mock Upstream API
+  version: 1.0.0
+  description: >
+    Upstream mock service for Pusat Vulkanologi dan Mitigasi Bencana Geologi (PVMBG).
+    Provides volcanic activity reports, alert levels, dynamic schema toggles, and outage simulation.
+servers:
+  - url: http://localhost:8082
+    description: Local Mock PVMBG Server
+paths:
+  /volcanic-reports:
+    get:
+      summary: Get Volcanic Observation Reports
+      description: Retrieve latest volcanic monitoring and alert level reports from PVMBG observation posts.
+      operationId: getVolcanicReports
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return reports created at or after this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-09-05T15:30:00Z"
+      responses:
+        '200':
+          description: Array of volcanic reports.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VolcanicReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/schema-version:
+    post:
+      summary: Toggle Schema Version / Dynamic Fields
+      description: Control whether dynamic attributes (e.g. `confidence_level`) are emitted in upstream responses.
+      operationId: updateSchemaVersion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - include_confidence_level
+              properties:
+                include_confidence_level:
+                  type: boolean
+                  description: When true, dynamic confidence_level field is included in volcanic reports.
+                  example: true
+      responses:
+        '200':
+          description: Schema configuration updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - include_confidence_level
+                properties:
+                  status:
+                    type: string
+                    example: "updated"
+                  include_confidence_level:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Dynamic schema updated successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/outage:
+    post:
+      summary: Simulate Service Outage
+      description: Toggle simulated failure/outage for circuit breaker, fallback, and resilience testing.
+      operationId: setOutage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_outage
+              properties:
+                is_outage:
+                  type: boolean
+                  description: When true, mock PVMBG service responds with 503 Service Unavailable or fails requests.
+                  example: true
+      responses:
+        '200':
+          description: Outage state updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - is_outage
+                properties:
+                  status:
+                    type: string
+                    example: "updated"
+                  is_outage:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Outage mode updated successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /health:
+    get:
+      summary: Health Check
+      description: Health and liveness probe for PVMBG mock service.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy and operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "UP"
+                service: "mock-pvmbg"
+        '503':
+          description: Service is degraded or in outage simulation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "DOWN"
+                service: "mock-pvmbg"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token
+      description: "Bearer token authentication required in header `Authorization: Bearer <pvmbg-token>`."
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer authentication token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Missing or invalid Authorization header"
+    Forbidden:
+      description: Access forbidden for the provided credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "FORBIDDEN"
+            message: "Insufficient permissions to access PVMBG upstream resources"
+    ServiceUnavailable:
+      description: PVMBG upstream service is unavailable or in simulated outage.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "SERVICE_UNAVAILABLE"
+            message: "PVMBG service temporarily unreachable"
+
+  schemas:
+    VolcanicReport:
+      type: object
+      description: Volcanic activity report from PVMBG ground observation station as defined in official IF4031 M1 specification.
+      required:
+        - report_id
+        - volcano_id
+        - alert_level
+        - eruption_count_24h
+        - ash_column_height_m
+        - reported_at
+      properties:
+        report_id:
+          type: string
+          description: Unique upstream identifier for the observation report.
+          example: "pvmbg-rpt-20260905-001"
+        volcano_id:
+          type: string
+          description: Standard volcano identifier matching BNPB static references (e.g. VLC-001).
+          example: "VLC-001"
+        alert_level:
+          type: string
+          enum:
+            - Normal
+            - Waspada
+            - Siaga
+            - Awas
+          description: Volcanic activity alert tier.
+          example: "Siaga"
+        eruption_count_24h:
+          type: integer
+          minimum: 0
+          description: Eruption count recorded in the last 24 hours.
+          example: 12
+        ash_column_height_m:
+          type: number
+          format: float
+          minimum: 0.0
+          description: Ash column height in meters above crater summit.
+          example: 750.0
+        reported_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when observation report was filed.
+          example: "2026-09-05T15:30:00Z"
+        confidence_level:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Dynamic confidence score [0.0 - 1.0] introduced at runtime via /admin/schema-version.
+          example: 0.95
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+      properties:
+        status:
+          type: string
+          enum:
+            - "UP"
+            - "DOWN"
+          example: "UP"
+        service:
+          type: string
+          enum:
+            - "mock-pvmbg"
+          example: "mock-pvmbg"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          example: "Authorization header required"

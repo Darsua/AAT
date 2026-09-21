@@ -1,0 +1,485 @@
+openapi: 3.0.3
+info:
+  title: Client-Facing Disaster Alert API
+  version: 1.0.0
+  description: >
+    Public and partner-facing API gateway for disaster and hazard alerts (Port 8080).
+    Provides role-based field filtering, RBAC scope enforcement, and real-time hazard status.
+servers:
+  - url: http://localhost:8080
+    description: Local Client API Gateway
+paths:
+  /api/v1/hazards:
+    get:
+      summary: List Hazard Events
+      description: >
+        Retrieve disaster and hazard events with pagination and filtering.
+        
+        ### Scope & RBAC Rules:
+        - Clients with the `Media` role (scope: `hazards:read:summary`) may only request `fields=summary`.
+        - If a `Media` client requests `fields=all` or attempts to access raw fields (`source_ref_id`, `latitude`, `longitude`, `attributes`), the server rejects the request with **403 Forbidden**.
+        - Emergency services, government authorities, and administrators with scope `hazards:read:all` may access both `fields=summary` and `fields=all`.
+      operationId: listHazards
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: fields
+          in: query
+          required: false
+          description: >
+            Field projection mode:
+            - `summary`: Returns summary fields only (hazard_id, source, hazard_type, severity, area_name, occurred_at, ingested_at). Accessible by Media.
+            - `all`: Returns summary fields plus raw fields (source_ref_id, latitude, longitude, attributes). Requires scope `hazards:read:all`.
+          schema:
+            type: string
+            enum:
+              - summary
+              - all
+            default: summary
+            example: summary
+        - name: since
+          in: query
+          required: false
+          description: Filter events occurred at or after this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+            example: "2026-09-05T15:30:00Z"
+        - name: type
+          in: query
+          required: false
+          description: Filter events by hazard type classification.
+          schema:
+            type: string
+            enum:
+              - SEISMIC
+              - VOLCANIC
+            example: "SEISMIC"
+        - name: severity
+          in: query
+          required: false
+          description: Filter events by alert severity level.
+          schema:
+            type: string
+            enum:
+              - NORMAL
+              - WASPADA
+              - SIAGA
+              - AWAS
+            example: "WASPADA"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of events to return (pagination limit).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+            example: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of records to skip (pagination offset).
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: Correlation ID for distributed request tracing across services.
+          schema:
+            type: string
+            example: "trace-91b452e8-f901-447b-a489-32cf4b910123"
+      responses:
+        '200':
+          description: Hazard events successfully retrieved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/HazardEventSummary'
+                        - $ref: '#/components/schemas/HazardEventFull'
+                  meta:
+                    type: object
+                    required:
+                      - total
+                      - limit
+                      - offset
+                      - degraded
+                      - stale_since
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of matching records.
+                        example: 35
+                      limit:
+                        type: integer
+                        description: Requested page size limit.
+                        example: 50
+                      offset:
+                        type: integer
+                        description: Requested page offset.
+                        example: 0
+                      degraded:
+                        type: boolean
+                        description: Indicates if upstream polling is degraded.
+                        example: false
+                      stale_since:
+                        type: string
+                        format: date-time
+                        nullable: true
+                        description: Timestamp when upstream source degradation began.
+                        example: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/hazards/{id}:
+    get:
+      summary: Get Hazard Event by ID
+      description: Retrieve detailed information for a specific hazard event. Access to raw fields with `fields=all` is prohibited for Media role tokens.
+      operationId: getHazardById
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Unique canonical hazard event ID.
+          schema:
+            type: string
+            example: "haz-bmkg-20260905-001"
+        - name: fields
+          in: query
+          required: false
+          description: Projection mode (summary or all). Requesting all requires `hazards:read:all` scope.
+          schema:
+            type: string
+            enum:
+              - summary
+              - all
+            default: summary
+            example: summary
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          description: Distributed trace correlation ID.
+          schema:
+            type: string
+            example: "trace-91b452e8-f901-447b-a489-32cf4b910123"
+      responses:
+        '200':
+          description: Hazard event details.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/HazardEventSummary'
+                  - $ref: '#/components/schemas/HazardEventFull'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /health:
+    get:
+      summary: Health Check
+      description: Liveness and readiness probe for Client-Facing API gateway.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Client API is healthy and accepting traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example:
+                status: "UP"
+                service: "client-api"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        RS256 JWT issued by the Auth service.
+        Contains client identity and scopes (`hazards:read:summary` for Media; `hazards:read:all` for Emergency/Gov/Admin).
+
+  responses:
+    BadRequest:
+      description: Invalid query parameter or malformed request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "BAD_REQUEST"
+            message: "Invalid fields query value. Allowed: summary, all"
+    Unauthorized:
+      description: Missing, expired, or cryptographically invalid JWT.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Missing or invalid Bearer token"
+    Forbidden:
+      description: Insufficient token scopes (e.g. Media client requesting fields=all or raw fields).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "FORBIDDEN"
+            message: "Scope 'hazards:read:all' required to access raw fields or fields=all"
+    NotFound:
+      description: The requested hazard record was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "NOT_FOUND"
+            message: "Hazard event not found"
+    InternalServerError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "INTERNAL_ERROR"
+            message: "An unexpected error occurred"
+
+  schemas:
+    HazardEventSummary:
+      type: object
+      description: Ringkasan (Summary) projection of a hazard event. Accessible by all authorized consumers including Media.
+      required:
+        - hazard_id
+        - source
+        - hazard_type
+        - severity
+        - area_name
+        - occurred_at
+        - ingested_at
+      properties:
+        hazard_id:
+          type: string
+          description: Globally unique identifier for the hazard event.
+          example: "haz-bmkg-20260905-001"
+        source:
+          type: string
+          enum:
+            - BMKG
+            - PVMBG
+          description: Reporting source agency.
+          example: "BMKG"
+        hazard_type:
+          type: string
+          enum:
+            - SEISMIC
+            - VOLCANIC
+          description: Hazard classification type.
+          example: "SEISMIC"
+        severity:
+          type: string
+          enum:
+            - NORMAL
+            - WASPADA
+            - SIAGA
+            - AWAS
+          description: Standardized national severity level.
+          example: "WASPADA"
+        area_name:
+          type: string
+          description: Human-readable location or volcano name.
+          example: "124 km BaratDaya KAB-BANTUL-DIY"
+        occurred_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of occurrence.
+          example: "2026-09-05T15:30:00Z"
+        ingested_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp when ingested by system.
+          example: "2026-09-05T15:35:00Z"
+
+    HazardEventFull:
+      type: object
+      description: Full hazard event representation including Mentah (Raw) fields. Prohibited for Media tier (triggers 403 Forbidden).
+      required:
+        - hazard_id
+        - source
+        - source_ref_id
+        - hazard_type
+        - severity
+        - area_name
+        - occurred_at
+        - ingested_at
+        - attributes
+      properties:
+        hazard_id:
+          type: string
+          description: Globally unique identifier for the hazard event (Summary Field).
+          example: "haz-bmkg-20260905-001"
+        source:
+          type: string
+          enum:
+            - BMKG
+            - PVMBG
+          description: Reporting source agency (Summary Field).
+          example: "BMKG"
+        source_ref_id:
+          type: string
+          description: Native upstream reference ID (Raw Field).
+          example: "bmkg-seis-20260905-001"
+        hazard_type:
+          type: string
+          enum:
+            - SEISMIC
+            - VOLCANIC
+          description: Hazard classification type (Summary Field).
+          example: "SEISMIC"
+        severity:
+          type: string
+          enum:
+            - NORMAL
+            - WASPADA
+            - SIAGA
+            - AWAS
+          description: Standardized national severity level (Summary Field).
+          example: "WASPADA"
+        area_name:
+          type: string
+          description: Human-readable location or volcano name (Summary Field).
+          example: "124 km BaratDaya KAB-BANTUL-DIY"
+        latitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -90.0
+          maximum: 90.0
+          description: Latitude coordinate in WGS84 decimal degrees (Raw Field).
+          example: -7.5407
+        longitude:
+          type: number
+          format: double
+          nullable: true
+          minimum: -180.0
+          maximum: 180.0
+          description: Longitude coordinate in WGS84 decimal degrees (Raw Field).
+          example: 110.4456
+        attributes:
+          type: object
+          description: Domain-specific telemetry and sensor metrics payload per IF4031 M1 mapping (Raw Field).
+          properties:
+            magnitude:
+              type: number
+              description: Earthquake magnitude on Mw scale (BMKG).
+              example: 5.6
+            depth_km:
+              type: number
+              description: Hypocenter depth in kilometers (BMKG).
+              example: 15.0
+            potential_tsunami:
+              type: boolean
+              description: Tsunami potential indicator (BMKG).
+              example: false
+            tsunami_warning:
+              type: object
+              description: Correlated tsunami advisory details if issued by BMKG.
+              properties:
+                warning_id: { type: string, example: "tsu-bmkg-20260905-01" }
+                threat_level: { type: string, enum: [Waspada, Siaga, Awas], example: "Waspada" }
+                affected_zones: { type: array, items: { type: string }, example: ["Pesisir Kulonprogo"] }
+                estimated_arrival: { type: string, format: date-time, example: "2026-09-05T15:55:00Z" }
+            volcano_id:
+              type: string
+              description: Volcano code (PVMBG).
+              example: "VLC-001"
+            eruption_count_24h:
+              type: integer
+              description: 24-hour eruption count (PVMBG).
+              example: 12
+            ash_column_height_m:
+              type: number
+              description: Ash column height in meters (PVMBG).
+              example: 750.0
+            confidence_level:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: Dynamic confidence score [0.0 - 1.0].
+              example: 0.95
+          additionalProperties: true
+        occurred_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of occurrence (Summary Field).
+          example: "2026-09-05T15:30:00Z"
+        ingested_at:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp of ingestion (Summary Field).
+          example: "2026-09-05T15:35:00Z"
+
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - service
+      properties:
+        status:
+          type: string
+          enum:
+            - "UP"
+            - "DOWN"
+          example: "UP"
+        service:
+          type: string
+          enum:
+            - "client-api"
+          example: "client-api"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+          example: "FORBIDDEN"
+        message:
+          type: string
+          description: Human-readable error message.
+          example: "Scope 'hazards:read:all' required to access raw fields"

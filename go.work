@@ -1,0 +1,9 @@
+go 1.22
+
+use (
+	./services/aggregator
+	./services/auth
+	./services/client-api
+	./services/mock-bmkg
+	./services/mock-pvmbg
+)
