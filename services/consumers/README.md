@@ -47,7 +47,7 @@ The specification mandates at least **2 independent downstream consumer services
 - **Processing Characteristics:** Bulk throughput, resilient to brief rendering delays.
 
 ### 2.2 `bnpb-notifier-group` (Reference: e.g. `notifier/`)
-- **Role:** Real-time alerting engine. Filters incoming hazards for critical criteria (e.g. Earthquakes $M \ge 6.0$, Tsunami Warnings, Volcano Alert Level `AWAS`/`SIAGA`).
+- **Role:** Real-time alerting engine. Filters incoming hazards for critical criteria (e.g. Earthquakes M ≥ 6.0, Tsunami Warnings, Volcano Alert Level `AWAS`/`SIAGA`).
 - **Processing Characteristics:** Low latency, triggers emergency dispatches (SMS gateway, Webhooks, Push notifications) to BNPB field teams.
 
 > [!IMPORTANT]
@@ -160,5 +160,5 @@ docker build -t bnpb/consumer-notifier:latest services/consumers/notifier/
 - [ ] Implement JSON unmarshaling into canonical `HazardEvent` model (matching `contracts/hazard_event.json`).
 - [ ] Implement an in-memory or Redis-backed idempotency cache (keyed by `hazard_id`).
 - [ ] `dashboard`: Implement aggregation logic (e.g. count of active events by type and severity).
-- [ ] `notifier`: Implement alert filter rule engine (thresholds: $M \ge 6.0$, Tsunami SIAGA/AWAS, Volcano AWAS).
+- [ ] `notifier`: Implement alert filter rule engine (thresholds: M ≥ 6.0, Tsunami SIAGA/AWAS, Volcano AWAS).
 - [ ] Ensure offsets are committed only after successful processing (`CommitMessages`).

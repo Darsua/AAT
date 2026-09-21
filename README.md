@@ -92,7 +92,7 @@ flowchart TD
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
-| **`consumers`** | `services/consumers/` | — | *None* | Internal Only (`bnpb-internal`) | Downstream event consumers ($\ge 2$ independent consumer groups). Designed and implemented by Jenka during Phase 2 (see [Consumers Guide](services/consumers/README.md)). |
+| **`consumers`** | `services/consumers/` | — | *None* | Internal Only (`bnpb-internal`) | Downstream event consumers (≥2 independent consumer groups). See [Consumers Guide](services/consumers/README.md). |
 
 ---
 

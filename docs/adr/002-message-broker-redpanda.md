@@ -38,7 +38,7 @@ flowchart LR
         CG3["Consumer: Evaluator 3rd Service\nGroup: group.evaluator\n[New Group: Replays from Offset 0]"]
     end
 
-    OutboxWorker -->|Produce Event\n(segmentio/kafka-go)| Topic
+    OutboxWorker -->|Produce Event via segmentio/kafka-go| Topic
     Topic -->|Pull Stream| CG1
     Topic -->|Pull Stream| CG2
     Topic -.->|Dynamic Subscription\nZero Aggregator Changes| CG3
@@ -60,7 +60,7 @@ Redpanda is a C++ reimplementation of the Apache Kafka wire protocol that requir
 | **Consumer Group Offsets** | Built-in Kafka standard | Built-in Kafka standard | Manual ACK / Dead-Letter | JetStream Consumer State |
 | **CGO-Free Go Driver** | Yes (`segmentio/kafka-go`) | No (`confluent` requires C) | Yes (`amqp091-go`) | Yes (`nats.go`) |
 
-Traditional Apache Kafka routinely consumes $>1.5\text{ GB}$ of RAM due to JVM heap allocations, causing severe memory pressure on developer laptops. Redpanda runs comfortably in under 100 MB of RAM while remaining 100% wire-compatible with standard Kafka tools, libraries, and offsets.
+Traditional Apache Kafka routinely consumes >1.5 GB of RAM due to JVM heap allocations, causing severe memory pressure on developer laptops. Redpanda runs comfortably in under 100 MB of RAM while remaining 100% wire-compatible with standard Kafka tools, libraries, and offsets.
 
 ### 2. Pure Go Client (`segmentio/kafka-go`) Eliminating CGO
 The official Confluent Kafka Go client (`confluent-kafka-go`) is a wrapper around `librdkafka`, a C library. This introduces severe build disadvantages:

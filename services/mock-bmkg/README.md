@@ -105,7 +105,7 @@ Returns active or recent tsunami alerts triggered by major undersea seismic even
 
 ## 4. Seed Data Requirements
 
-Aldoy should define his own initial seed dataset or generator containing $\ge 20$ historical events matching `contracts/bmkg.yaml`.
+Aldoy should define his own initial seed dataset or generator containing ≥20 historical events matching `contracts/bmkg.yaml`.
 Aldoy's implementation tasks:
 1. Define and load seed events on application startup into memory.
 2. Provide dynamic event generation or continuous time advancement so events can appear newly generated when tested by the aggregator.

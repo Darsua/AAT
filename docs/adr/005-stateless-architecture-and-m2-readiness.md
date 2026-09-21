@@ -77,7 +77,7 @@ Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) D
 
 ### 1. Multi-Instance Horizontal Scaling
 * **`client-api` Scaling**:
-  * Because `client-api` is 100% stateless, scaling from 1 to $N$ instances requires only setting `deploy.replicas: N` in Docker Compose or Kubernetes, fronted by an Nginx or Envoy reverse proxy with round-robin routing.
+  * Because `client-api` is 100% stateless, scaling from 1 to N instances requires only setting `deploy.replicas: N` in Docker Compose or Kubernetes, fronted by an Nginx or Envoy reverse proxy with round-robin routing.
 * **Consumer Group Auto-Rebalancing**:
   * In Kafka/Redpanda, scaling downstream consumers is completely native. When multiple container instances share the same `group_id` (`group.dashboard`), Redpanda automatically rebalances topic partitions across all active consumer instances without code modifications.
 

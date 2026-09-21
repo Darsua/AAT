@@ -62,7 +62,7 @@ Using HTTP/REST internally preserves uniform transport semantics across the enti
 ### 2. Seamless Dynamic Attribute Serialization (Problem 1)
 JSON is inherently schemaless and naturally accommodates dynamic additive attributes.
 * In Go, dynamic JSON attributes map directly into `map[string]interface{}` without code generation.
-* As `mock-pvmbg` introduces new fields (e.g., `confidence_level: 0.95`), the JSON payload traverses from `mock-pvmbg` $\to$ `aggregator` $\to$ `canonical-db` $\to$ `aggregator` $\to$ `client-api` $\to$ client without any service dropping unknown fields.
+* As `mock-pvmbg` introduces new fields (e.g., `confidence_level: 0.95`), the JSON payload traverses from `mock-pvmbg` → `aggregator` → `canonical-db` → `aggregator` → `client-api` → client without any service dropping unknown fields.
 
 ### 3. Grading Transparency and Terminal Operability
 Evaluators assess services by executing tests, inspecting containers, and running shell commands. With REST:
@@ -73,7 +73,7 @@ Evaluators assess services by executing tests, inspecting containers, and runnin
 * Every payload is human-readable JSON. There is no need to install specialized binary decoding tools (`grpcurl`), mount `.proto` files, or maintain reflection servers.
 
 ### 4. Low Latency on Docker Bridge Network
-Benchmarking within a Linux Docker bridge network reveals that HTTP/1.1 with persistent keep-alive connections (`MaxIdleConnsPerHost: 100`) achieves sub-millisecond round-trip times ($<0.6\text{ ms}$ for typical payloads). For the Milestone 1 scale (50 sustained concurrent requests), the overhead of HTTP/1.1 compared to gRPC binary framing is negligible (microseconds), while saving substantial architectural complexity.
+Benchmarking within a Linux Docker bridge network reveals that HTTP/1.1 with persistent keep-alive connections (`MaxIdleConnsPerHost: 100`) achieves sub-millisecond round-trip times (<0.6 ms for typical payloads). For the Milestone 1 scale (50 sustained concurrent requests), the overhead of HTTP/1.1 compared to gRPC binary framing is negligible (microseconds), while saving substantial architectural complexity.
 
 ---
 

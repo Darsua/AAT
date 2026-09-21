@@ -77,7 +77,7 @@ flowchart TD
    ```
    To run transactions in Docker Compose, one must configure a multi-node replica set or execute a custom bash sidecar running `rs.initiate()`. This introduces significant operational brittleness during automated grading runs.
 2. **Memory Footprint**: MongoDB's WiredTiger storage engine aggressively pre-allocates memory for internal caches, routinely consuming 400 MB to 1 GB RAM even at complete idle. In a setup running eight concurrent containers, this wastes scarce host resources.
-3. **Volcano Reference Lookups**: Relational joins for volcano coordinates (`VLC-001` $\to$ latitude/longitude) are awkward in document models and require multi-stage `$lookup` aggregation pipelines instead of simple, indexed SQL lookups.
+3. **Volcano Reference Lookups**: Relational joins for volcano coordinates (`VLC-001` → latitude/longitude) are awkward in document models and require multi-stage `$lookup` aggregation pipelines instead of simple, indexed SQL lookups.
 
 ### Why Strict Normalized Relational SQL Was Rejected
 1. **Direct Failure on Problem 1**: Strict relational modeling requires predefined columns for every attribute. When `mock-pvmbg` is toggled via `POST /admin/schema-version` to inject `confidence_level`, an `INSERT` statement without an `ALTER TABLE` migration will fail with `column "confidence_level" does not exist`.
