@@ -146,7 +146,7 @@ cp .env.example .env
 ```
 
 ### 7.2 Boot the Full Platform
-Start all eight services with a single command:
+Start the core platform (7 services; `dashboard-consumer`/`notifier-consumer` are commented out in `docker-compose.yml` until Member C wires them in — see §10) with a single command:
 ```bash
 make up
 # or: docker compose up -d --build
@@ -240,7 +240,7 @@ make load-test
 curl -s -X POST http://localhost:8082/admin/outage \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer pvmbg-bearer-token-2026" \
-  -d '{"is_outage": true, "enabled": true}'
+  -d '{"is_outage": true}'
 
 # 2. Verify mock-pvmbg returns 503 Service Unavailable
 curl -i -H "Authorization: Bearer pvmbg-bearer-token-2026" http://localhost:8082/volcanic-reports
@@ -252,7 +252,7 @@ curl -i -H "X-BMKG-Key: bmkg-secret-key-2026" http://localhost:8081/seismic-even
 curl -s -X POST http://localhost:8082/admin/outage \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer pvmbg-bearer-token-2026" \
-  -d '{"is_outage": false, "enabled": false}'
+  -d '{"is_outage": false}'
 ```
 
 ---
@@ -273,7 +273,7 @@ make demo-p3
 # 1. Acquire Media Token
 MEDIA_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"media-kompas","client_secret":"secret123","role":"media"}' | jq -r .access_token)
+  -d '{"client_id":"media-kompas","client_secret":"secret123","requested_scope":"media"}' | jq -r .access_token)
 
 # 2. Media queries summary fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=summary"
@@ -284,7 +284,7 @@ curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/
 # 4. Acquire Field Token
 FIELD_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"field-basarnas","client_secret":"secret123","role":"field"}' | jq -r .access_token)
+  -d '{"client_id":"field-basarnas","client_secret":"secret123","requested_scope":"field"}' | jq -r .access_token)
 
 # 5. Field queries raw fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=all"
@@ -318,6 +318,9 @@ docker compose logs --tail=20 aggregator
 ---
 
 ### Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
+> [!NOTE]
+> `dashboard-consumer`/`notifier-consumer` below are example names from `services/consumers/README.md`; the actual consumer service names/groups may differ once Member C implements them (see `docker-compose.yml`). Substitute your real names, or use the `CONSUMER_1_SERVICE`/`CONSUMER_2_SERVICE` env vars accepted by `scripts/test_consumer_recovery.sh`.
+
 **Goal**: Demonstrate asynchronous event streaming to downstream consumers:
 1. `dashboard-consumer` and `notifier-consumer` receive events in real time.
 2. Stop `notifier-consumer` for 20 seconds while new events are published; upon restart, verify it recovers and consumes all missed messages from its committed offset.

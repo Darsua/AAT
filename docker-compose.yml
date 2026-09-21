@@ -69,9 +69,10 @@ services:
   aggregator:
     build: ./services/aggregator
     environment:
-      PORT: 8083
+      PORT: ${AGGREGATOR_PORT:-8083}
       DATABASE_URL: ${DATABASE_URL:-postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable}
       REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
+      TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
       BMKG_URL: ${BMKG_URL:-http://mock-bmkg:8081}
       BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
       PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
@@ -146,8 +147,8 @@ services:
   #   build: ./services/consumers/<your-consumer-1-dir> # e.g. dashboard
   #   environment:
   #     REDPANDA_BROKERS: redpanda:9092
-  #     CONSUMER_GROUP: <your-consumer-group-1> # e.g. bnpb-dashboard-group
-  #     TOPIC: bnpb.hazard-events
+  #     CONSUMER_GROUP: ${CONSUMER_GROUP_DASHBOARD:-bnpb-dashboard-group} # rename the env var too if you don't keep this role name
+  #     TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
   #   depends_on:
   #     redpanda:
   #       condition: service_healthy
@@ -158,8 +159,8 @@ services:
   #   build: ./services/consumers/<your-consumer-2-dir> # e.g. notifier
   #   environment:
   #     REDPANDA_BROKERS: redpanda:9092
-  #     CONSUMER_GROUP: <your-consumer-group-2> # e.g. bnpb-notifier-group
-  #     TOPIC: bnpb.hazard-events
+  #     CONSUMER_GROUP: ${CONSUMER_GROUP_NOTIFIER:-bnpb-notifier-group} # rename the env var too if you don't keep this role name
+  #     TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
   #   depends_on:
   #     redpanda:
   #       condition: service_healthy

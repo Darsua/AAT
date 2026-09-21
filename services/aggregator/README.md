@@ -184,6 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 | `PORT` | `8083` | Internal HTTP listening port |
 | `DATABASE_URL` | `postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable` | PostgreSQL connection string |
 | `REDPANDA_BROKERS` | `redpanda:9092` | Redpanda / Kafka broker addresses |
+| `TOPIC` | `bnpb.hazard-events` | Outbox publish target topic (set via `KAFKA_TOPIC_HAZARDS` in `.env`; see §3 for the message envelope) |
 | `BMKG_URL` | `http://mock-bmkg:8081` | Upstream BMKG service base URL |
 | `BMKG_KEY` | `bmkg-secret-key-2026` | API Key for BMKG feed (`X-BMKG-Key`) |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` | Upstream PVMBG service base URL |
