@@ -21,6 +21,7 @@ We select **Redpanda** (single-node development mode) as our message broker, int
 * **Topic**: `bnpb.hazard-events` (partitioned topic with durable commit log).
 * **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`.
 * **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (e.g., `group.dashboard`, `group.notifier`, `group.third-party`).
+* **Message Envelope** (frozen contract between producer and consumers, detailed in `services/aggregator/README.md` §3): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
 
 ```mermaid
 flowchart LR

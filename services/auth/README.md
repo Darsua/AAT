@@ -42,26 +42,27 @@ The `auth` service is the central security authority for the BNPB platform. It i
 - Short TTL minimizes the blast radius of compromised tokens and ensures near real-time revocation enforcement when permissions change.
 
 ### 2.4 Token Claims Structure
-Tokens must include the following custom claims:
+Tokens must include the following custom claims. **`scope` is the field `client-api` actually checks** (per `contracts/client_api.yaml`) — it must be one of the two literal OAuth-style scope strings below, never the bare role name. `role` is carried separately for audit/logging purposes only.
 ```json
 {
   "iss": "bnpb-auth-service",
   "sub": "user_id_or_client_id",
   "iat": 1758500000,
   "exp": 1758500060,
-  "role": "field_responder",
-  "scopes": [
-    "field"
-  ]
+  "role": "field",
+  "scope": "hazards:read:all"
 }
 ```
 
 ### 2.5 Scopes Definition
-| Scope | Intended Audience | Access Level |
-|---|---|---|
-| `media` | Public press & news organizations | Summarized alerts only; forbidden (`403`) from accessing raw telemetry or internal notes |
-| `field` | First responders (TNI, POLRI, Basarnas, PMI) | Operational dispatches, rescue coordinates, responder telemetry |
-| `internal`| BNPB Operations Center (Pusdalops) | Unrestricted read/write access to all hazard event fields |
+| Role (`role` claim / `requested_scope` input) | JWT `scope` claim value (checked by `client-api`) | Intended Audience | Access Level |
+|---|---|---|---|
+| `media` | `hazards:read:summary` | Public press & news organizations | Summarized alerts only; forbidden (`403`) from accessing raw telemetry or internal notes |
+| `field` | `hazards:read:all` | First responders (TNI, POLRI, Basarnas, PMI) | Operational dispatches, rescue coordinates, responder telemetry |
+| `internal` | `hazards:read:all` | BNPB Operations Center (Pusdalops) | Unrestricted read access to all hazard event fields |
+
+> [!IMPORTANT]
+> `auth` is responsible for mapping the requested role (`media`/`field`/`internal`) to the correct `scope` claim value above when issuing a token. `client-api` only ever checks for the literal strings `hazards:read:summary` and `hazards:read:all` — it has no knowledge of `media`/`field`/`internal` as concepts.
 
 ---
 
@@ -93,7 +94,7 @@ Liveness check.
   ```
 
 ### 4.2 `POST /auth/token`
-Authenticate client credentials (e.g. `client_id` + `client_secret` or `username` + `password`).
+Authenticate client credentials (e.g. `client_id` + `client_secret` or `username` + `password`). `requested_scope` accepts the role name (`media`/`field`/`internal`); the server maps it to the actual `hazards:read:*` scope string per the table in §2.5 and embeds that in both the JWT `scope` claim and the response body below.
 - **Request Body:**
   ```json
   {
@@ -109,7 +110,7 @@ Authenticate client credentials (e.g. `client_id` + `client_secret` or `username
     "access_token": "eyJhbGciOiJIUzI1Ni...",
     "expires_in": 60,
     "refresh_token": "rt_8fbc2e7a...",
-    "scope": "field"
+    "scope": "hazards:read:all"
   }
   ```
 
@@ -178,6 +179,7 @@ curl -i -X POST http://localhost:8084/auth/refresh \
 
 - [ ] Configure `jwt.SigningMethodHS256` using `JWT_SECRET`.
 - [ ] Implement user/client credential validation table or in-memory store for `media`, `field`, and `internal` identities.
-- [ ] Implement JWT token generation with standard and custom claims (`scopes`, `role`), ensuring `exp` is 60 seconds.
+- [ ] Implement role → scope mapping (`media`→`hazards:read:summary`, `field`/`internal`→`hazards:read:all`) per §2.5, and embed the resulting string in the JWT `scope` claim — **not** the bare role name. This is what `client-api` actually validates.
+- [ ] Implement JWT token generation with standard and custom claims (`scope`, `role`), ensuring `exp` is 60 seconds.
 - [ ] Implement in-memory or Redis-backed store for active refresh tokens.
 - [ ] Implement refresh token rotation logic in `POST /auth/refresh` with reuse detection.

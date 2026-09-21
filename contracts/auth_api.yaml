@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: BNPB Auth / Token Authority API
+  version: 1.0.0
+  description: >
+    Central security authority for the BNPB platform (Port 8084).
+    Issues short-lived JSON Web Tokens (JWT, HS256) and manages refresh-token
+    rotation for three independent downstream client identities: Media,
+    Field, and Internal. See services/auth/README.md for full implementation
+    guidance.
+servers:
+  - url: http://localhost:8084
+    description: Local Auth Service
+
+paths:
+  /auth/token:
+    post:
+      summary: Authenticate and Issue Access + Refresh Tokens
+      description: >
+        Authenticates a client identity and issues a short-lived access token
+        (60s default TTL, configurable via `JWT_TTL_SECONDS`) plus a
+        long-lived refresh token. `requested_scope` accepts the role name
+        (`media`, `field`, or `internal`); the server maps it to the actual
+        `hazards:read:*` scope string embedded in the JWT `scope` claim.
+      operationId: issueToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - client_id
+                - client_secret
+                - requested_scope
+              properties:
+                client_id:
+                  type: string
+                  description: Unique client identity. Must belong to exactly one of the three independent identity domains (media/field/internal) -- not a shared account with a role flag.
+                  example: "field-unit-jakarta-01"
+                client_secret:
+                  type: string
+                  description: Shared secret credential for the client identity.
+                  example: "secret123"
+                requested_scope:
+                  type: string
+                  enum:
+                    - media
+                    - field
+                    - internal
+                  description: Role name requested. Mapped server-side to the JWT `scope` claim (media -> hazards:read:summary; field/internal -> hazards:read:all).
+                  example: "field"
+      responses:
+        '200':
+          description: Token issued successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/refresh:
+    post:
+      summary: Rotate Refresh Token and Issue New Access Token
+      description: >
+        Exchanges a valid, unused refresh token for a new access token and a
+        newly-rotated refresh token. The presented refresh token is burned
+        immediately upon use; resubmitting an already-burned refresh token
+        must be rejected and MAY trigger revocation of the entire session's
+        refresh-token chain (replay/reuse detection).
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: "rt_8fbc2e7a..."
+      responses:
+        '200':
+          description: New access + refresh token pair issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Refresh token is expired, invalid, or has already been rotated/burned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "invalid_grant"
+                message: "Refresh token expired, invalid, or already rotated"
+
+  /health:
+    get:
+      summary: Health Check
+      description: Liveness probe for the Auth service.
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Auth service is healthy and operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "UP"
+                service: "auth"
+
+components:
+  responses:
+    Unauthorized:
+      description: Invalid client_id or client_secret.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Invalid client_id or client_secret"
+    Forbidden:
+      description: Client identity is not permitted to request the given scope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "FORBIDDEN"
+            message: "Client is not authorized to request this scope"
+
+  schemas:
+    TokenResponse:
+      type: object
+      required:
+        - token_type
+        - access_token
+        - expires_in
+        - refresh_token
+        - scope
+      properties:
+        token_type:
+          type: string
+          enum:
+            - Bearer
+          example: "Bearer"
+        access_token:
+          type: string
+          description: HS256-signed JWT, shared-secret verified by client-api via JWT_SECRET.
+          example: "eyJhbGciOiJIUzI1Ni..."
+        expires_in:
+          type: integer
+          description: Access token TTL in seconds. Default 60, configurable via JWT_TTL_SECONDS.
+          example: 60
+        refresh_token:
+          type: string
+          description: Opaque, single-use refresh token (rotated on every use).
+          example: "rt_8fbc2e7a..."
+        scope:
+          type: string
+          enum:
+            - "hazards:read:summary"
+            - "hazards:read:all"
+          description: >
+            The literal scope string embedded in the JWT `scope` claim and
+            checked by client-api. media -> hazards:read:summary;
+            field/internal -> hazards:read:all.
+          example: "hazards:read:all"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+      properties:
+        status:
+          type: string
+          enum:
+            - "UP"
+            - "DOWN"
+          example: "UP"
+        service:
+          type: string
+          enum:
+            - "auth"
+          example: "auth"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          example: "Invalid client_id or client_secret"

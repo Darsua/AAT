@@ -67,6 +67,11 @@ The `aggregator` service is the central ingestion and event-sourcing engine in t
      - Insert message into `outbox_events` with status `published = FALSE`.
    - Outbox publisher loop asynchronously drains unpublished records, publishes them to Redpanda topic `bnpb.hazard-events` using `segmentio/kafka-go`, and marks them `published = TRUE`.
    - Guarantees **at-least-once delivery** to downstream consumers without dual-write inconsistency.
+   - **Message envelope (frozen — required by both producer and consumers):**
+     - **Key:** `hazard_id` (UTF-8 string). Ensures all updates to the same hazard land on the same partition and preserve order.
+     - **Value:** The canonical `HazardEvent` JSON object, exactly as defined in `contracts/hazard_event.json` — no additional wrapper, envelope object, or metadata fields. Consumers unmarshal the message value directly into `HazardEvent`.
+     - **Headers:** `X-Correlation-ID` (string, optional) carrying the correlation ID from the ingestion request that produced this event, for end-to-end tracing.
+     - No `event_type` discriminator is needed on the wire since the topic carries only one message shape (`HazardEvent`); `outbox_events.event_type` is an internal-only bookkeeping column and is never published.
 
 4. **Internal Serving Interface:**
    - Expose `GET /internal/hazards` on port `8083` for `client-api` facade consumption.
@@ -74,7 +79,56 @@ The `aggregator` service is the central ingestion and event-sourcing engine in t
 
 ---
 
-## 3. Database Schema Design (PostgreSQL)
+## 3. Canonical Mapping Rules (Frozen)
+
+These are the exact, graded mapping rules from the official M1 spec. They are frozen — do not deviate without updating this document and the report.
+
+### 3.1 `SeismicEvent` -> `HazardEvent`
+
+| Canonical field | Derived from |
+|---|---|
+| `source_ref_id` | `event_id` |
+| `hazard_type` | Always `SEISMIC` |
+| `area_name` | `region_name` |
+| `latitude`, `longitude` | `epicenter_lat`, `epicenter_lon` |
+| `occurred_at` | `occurred_at` |
+| `severity` | See §3.3 below |
+| `attributes` | `magnitude`, `depth_km`, `potential_tsunami`, plus the correlated `TsunamiWarning` fields (as `tsunami_warning`) if one exists for this event |
+
+### 3.2 `VolcanicReport` -> `HazardEvent`
+
+| Canonical field | Derived from |
+|---|---|
+| `source_ref_id` | `report_id` |
+| `hazard_type` | Always `VOLCANIC` |
+| `area_name` | Volcano name, looked up from `volcano_id` via the static `volcano_references` table |
+| `latitude`, `longitude` | Static coordinates from `volcano_references`, looked up by `volcano_id` (NOT from the upstream payload — PVMBG does not provide coordinates) |
+| `occurred_at` | `reported_at` |
+| `severity` | `alert_level` mapped 1:1 to the canonical enum (`Normal`→`NORMAL`, `Waspada`→`WASPADA`, `Siaga`→`SIAGA`, `Awas`→`AWAS`) |
+| `attributes` | `eruption_count_24h`, `ash_column_height_m`, plus `confidence_level` if present in the upstream payload |
+
+### 3.3 Severity Derivation for Seismic Events
+
+Applied in this exact priority order:
+1. If a correlated `TsunamiWarning` exists with `threat_level == Awas` -> severity is `AWAS`.
+2. Else if a correlated `TsunamiWarning` exists -> severity follows that warning's `threat_level` directly (`Waspada`→`WASPADA`, `Siaga`→`SIAGA`).
+3. Else (no tsunami warning at all) -> derive from `magnitude` alone:
+   - `magnitude < 5.0` -> `NORMAL`
+   - `5.0 <= magnitude < 6.5` -> `WASPADA`
+   - `magnitude >= 6.5` -> `SIAGA`
+   - (Note: `AWAS` for a seismic event is only ever reached via an `Awas`-level tsunami warning, never from magnitude alone.)
+
+Correlation between a `SeismicEvent` and its `TsunamiWarning` is done via `TsunamiWarning.related_event_id == SeismicEvent.event_id`.
+
+### 3.4 Unknown / Unmapped Field Policy (Declared per P1 Criterion 4)
+
+> **Policy: additive-forward.** Any upstream field that has no canonical counterpart above — including fields that do not exist yet at ingestion-start time, such as PVMBG's `confidence_level` introduced later via `POST /admin/schema-version` — is forwarded verbatim into `attributes` (JSONB). No unknown field is ever dropped, and no unknown field ever causes ingestion to fail. Fields that DO have a canonical counterpart (e.g. `magnitude`, `depth_km`) are placed into `attributes` explicitly as documented in §3.1/§3.2 above, not duplicated arbitrarily.
+>
+> Explicitly **not** supported: removal of a previously-required field, or a type change to an existing field (e.g. `alert_level` changing from string enum to integer). Both are considered breaking, non-additive changes outside this policy's scope, consistent with the additive-only JSON schema evolution declared in ADR 004.
+
+---
+
+## 4. Database Schema Design (PostgreSQL)
 
 Mounted automatically from [`migrations/001_init.sql`](file:///home/darrel/Projects/AAT/services/aggregator/migrations/001_init.sql):
 
@@ -123,7 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 
 ---
 
-## 4. Configuration & Environment Variables
+## 5. Configuration & Environment Variables
 
 | Variable | Default Value | Description |
 |---|---|---|
@@ -138,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 
 ---
 
-## 5. Domain Models Reference
+## 6. Domain Models Reference
 
 Defined in [`internal/domain/models.go`](file:///home/darrel/Projects/AAT/services/aggregator/internal/domain/models.go) (matching [`contracts/hazard_event.json`](file:///home/darrel/Projects/AAT/contracts/hazard_event.json)):
 - `Source`: `BMKG`, `PVMBG`.
@@ -150,7 +204,7 @@ Defined in [`internal/domain/models.go`](file:///home/darrel/Projects/AAT/servic
 
 ---
 
-## 6. Development & Runbook
+## 7. Development & Runbook
 
 ### Local Execution (Prerequisites: PostgreSQL and Redpanda running)
 ```bash
@@ -183,7 +237,7 @@ curl -i http://localhost:8083/internal/hazards
 
 ---
 
-## 7. Implementation Plan for Darrel
+## 8. Implementation Plan for Darrel
 
 - [ ] Wire `pgxpool.New(ctx, databaseURL)` with connection pooling configurations (MaxConns: 25, MinConns: 5).
 - [ ] Implement database migrations (auto-migrate or migrate tool).

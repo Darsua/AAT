@@ -227,8 +227,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >
-        RS256 JWT issued by the Auth service.
-        Contains client identity and scopes (`hazards:read:summary` for Media; `hazards:read:all` for Emergency/Gov/Admin).
+        HS256 JWT issued by the Auth service, signed with a shared secret (`JWT_SECRET`,
+        identical between `auth` and `client-api`; see contracts/auth_api.yaml).
+        Contains client identity and a `scope` claim (`hazards:read:summary` for Media;
+        `hazards:read:all` for Field/Internal).
 
   responses:
     BadRequest:
