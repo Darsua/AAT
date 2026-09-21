@@ -3,7 +3,8 @@
 **Assigned Owner:** Member C (Jenka)  
 **Module Name:** `bnpb/client-api`  
 **Default Port:** `8080`  
-**Dependencies:** `github.com/golang-jwt/jwt/v5`
+**Dependencies:** `github.com/golang-jwt/jwt/v5`  
+**Contract:** [`contracts/client_api.yaml`](../../contracts/client_api.yaml)
 
 ---
 

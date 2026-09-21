@@ -3,7 +3,8 @@
 **Assigned Owner:** Member C (Jenka)  
 **Module Name:** `bnpb/auth`  
 **Default Port:** `8084`  
-**Dependencies:** `github.com/golang-jwt/jwt/v5`
+**Dependencies:** `github.com/golang-jwt/jwt/v5`  
+**Contract:** [`contracts/auth_api.yaml`](../../contracts/auth_api.yaml)
 
 ---
 

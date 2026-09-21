@@ -36,7 +36,7 @@ func main() {
 
 	// NOTE (Jenka / Member C):
 	// Implement JWT issuance and refresh endpoints here (POST /auth/token, POST /auth/refresh).
-	// Refer to services/auth/README.md for specifications.
+	// Refer to services/auth/README.md and contracts/auth_api.yaml for specifications.
 
 	server := &http.Server{
 		Addr:         ":" + port,

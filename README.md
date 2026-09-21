@@ -120,6 +120,7 @@ All service boundaries are governed by formal contracts located in [`contracts/`
 * **[`contracts/bmkg.yaml`](file:///home/darrel/Projects/AAT/contracts/bmkg.yaml)**: OpenAPI 3.0 specification for `mock-bmkg` (`:8081`).
 * **[`contracts/pvmbg.yaml`](file:///home/darrel/Projects/AAT/contracts/pvmbg.yaml)**: OpenAPI 3.0 specification for `mock-pvmbg` (`:8082`).
 * **[`contracts/aggregator_internal.yaml`](file:///home/darrel/Projects/AAT/contracts/aggregator_internal.yaml)**: OpenAPI 3.0 specification for `aggregator` internal endpoints (`:8083`).
+* **[`contracts/auth_api.yaml`](file:///home/darrel/Projects/AAT/contracts/auth_api.yaml)**: OpenAPI 3.0 specification for `auth` token authority (`:8084`).
 * **[`contracts/client_api.yaml`](file:///home/darrel/Projects/AAT/contracts/client_api.yaml)**: OpenAPI 3.0 specification for public `client-api` (`:8080`).
 
 ---
@@ -265,7 +266,7 @@ curl -s -X POST http://localhost:8082/admin/outage \
 
 ```bash
 make demo-p3
-# or: ./scripts/test_auth_scopes.sh
+# or: ./scripts/test_cross_credential.sh && ./scripts/test_auth_scopes.sh
 ```
 
 **Manual Verification Flow**:

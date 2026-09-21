@@ -13,7 +13,7 @@
 The BNPB platform uses an asynchronous Publish-Subscribe model backed by Redpanda (Kafka-compatible event store) to decouple real-time disaster alerts from downstream processing systems.
 
 > [!IMPORTANT]
-> **Message envelope (frozen, see `services/aggregator/README.md` §3):** the Kafka message **key** is the `hazard_id` string, and the message **value** is the canonical `HazardEvent` JSON object exactly as defined in `contracts/hazard_event.json` — no wrapper or envelope object around it. Unmarshal the raw message value directly into your `HazardEvent` struct. An optional `X-Correlation-ID` header may be present for tracing.
+> **Message envelope (frozen, see `services/aggregator/README.md` §3.5):** the Kafka message **key** is the `hazard_id` string, and the message **value** is the canonical `HazardEvent` JSON object exactly as defined in `contracts/hazard_event.json` — no wrapper or envelope object around it. Unmarshal the raw message value directly into your `HazardEvent` struct. An optional `X-Correlation-ID` header may be present for tracing.
 
 ```
        +------------------------------------+

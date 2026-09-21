@@ -3,7 +3,8 @@
 **Assigned Owner:** Member B (Darrel)  
 **Module Name:** `bnpb/aggregator`  
 **Internal Port:** `8083`  
-**Dependencies:** `github.com/jackc/pgx/v5`, `github.com/segmentio/kafka-go`
+**Dependencies:** `github.com/jackc/pgx/v5`, `github.com/segmentio/kafka-go`  
+**Contracts:** [`contracts/aggregator_internal.yaml`](../../contracts/aggregator_internal.yaml), [`contracts/hazard_event.json`](../../contracts/hazard_event.json)
 
 ---
 
@@ -79,7 +80,7 @@ The `aggregator` service is the central ingestion and event-sourcing engine in t
 
 ---
 
-## 3. Canonical Mapping Rules (Frozen)
+## 3. Canonical Mapping Rules & Event Envelope (Frozen)
 
 These are the exact, graded mapping rules from the official M1 spec. They are frozen — do not deviate without updating this document and the report.
 
@@ -125,6 +126,14 @@ Correlation between a `SeismicEvent` and its `TsunamiWarning` is done via `Tsuna
 > **Policy: additive-forward.** Any upstream field that has no canonical counterpart above — including fields that do not exist yet at ingestion-start time, such as PVMBG's `confidence_level` introduced later via `POST /admin/schema-version` — is forwarded verbatim into `attributes` (JSONB). No unknown field is ever dropped, and no unknown field ever causes ingestion to fail. Fields that DO have a canonical counterpart (e.g. `magnitude`, `depth_km`) are placed into `attributes` explicitly as documented in §3.1/§3.2 above, not duplicated arbitrarily.
 >
 > Explicitly **not** supported: removal of a previously-required field, or a type change to an existing field (e.g. `alert_level` changing from string enum to integer). Both are considered breaking, non-additive changes outside this policy's scope, consistent with the additive-only JSON schema evolution declared in ADR 004.
+
+### 3.5 Kafka Message Envelope (Frozen)
+
+Shared contract between the Aggregator publisher and all downstream consumers:
+- **Key:** `hazard_id` (UTF-8 string). Ensures all updates to the same hazard land on the same Kafka partition to preserve ordering.
+- **Value:** The canonical `HazardEvent` JSON object, exactly as defined in `contracts/hazard_event.json` — no additional wrapper object, envelope object, or envelope metadata. Consumers unmarshal the message payload directly into `HazardEvent`.
+- **Headers:** `X-Correlation-ID` (string, optional) carrying the correlation ID from the ingestion request that produced this event, for end-to-end tracing.
+- No `event_type` discriminator is needed on the wire since the topic carries only one message shape (`HazardEvent`); `outbox_events.event_type` is an internal-only bookkeeping column and is never published.
 
 ---
 
@@ -184,7 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 | `PORT` | `8083` | Internal HTTP listening port |
 | `DATABASE_URL` | `postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable` | PostgreSQL connection string |
 | `REDPANDA_BROKERS` | `redpanda:9092` | Redpanda / Kafka broker addresses |
-| `TOPIC` | `bnpb.hazard-events` | Outbox publish target topic (set via `KAFKA_TOPIC_HAZARDS` in `.env`; see §3 for the message envelope) |
+| `TOPIC` | `bnpb.hazard-events` | Outbox publish target topic (set via `KAFKA_TOPIC_HAZARDS` in `.env`; see §3.5 for the message envelope) |
 | `BMKG_URL` | `http://mock-bmkg:8081` | Upstream BMKG service base URL |
 | `BMKG_KEY` | `bmkg-secret-key-2026` | API Key for BMKG feed (`X-BMKG-Key`) |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` | Upstream PVMBG service base URL |

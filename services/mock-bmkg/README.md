@@ -3,6 +3,7 @@
 **Assigned Owner:** Member A (Aldoy)  
 **Module Name:** `bnpb/mock-bmkg`  
 **Default Port:** `8081`  
+**Contract:** [`contracts/bmkg.yaml`](../../contracts/bmkg.yaml)  
 
 ---
 

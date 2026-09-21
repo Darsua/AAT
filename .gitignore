@@ -40,3 +40,6 @@ coverage.out
 .vscode/
 *.swp
 *~
+
+# Local spreadsheets & tracking documents
+*.xlsx

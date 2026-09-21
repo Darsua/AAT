@@ -3,6 +3,7 @@
 **Assigned Owner:** Member A (Aldoy)  
 **Module Name:** `bnpb/mock-pvmbg`  
 **Default Port:** `8082`  
+**Contract:** [`contracts/pvmbg.yaml`](../../contracts/pvmbg.yaml)  
 
 ---
 
