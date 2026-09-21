@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+          cache: false
 
       - name: Go Work Sync
         run: go work sync
@@ -98,7 +98,8 @@ jobs:
 
       - name: Verify No Committed Secrets or .env Files
         run: |
-          if git ls-files | grep -E "(^|/)\.env($|\..*)"; then
+          # Allow .env.example, but reject actual .env secrets (.env, .env.local, .env.prod, etc.)
+          if git ls-files | grep -E "(^|/)\.env" | grep -v "\.env\.example$"; then
             echo "::error::Found committed .env file! Secrets must only exist in environment variables."
             exit 1
           fi
