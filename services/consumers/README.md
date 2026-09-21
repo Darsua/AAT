@@ -133,7 +133,7 @@ rpk group describe <your-consumer-group-1> --brokers localhost:19092
 | Variable | Suggested Default | Description |
 |---|---|---|
 | `REDPANDA_BROKERS` | `localhost:19092` (host) or `redpanda:9092` (Docker) | Comma-separated broker endpoints |
-| `TOPIC` | `bnpb.hazard-events` | Target topic (fixed — shared with the aggregator's outbox publisher) |
+| `TOPIC` | `bnpb.hazard-events` | Target topic — must match whatever `KAFKA_TOPIC_HAZARDS` resolves to for the aggregator (see root `.env.example`); not independently configurable per-consumer |
 | `CONSUMER_GROUP` | e.g. `bnpb-dashboard-group` / `bnpb-notifier-group` | Unique consumer group identifier — pick any distinct IDs per consumer |
 
 > [!NOTE]

@@ -68,20 +68,20 @@ Problem 2 and Problem 4 evaluate system resilience under concurrent load (includ
 ### 3. Unified Developer Tooling and Zero Multi-Runtime Friction
 * **Single Toolchain**: Every team member needs only Go 1.22 installed locally. There are no competing virtual environment tools (`uv`, `venv`, `poetry`), no Python version mismatches, and no C compiler toolchains needed.
 * **Go Workspace (`go.work`)**: Allows developers to open the entire repository in their editor (Zed, VS Code, GoLand) with cross-service symbol navigation and shared linting, while preserving strict dependency isolation across individual `go.mod` files.
-* **Identical Multi-Stage Dockerfile Pattern**: All services share the same deterministic multi-stage build structure:
+* **Identical Multi-Stage Dockerfile Pattern**: All services share the same deterministic multi-stage build structure (see each service's actual `Dockerfile`; `aggregator` builds from `./cmd/server/main.go`, the other four build from a flat `main.go` in the service root):
   ```dockerfile
   FROM golang:1.22-alpine AS builder
-  WORKDIR /build
-  COPY go.mod go.sum ./
-  RUN go mod download
+  WORKDIR /app
+  COPY go.mod go.sum* ./
+  RUN go mod download || true
   COPY . .
-  RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/server cmd/server/main.go
+  RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/<service> <entrypoint>
 
   FROM alpine:3.20
-  RUN apk --no-cache add ca-certificates tzdata
-  COPY --from=builder /app/server /usr/local/bin/server
-  USER 10001:10001
-  ENTRYPOINT ["/usr/local/bin/server"]
+  RUN apk add --no-cache ca-certificates tzdata
+  COPY --from=builder /bin/<service> /app/<service>
+  USER nobody:nobody
+  ENTRYPOINT ["/app/<service>"]
   ```
 
 ---
