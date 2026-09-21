@@ -24,6 +24,13 @@ TOPIC="${TOPIC:-bnpb.hazard-events}"
 REDPANDA_HOST_PORT="${REDPANDA_HOST_PORT:-localhost:19092}"
 DOCKER_COMPOSE="${DOCKER_COMPOSE:-}"
 
+# Consumer service/group names are examples only (see services/consumers/README.md).
+# Override these if your actual consumer services/groups are named differently.
+CONSUMER_1_SERVICE="${CONSUMER_1_SERVICE:-dashboard-consumer}"
+CONSUMER_1_GROUP="${CONSUMER_1_GROUP:-bnpb-dashboard-group}"
+CONSUMER_2_SERVICE="${CONSUMER_2_SERVICE:-notifier-consumer}"
+CONSUMER_2_GROUP="${CONSUMER_2_GROUP:-bnpb-notifier-group}"
+
 if [ -z "${DOCKER_COMPOSE}" ]; then
     if docker info >/dev/null 2>&1; then
         DOCKER_COMPOSE="docker compose"
@@ -60,12 +67,13 @@ fi
 
 # Step 2: Check Consumer Services
 echo -e "\n${BLUE}[Step 2] Inspecting downstream consumers in Docker Compose...${NC}"
-DASHBOARD_STATUS=$(${DOCKER_COMPOSE} ps -a dashboard-consumer 2>/dev/null | grep -v NAME || true)
-NOTIFIER_STATUS=$(${DOCKER_COMPOSE} ps -a notifier-consumer 2>/dev/null | grep -v NAME || true)
+DASHBOARD_STATUS=$(${DOCKER_COMPOSE} ps -a "${CONSUMER_1_SERVICE}" 2>/dev/null | grep -v NAME || true)
+NOTIFIER_STATUS=$(${DOCKER_COMPOSE} ps -a "${CONSUMER_2_SERVICE}" 2>/dev/null | grep -v NAME || true)
 
 if [ -z "${DASHBOARD_STATUS}" ] && [ -z "${NOTIFIER_STATUS}" ]; then
-    echo -e "${YELLOW}[NOTE] Downstream consumer containers (dashboard-consumer, notifier-consumer)${NC}"
-    echo -e "${YELLOW}       are reserved for Member C (Jenka) and currently commented out in docker-compose.yml.${NC}"
+    echo -e "${YELLOW}[NOTE] Downstream consumer containers (${CONSUMER_1_SERVICE}, ${CONSUMER_2_SERVICE})${NC}"
+    echo -e "${YELLOW}       are reserved for Member C (Jenka); names shown are examples — set CONSUMER_1_SERVICE/${NC}"
+    echo -e "${YELLOW}       CONSUMER_2_SERVICE env vars if renamed, or uncomment/rename them in docker-compose.yml.${NC}"
     echo -e "${CYAN}[INFO] Demonstrating consumer group protocol & broker offset retention capabilities...${NC}"
     
     echo -e "\n${BLUE}Listing active consumer groups on broker:${NC}"
@@ -88,18 +96,18 @@ else
     echo "${NOTIFIER_STATUS}"
 
     echo -e "\n${BLUE}[Step 3] Querying active consumer group lag...${NC}"
-    ${DOCKER_COMPOSE} exec -T redpanda rpk group describe bnpb-dashboard-group 2>/dev/null || echo "Group bnpb-dashboard-group initializing..."
-    ${DOCKER_COMPOSE} exec -T redpanda rpk group describe bnpb-notifier-group 2>/dev/null || echo "Group bnpb-notifier-group initializing..."
+    ${DOCKER_COMPOSE} exec -T redpanda rpk group describe "${CONSUMER_1_GROUP}" 2>/dev/null || echo "Group ${CONSUMER_1_GROUP} initializing..."
+    ${DOCKER_COMPOSE} exec -T redpanda rpk group describe "${CONSUMER_2_GROUP}" 2>/dev/null || echo "Group ${CONSUMER_2_GROUP} initializing..."
 
-    echo -e "\n${BLUE}[Step 4] Simulating consumer downtime: stopping dashboard-consumer...${NC}"
-    ${DOCKER_COMPOSE} stop dashboard-consumer
-    echo -e "${YELLOW}dashboard-consumer stopped. Waiting 5 seconds...${NC}"
+    echo -e "\n${BLUE}[Step 4] Simulating consumer downtime: stopping ${CONSUMER_1_SERVICE}...${NC}"
+    ${DOCKER_COMPOSE} stop "${CONSUMER_1_SERVICE}"
+    echo -e "${YELLOW}${CONSUMER_1_SERVICE} stopped. Waiting 5 seconds...${NC}"
     sleep 5
 
-    echo -e "\n${BLUE}[Step 5] Restarting dashboard-consumer (verifying recovery from committed offset)...${NC}"
-    ${DOCKER_COMPOSE} start dashboard-consumer
-    echo -e "${GREEN}[OK] dashboard-consumer restarted cleanly.${NC}"
-    ${DOCKER_COMPOSE} logs --tail=20 dashboard-consumer
+    echo -e "\n${BLUE}[Step 5] Restarting ${CONSUMER_1_SERVICE} (verifying recovery from committed offset)...${NC}"
+    ${DOCKER_COMPOSE} start "${CONSUMER_1_SERVICE}"
+    echo -e "${GREEN}[OK] ${CONSUMER_1_SERVICE} restarted cleanly.${NC}"
+    ${DOCKER_COMPOSE} logs --tail=20 "${CONSUMER_1_SERVICE}"
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"

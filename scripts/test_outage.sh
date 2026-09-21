@@ -40,7 +40,7 @@ echo -e "\n${BLUE}[Step 1] Ensuring PVMBG is operational (is_outage = false)...$
 RESET_RESP=$(curl -s -X POST "${PVMBG_URL}/admin/outage" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${PVMBG_TOKEN}" \
-    -d '{"is_outage": false, "enabled": false}')
+    -d '{"is_outage": false}')
 echo -e "Response: ${RESET_RESP}"
 
 # Verify baseline report fetch
@@ -56,7 +56,7 @@ echo -e "\n${BLUE}[Step 2] Simulating PVMBG outage (is_outage = true)...${NC}"
 OUTAGE_RESP=$(curl -s -X POST "${PVMBG_URL}/admin/outage" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${PVMBG_TOKEN}" \
-    -d '{"is_outage": true, "enabled": true}')
+    -d '{"is_outage": true}')
 echo -e "Outage toggle response: ${OUTAGE_RESP}"
 
 # 3. Verify PVMBG is now reporting failure / unavailable
@@ -106,7 +106,7 @@ echo -e "\n${BLUE}[Step 6] Restoring PVMBG service (is_outage = false)...${NC}"
 RESTORE_RESP=$(curl -s -X POST "${PVMBG_URL}/admin/outage" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${PVMBG_TOKEN}" \
-    -d '{"is_outage": false, "enabled": false}')
+    -d '{"is_outage": false}')
 echo -e "Restore response: ${RESTORE_RESP}"
 
 RECOVER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${PVMBG_URL}/volcanic-reports" \

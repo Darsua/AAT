@@ -24,7 +24,7 @@ help:
 	@echo "  test         Run unit and integration tests across all Go services"
 	@echo "  demo-p1      Execute Problem 1 demo (PVMBG schema evolution & confidence level)"
 	@echo "  demo-p2      Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
-	@echo "  demo-p3      Execute Problem 3 demo (Auth scopes: Media vs Field vs Internal)"
+	@echo "  demo-p3      Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
 	@echo "  demo-p5      Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
 	@echo "  load-test    Run k6 load test against Client API (50 VUs, 60s)"
 	@echo "========================================================================"
@@ -63,9 +63,12 @@ demo-p2:
 	@chmod +x ./scripts/test_outage.sh
 	./scripts/test_outage.sh
 
-## Problem 3: Scope-based access control demonstration
+## Problem 3: Scope-based access control demonstration (includes cross-credential
+## rejection and a real-time wait for natural token TTL expiration; set
+## SKIP_TTL_WAIT=1 to skip the wait during quick iteration)
 demo-p3:
-	@chmod +x ./scripts/test_auth_scopes.sh
+	@chmod +x ./scripts/test_cross_credential.sh ./scripts/test_auth_scopes.sh
+	./scripts/test_cross_credential.sh
 	./scripts/test_auth_scopes.sh
 
 ## Problem 5: Pub-Sub event fan-out & consumer recovery demonstration

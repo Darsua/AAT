@@ -155,6 +155,9 @@ Aldoy should generate volcanic activity reports that reference the authoritative
 | `VLC-005` | Gunung Sinabung | 3.1694, 98.3925 | Level II (Waspada) |
 | `VLC-006` | Gunung Ruang | 2.3014, 125.3697 | Level IV (Awas) |
 
+> [!IMPORTANT]
+> Per the official M1 spec, this mock must generate **at least 1 new volcanic report every 10 seconds** (rate may be increased for demo convenience), in addition to the ≥20-record historical seed set. This is a hard, graded requirement — the Aggregator's polling logic needs a steady stream of genuinely new records to demonstrate against.
+
 ---
 
 ## 6. Development & Testing Runbook

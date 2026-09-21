@@ -111,6 +111,9 @@ Aldoy's implementation tasks:
 2. Provide dynamic event generation or continuous time advancement so events can appear newly generated when tested by the aggregator.
 3. Realistic coordinates across the Indonesian archipelago (Sumatra, Java, Sulawesi, Maluku, NTT, Papua).
 
+> [!IMPORTANT]
+> Per the official M1 spec, this mock must generate **at least 1 new event every 10 seconds** (rate may be increased for demo convenience). This is a hard, graded requirement — the Aggregator's polling and dedup logic needs a steady stream of genuinely new records to demonstrate against, not just a static seed set.
+
 ---
 
 ## 5. Development Runbook

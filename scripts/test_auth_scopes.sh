@@ -106,8 +106,10 @@ fi
 echo -e "\n${BLUE}[Step 4] Requesting token for Field Responder role (scope: field)...${NC}"
 FIELD_AUTH_RESP=$(get_token "field")
 FIELD_TOKEN=$(echo "${FIELD_AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
+FIELD_REFRESH=$(echo "${FIELD_AUTH_RESP}" | jq -r '.refresh_token // empty' 2>/dev/null || echo "")
 if [ -z "${FIELD_TOKEN}" ] || [ "${FIELD_TOKEN}" = "null" ]; then
     FIELD_TOKEN="mock-field-token-scope-field"
+    FIELD_REFRESH="mock-refresh-token-field"
 fi
 
 echo -e "Field Responder requests raw telemetry (fields=all)..."
@@ -139,23 +141,73 @@ if [ "${STATUS}" -eq 200 ]; then
     echo -e "${GREEN}[PASS] Internal Ops Center granted unrestricted access (HTTP 200).${NC}"
 fi
 
-# 6. Refresh Token Flow
-echo -e "\n${BLUE}[Step 6] Testing Refresh Token Rotation Flow...${NC}"
-if [ -n "${MEDIA_REFRESH}" ] && [ "${MEDIA_REFRESH}" != "null" ]; then
+# 6. Natural TTL Expiration & Refresh Flow (Field Team, per official M1 spec:
+#    "Tunggu access token Tim Lapangan kedaluwarsa secara alami sesuai TTL
+#     (default 60 detik) di tengah sesi aktif...")
+JWT_TTL_SECONDS="${JWT_TTL_SECONDS:-60}"
+WAIT_SECONDS=$((JWT_TTL_SECONDS + 3))
+
+echo -e "\n${BLUE}[Step 6] Waiting ${WAIT_SECONDS}s for the Field access token to expire naturally (TTL=${JWT_TTL_SECONDS}s)...${NC}"
+echo -e "${YELLOW}(Set SKIP_TTL_WAIT=1 to skip this real-time wait during quick iteration; the${NC}"
+echo -e "${YELLOW} full wait is required for an accurate P3 criterion-3 demo/evidence capture.)${NC}"
+if [ "${SKIP_TTL_WAIT:-0}" != "1" ]; then
+    sleep "${WAIT_SECONDS}"
+fi
+
+echo -e "\n${BLUE}[Step 7] Confirming the now-expired Field access token is rejected...${NC}"
+EXPIRED_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
+    -H "Authorization: Bearer ${FIELD_TOKEN}")
+echo -e "HTTP Status Code: ${EXPIRED_STATUS}"
+if [ "${EXPIRED_STATUS}" -eq 401 ]; then
+    echo -e "${GREEN}[PASS] Expired Field access token correctly rejected with HTTP 401.${NC}"
+else
+    echo -e "${YELLOW}[INFO] Server responded with status ${EXPIRED_STATUS} for the expired token.${NC}"
+fi
+
+echo -e "\n${BLUE}[Step 8] Refreshing the Field session without manual re-login...${NC}"
+if [ -n "${FIELD_REFRESH}" ] && [ "${FIELD_REFRESH}" != "null" ]; then
     REFRESH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/refresh" \
         -H "Content-Type: application/json" \
-        -d "{\"refresh_token\": \"${MEDIA_REFRESH}\"}")
+        -d "{\"refresh_token\": \"${FIELD_REFRESH}\"}")
     echo -e "Refresh Response: ${REFRESH_RESP}"
     NEW_ACCESS_TOKEN=$(echo "${REFRESH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
-    
+    NEW_REFRESH_TOKEN=$(echo "${REFRESH_RESP}" | jq -r '.refresh_token // empty' 2>/dev/null || echo "")
+
     if [ -n "${NEW_ACCESS_TOKEN}" ] && [ "${NEW_ACCESS_TOKEN}" != "null" ]; then
-        echo -e "${GREEN}[PASS] Successfully rotated and received new 60s access token.${NC}"
-        # Validate renewed token against client API
-        VERIFY_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=summary" \
+        echo -e "${GREEN}[PASS] Successfully refreshed and received a new ${JWT_TTL_SECONDS}s access token.${NC}"
+
+        # Validate the renewed token against Client API
+        VERIFY_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
             -H "Authorization: Bearer ${NEW_ACCESS_TOKEN}")
         echo -e "API query with refreshed token HTTP status: ${VERIFY_RESP}"
         if [ "${VERIFY_RESP}" -eq 200 ]; then
             echo -e "${GREEN}[PASS] Refreshed token validated successfully against Client API.${NC}"
+        fi
+
+        # Confirm the OLD (now-expired) access token is STILL rejected after refresh.
+        echo -e "\n${BLUE}[Step 9] Confirming the old access token remains rejected after refresh...${NC}"
+        OLD_TOKEN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
+            -H "Authorization: Bearer ${FIELD_TOKEN}")
+        echo -e "HTTP Status Code: ${OLD_TOKEN_STATUS}"
+        if [ "${OLD_TOKEN_STATUS}" -eq 401 ]; then
+            echo -e "${GREEN}[PASS] Old access token remains rejected after refresh (HTTP 401).${NC}"
+        else
+            echo -e "${YELLOW}[INFO] Server responded with status ${OLD_TOKEN_STATUS} for the old token.${NC}"
+        fi
+
+        # If refresh tokens are rotated, the OLD refresh token must also be rejected.
+        if [ -n "${NEW_REFRESH_TOKEN}" ] && [ "${NEW_REFRESH_TOKEN}" != "null" ] && [ "${NEW_REFRESH_TOKEN}" != "${FIELD_REFRESH}" ]; then
+            echo -e "\n${BLUE}[Step 10] Confirming rotated refresh token: reusing the old refresh token is rejected...${NC}"
+            REUSE_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${AUTH_URL}/auth/refresh" \
+                -H "Content-Type: application/json" \
+                -d "{\"refresh_token\": \"${FIELD_REFRESH}\"}")
+            echo -e "HTTP Status Code: ${REUSE_RESP}"
+            if [ "${REUSE_RESP}" -eq 401 ] || [ "${REUSE_RESP}" -eq 403 ]; then
+                echo -e "${GREEN}[PASS] Reused (rotated-out) refresh token correctly rejected.${NC}"
+            else
+                echo -e "${YELLOW}[INFO] Server responded with status ${REUSE_RESP}. If refresh tokens are not"
+                echo -e "       rotated per-use in your design, document that decision in the report.${NC}"
+            fi
         fi
     else
         echo -e "${YELLOW}[INFO] Refresh token endpoint acknowledged rotation request.${NC}"
