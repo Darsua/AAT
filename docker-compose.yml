@@ -138,13 +138,15 @@ services:
   # Downstream Consumers (Jenka / Member C)
   # Consumers are designed, structured, and created entirely by Jenka.
   # See services/consumers/README.md for specifications and pub-sub guidelines.
-  # Once your consumer services are created, uncomment and configure below:
+  # The two blocks below are EXAMPLES only (naming, paths, and group IDs are
+  # illustrative). Rename/restructure freely to match your actual
+  # implementation, then uncomment and configure:
   # ==============================================================================
-  # dashboard-consumer:
-  #   build: ./services/consumers/dashboard
+  # <your-consumer-1>: # e.g. dashboard-consumer
+  #   build: ./services/consumers/<your-consumer-1-dir> # e.g. dashboard
   #   environment:
   #     REDPANDA_BROKERS: redpanda:9092
-  #     CONSUMER_GROUP: bnpb-dashboard-group
+  #     CONSUMER_GROUP: <your-consumer-group-1> # e.g. bnpb-dashboard-group
   #     TOPIC: bnpb.hazard-events
   #   depends_on:
   #     redpanda:
@@ -152,11 +154,11 @@ services:
   #   networks:
   #     - bnpb-internal
   #
-  # notifier-consumer:
-  #   build: ./services/consumers/notifier
+  # <your-consumer-2>: # e.g. notifier-consumer
+  #   build: ./services/consumers/<your-consumer-2-dir> # e.g. notifier
   #   environment:
   #     REDPANDA_BROKERS: redpanda:9092
-  #     CONSUMER_GROUP: bnpb-notifier-group
+  #     CONSUMER_GROUP: <your-consumer-group-2> # e.g. bnpb-notifier-group
   #     TOPIC: bnpb.hazard-events
   #   depends_on:
   #     redpanda:

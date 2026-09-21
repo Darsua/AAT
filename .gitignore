@@ -12,13 +12,14 @@
 bin/
 tmp/
 dist/
-/server
-/auth
-/client-api
-/mock-bmkg
-/mock-pvmbg
-/dashboard
-/notifier
+services/*/server
+services/*/aggregator
+services/*/auth
+services/*/client-api
+services/*/mock-bmkg
+services/*/mock-pvmbg
+services/consumers/*/dashboard
+services/consumers/*/notifier
 
 # OS-specific artifacts
 .DS_Store

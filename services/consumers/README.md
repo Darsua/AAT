@@ -70,25 +70,28 @@ Consumers must guarantee **Idempotent Processing**:
 
 ## 4. Downtime Recovery Testing Procedure
 
-To prove fault tolerance and message durability, execute this verification runbook:
+> [!NOTE]
+> The commands below use the suggested reference names (`dashboard-consumer`, `notifier-consumer`, `bnpb-dashboard-group`, `bnpb-notifier-group`) purely as illustrative examples of the procedure. Substitute whatever service names, container names, and consumer group IDs you actually choose — the important thing is proving the *behavior* described below (independent offsets, no cross-consumer starvation, zero data loss on recovery), not matching these exact names.
+
+To prove fault tolerance and message durability, execute a verification runbook equivalent to this:
 
 ### Step 1: Start Up Infrastructure
 ```bash
 # From workspace root (with docker compose)
-docker compose up -d redpanda canonical-db aggregator dashboard-consumer notifier-consumer
+docker compose up -d redpanda canonical-db aggregator <your-consumer-1> <your-consumer-2>
 ```
 
 ### Step 2: Verify Initial Healthy Streaming
 Verify both consumer containers are connected to Redpanda topic `bnpb.hazard-events` and actively reading.
 ```bash
-docker compose logs -f dashboard-consumer
-docker compose logs -f notifier-consumer
+docker compose logs -f <your-consumer-1>
+docker compose logs -f <your-consumer-2>
 ```
 
 ### Step 3: Simulate Consumer Downtime
-Stop the `dashboard-consumer` container to simulate a service crash or maintenance window:
+Stop one consumer container to simulate a service crash or maintenance window:
 ```bash
-docker compose stop dashboard-consumer
+docker compose stop <your-consumer-1>
 ```
 
 ### Step 4: Ingest Events While Consumer is Down
@@ -96,27 +99,27 @@ Generate or poll new hazard events through `aggregator`:
 ```bash
 # Trigger an event ingestion in aggregator or wait for poller cycle
 # Check Redpanda topic lag for consumer groups (from host use port 19092):
-rpk group describe bnpb-dashboard-group --brokers localhost:19092
-rpk group describe bnpb-notifier-group --brokers localhost:19092
+rpk group describe <your-consumer-group-1> --brokers localhost:19092
+rpk group describe <your-consumer-group-2> --brokers localhost:19092
 ```
 *Expected Result:*
-- `bnpb-notifier-group` lag remains **0** (actively processing and logging dispatches).
-- `bnpb-dashboard-group` lag **accumulates** (messages are safely buffered on the partition log).
+- The still-running consumer's group lag remains **0** (actively processing and logging dispatches).
+- The stopped consumer's group lag **accumulates** (messages are safely buffered on the partition log).
 
 ### Step 5: Recover the Offline Consumer
 Restart the stopped container:
 ```bash
-docker compose start dashboard-consumer
-docker compose logs -f dashboard-consumer
+docker compose start <your-consumer-1>
+docker compose logs -f <your-consumer-1>
 ```
 
 ### Step 6: Verify Recovery & Zero Data Loss
-1. Confirm `dashboard-consumer` reconnects with `GroupID: bnpb-dashboard-group`.
+1. Confirm the consumer reconnects with its original `GroupID`.
 2. Confirm it resumes reading from the **last committed offset** (no messages skipped).
 3. Confirm all backlogged events are processed and committed.
 4. Check group lag returns to **0**:
 ```bash
-rpk group describe bnpb-dashboard-group --brokers localhost:19092
+rpk group describe <your-consumer-group-1> --brokers localhost:19092
 ```
 
 ---
@@ -124,22 +127,25 @@ rpk group describe bnpb-dashboard-group --brokers localhost:19092
 ## 5. Development Runbook
 
 ### Environment Variables
-| Variable | Default Value | Description |
+| Variable | Suggested Default | Description |
 |---|---|---|
 | `REDPANDA_BROKERS` | `localhost:19092` (host) or `redpanda:9092` (Docker) | Comma-separated broker endpoints |
-| `TOPIC` | `bnpb.hazard-events` | Target topic |
-| `CONSUMER_GROUP` | `bnpb-dashboard-group` / `bnpb-notifier-group` | Unique consumer group identifier |
+| `TOPIC` | `bnpb.hazard-events` | Target topic (fixed — shared with the aggregator's outbox publisher) |
+| `CONSUMER_GROUP` | e.g. `bnpb-dashboard-group` / `bnpb-notifier-group` | Unique consumer group identifier — pick any distinct IDs per consumer |
 
-### Running Locally
+> [!NOTE]
+> The directory names (`dashboard/`, `notifier/`), image names, and group IDs below are examples only. Structure `services/consumers/` however makes sense for your implementation — just make sure each consumer has its own distinct `CONSUMER_GROUP`, and update the commented-out service blocks in the root `docker-compose.yml` to match whatever you land on.
+
+### Running Locally (example layout)
 ```bash
-# Run dashboard consumer
+# Run first consumer (e.g. dashboard)
 cd services/consumers/dashboard
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-dashboard-group"
 go run main.go
 
-# In a separate terminal, run notifier consumer
+# In a separate terminal, run second consumer (e.g. notifier)
 cd services/consumers/notifier
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
@@ -147,7 +153,7 @@ export CONSUMER_GROUP="bnpb-notifier-group"
 go run main.go
 ```
 
-### Build Docker Images
+### Build Docker Images (example layout)
 ```bash
 docker build -t bnpb/consumer-dashboard:latest services/consumers/dashboard/
 docker build -t bnpb/consumer-notifier:latest services/consumers/notifier/
@@ -157,8 +163,9 @@ docker build -t bnpb/consumer-notifier:latest services/consumers/notifier/
 
 ## 6. Implementation Checklist for Jenka
 
+- [ ] Decide on final structure/naming for the ≥2 consumers under `services/consumers/` and update the commented-out blocks in root `docker-compose.yml` + `go.work` to match.
 - [ ] Implement JSON unmarshaling into canonical `HazardEvent` model (matching `contracts/hazard_event.json`).
 - [ ] Implement an in-memory or Redis-backed idempotency cache (keyed by `hazard_id`).
-- [ ] `dashboard`: Implement aggregation logic (e.g. count of active events by type and severity).
-- [ ] `notifier`: Implement alert filter rule engine (thresholds: M ≥ 6.0, Tsunami SIAGA/AWAS, Volcano AWAS).
+- [ ] First consumer (e.g. `dashboard`): Implement aggregation logic (e.g. count of active events by type and severity).
+- [ ] Second consumer (e.g. `notifier`): Implement alert filter rule engine (thresholds: M ≥ 6.0, Tsunami SIAGA/AWAS, Volcano AWAS).
 - [ ] Ensure offsets are committed only after successful processing (`CommitMessages`).
