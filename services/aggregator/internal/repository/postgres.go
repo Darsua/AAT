@@ -49,7 +49,8 @@ func NewPostgresPool(ctx context.Context, connString string, maxConns, minConns 
 	return pool, nil
 }
 
-// RunMigrations applies the embedded 001_init.sql schema and seed data idempotently.
+// RunMigrations applies the embedded 001_init.sql schema and seed data idempotently
+// using PostgreSQL's simple query protocol to safely execute multi-statement SQL.
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	if migrations.InitSQL == "" {
 		return fmt.Errorf("embedded migration SQL is empty")
@@ -58,7 +59,13 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err := pool.Exec(execCtx, migrations.InitSQL)
+	conn, err := pool.Acquire(execCtx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire database connection for migrations: %w", err)
+	}
+	defer conn.Release()
+
+	_, err = conn.Conn().PgConn().Exec(execCtx, migrations.InitSQL).ReadAll()
 	if err != nil {
 		return fmt.Errorf("failed to execute migrations: %w", err)
 	}
