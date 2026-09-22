@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS hazards (
 -- Indexes for hazards query performance
 CREATE INDEX IF NOT EXISTS idx_hazards_occurred_at ON hazards(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_type_occurred ON hazards(hazard_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hazards_severity_occurred ON hazards(severity, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_attributes_gin ON hazards USING gin(attributes);
 
 -- 2. Volcano References Table
