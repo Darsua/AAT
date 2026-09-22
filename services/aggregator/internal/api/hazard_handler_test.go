@@ -77,6 +77,55 @@ func TestHazardHandler_Success(t *testing.T) {
 	}
 }
 
+func TestHazardHandler_FilterParameterPassing(t *testing.T) {
+	var capturedFilter repository.HazardFilter
+
+	// Wrap with custom interceptor
+	interceptor := &capturingQuerier{
+		onQuery: func(f repository.HazardFilter) {
+			capturedFilter = f
+		},
+	}
+
+	handler := NewHazardHandler(interceptor)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/hazards?since=2026-09-22T08:00:00Z&type=SEISMIC&severity=WASPADA&limit=25&offset=50", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	if capturedFilter.Limit != 25 {
+		t.Errorf("expected limit 25, got %d", capturedFilter.Limit)
+	}
+	if capturedFilter.Offset != 50 {
+		t.Errorf("expected offset 50, got %d", capturedFilter.Offset)
+	}
+	if capturedFilter.Type == nil || *capturedFilter.Type != domain.HazardTypeSeismic {
+		t.Errorf("expected type SEISMIC, got %v", capturedFilter.Type)
+	}
+	if capturedFilter.Severity == nil || *capturedFilter.Severity != domain.SeverityWaspada {
+		t.Errorf("expected severity WASPADA, got %v", capturedFilter.Severity)
+	}
+	if capturedFilter.Since == nil || capturedFilter.Since.Format(time.RFC3339) != "2026-09-22T08:00:00Z" {
+		t.Errorf("expected since 2026-09-22T08:00:00Z, got %v", capturedFilter.Since)
+	}
+}
+
+type capturingQuerier struct {
+	onQuery func(f repository.HazardFilter)
+}
+
+func (c *capturingQuerier) QueryHazards(ctx context.Context, filter repository.HazardFilter) ([]domain.HazardEvent, int, error) {
+	if c.onQuery != nil {
+		c.onQuery(filter)
+	}
+	return []domain.HazardEvent{}, 0, nil
+}
+
 func TestHazardHandler_ValidationErrors(t *testing.T) {
 	handler := NewHazardHandler(&mockHazardQuerier{})
 
