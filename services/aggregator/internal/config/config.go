@@ -10,6 +10,8 @@ import (
 type Config struct {
 	Port             string
 	DatabaseURL      string
+	DatabaseMaxConns int
+	DatabaseMinConns int
 	RedpandaBrokers  string
 	Topic            string
 	BMKGURL          string
@@ -27,9 +29,21 @@ func Load() *Config {
 		pollSecs = 3
 	}
 
+	maxConns := getEnvInt("DB_MAX_CONNS", 25)
+	if maxConns <= 0 {
+		maxConns = 25
+	}
+
+	minConns := getEnvInt("DB_MIN_CONNS", 5)
+	if minConns < 0 {
+		minConns = 5
+	}
+
 	return &Config{
 		Port:             getEnv("PORT", "8083"),
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable"),
+		DatabaseMaxConns: maxConns,
+		DatabaseMinConns: minConns,
 		RedpandaBrokers:  getEnv("REDPANDA_BROKERS", "redpanda:9092"),
 		Topic:            getEnv("TOPIC", "bnpb.hazard-events"),
 		BMKGURL:          getEnv("BMKG_URL", "http://mock-bmkg:8081"),

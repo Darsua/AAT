@@ -90,7 +90,9 @@ func (r *HazardRepository) QueryHazards(ctx context.Context, filter HazardFilter
 		LIMIT $%d OFFSET $%d;
 	`, whereSQL, argIdx, argIdx+1)
 
-	queryArgs := append(args, filter.Limit, filter.Offset)
+	queryArgs := make([]any, 0, len(args)+2)
+	queryArgs = append(queryArgs, args...)
+	queryArgs = append(queryArgs, filter.Limit, filter.Offset)
 
 	rows, err := r.pool.Query(ctx, dataSQL, queryArgs...)
 	if err != nil {
@@ -144,6 +146,10 @@ func (r *HazardRepository) QueryHazards(ctx context.Context, filter HazardFilter
 
 // SaveHazard persists or updates a hazard record idempotently using its (source, source_ref_id) constraint.
 func (r *HazardRepository) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
+	if h.Attributes == nil {
+		h.Attributes = make(map[string]any)
+	}
+
 	attrsJSON, err := json.Marshal(h.Attributes)
 	if err != nil {
 		return fmt.Errorf("failed to marshal hazard attributes: %w", err)

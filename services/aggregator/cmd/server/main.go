@@ -32,7 +32,7 @@ func main() {
 	defer bootCancel()
 
 	// Connect to PostgreSQL with retry backoff
-	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, log)
+	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
 	if err != nil {
 		log.Error("fatal: could not connect to canonical database", "error", err)
 		os.Exit(1)
@@ -105,7 +105,7 @@ func main() {
 	}
 }
 
-func connectDBWithRetry(ctx context.Context, connStr string, log *slog.Logger) (*pgxpool.Pool, error) {
+func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns int, log *slog.Logger) (*pgxpool.Pool, error) {
 	var pool *pgxpool.Pool
 	var err error
 
@@ -119,7 +119,7 @@ func connectDBWithRetry(ctx context.Context, connStr string, log *slog.Logger) (
 		default:
 		}
 
-		pool, err = repository.NewPostgresPool(ctx, connStr)
+		pool, err = repository.NewPostgresPool(ctx, connStr, maxConns, minConns)
 		if err == nil {
 			log.Info("successfully established canonical postgres connection pool", slog.Int("attempt", attempt))
 			return pool, nil

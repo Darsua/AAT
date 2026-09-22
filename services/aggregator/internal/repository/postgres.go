@@ -11,15 +11,23 @@ import (
 )
 
 // NewPostgresPool establishes a connection pool to PostgreSQL with production-tuned settings.
-func NewPostgresPool(ctx context.Context, connString string) (*pgxpool.Pool, error) {
+func NewPostgresPool(ctx context.Context, connString string, maxConns, minConns int) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database configuration: %w", err)
 	}
 
 	// Concurrency and resource management settings
-	cfg.MaxConns = 25
-	cfg.MinConns = 5
+	if maxConns > 0 {
+		cfg.MaxConns = int32(maxConns)
+	} else {
+		cfg.MaxConns = 25
+	}
+	if minConns >= 0 {
+		cfg.MinConns = int32(minConns)
+	} else {
+		cfg.MinConns = 5
+	}
 	cfg.MaxConnLifetime = 1 * time.Hour
 	cfg.MaxConnIdleTime = 30 * time.Minute
 	cfg.HealthCheckPeriod = 15 * time.Second
