@@ -23,7 +23,7 @@ func NewPostgresPool(ctx context.Context, connString string, maxConns, minConns 
 	} else {
 		cfg.MaxConns = 25
 	}
-	if minConns >= 0 {
+	if minConns > 0 {
 		cfg.MinConns = int32(minConns)
 	} else {
 		cfg.MinConns = 5

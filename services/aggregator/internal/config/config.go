@@ -35,7 +35,7 @@ func Load() *Config {
 	}
 
 	minConns := getEnvInt("DB_MIN_CONNS", 5)
-	if minConns < 0 {
+	if minConns <= 0 {
 		minConns = 5
 	}
 

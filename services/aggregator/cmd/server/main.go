@@ -61,11 +61,12 @@ func main() {
 	}
 
 	hazardRepo := repository.NewHazardRepository(pool)
+	brokerPinger := repository.NewTCPBrokerPinger(cfg.RedpandaBrokers)
 
 	// Register HTTP routes
 	mux := http.NewServeMux()
 
-	healthHandler := api.NewHealthHandler(pool)
+	healthHandler := api.NewHealthHandler(pool, brokerPinger)
 	hazardHandler := api.NewHazardHandler(hazardRepo)
 
 	mux.Handle("GET /health", healthHandler)
