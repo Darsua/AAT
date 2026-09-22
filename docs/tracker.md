@@ -48,10 +48,10 @@
   *Deliverable:* `POST /admin/schema-version` (`include_confidence_level`) and `POST /admin/outage` (`is_outage`).
 
 #### Member B (Darrel) — Storage & Aggregator Core
-- [ ] **`B-01`** — **Create PostgreSQL schema, migrations, and volcano reference data** (23–24 Sep)  
+- [x] **`B-01`** — **Create PostgreSQL schema, migrations, and volcano reference data** (23–24 Sep)  
   *Path:* [`services/aggregator/migrations/001_init.sql`](../services/aggregator/migrations/001_init.sql)  
   *Deliverable:* Canonical `hazards` table (JSONB attributes), static volcano catalog seeds (`VLC-001..006`), transactional `outbox_events` table, and `pgxpool` Go connection setup.
-- [ ] **`B-02`** — **Build Aggregator skeleton, configuration, health, and structured logging** (23–25 Sep)  
+- [x] **`B-02`** — **Build Aggregator skeleton, configuration, health, and structured logging** (23–25 Sep)  
   *Path:* [`services/aggregator/`](../services/aggregator/)  
   *Deliverable:* Config parser from environment variables, correlation ID middleware (`X-Correlation-ID`), structured logger, and `:8083` server engine.
 

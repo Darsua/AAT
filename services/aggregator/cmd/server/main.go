@@ -2,94 +2,140 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"log"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"bnpb/aggregator/internal/domain"
+	"bnpb/aggregator/internal/api"
+	"bnpb/aggregator/internal/config"
+	"bnpb/aggregator/internal/logger"
+	"bnpb/aggregator/internal/repository"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type HealthResponse struct {
-	Status  string `json:"status"`
-	Service string `json:"service"`
-}
-
-type Meta struct {
-	Total      int     `json:"total"`
-	Degraded   bool    `json:"degraded"`
-	StaleSince *string `json:"stale_since"`
-}
-
-type HazardListResponse struct {
-	Data []domain.HazardEvent `json:"data"`
-	Meta Meta                 `json:"meta"`
-}
-
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8083"
+	cfg := config.Load()
+	log := logger.Setup(cfg.LogLevel)
+
+	log.Info("starting bnpb aggregator service",
+		slog.String("port", cfg.Port),
+		slog.Duration("poll_interval", cfg.PollIntervalSecs),
+	)
+
+	// Context for bootstrap operations
+	bootCtx, bootCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer bootCancel()
+
+	// Connect to PostgreSQL with retry backoff
+	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, log)
+	if err != nil {
+		log.Error("fatal: could not connect to canonical database", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	// Apply database migrations idempotently
+	log.Info("applying database migrations")
+	if err := repository.RunMigrations(bootCtx, pool); err != nil {
+		log.Error("fatal: database migration failed", "error", err)
+		os.Exit(1)
+	}
+	log.Info("database migrations applied successfully")
+
+	// Initialize repositories
+	volcanoRepo := repository.NewVolcanoRepository(pool)
+	if err := volcanoRepo.LoadCache(bootCtx); err != nil {
+		log.Warn("warning: could not pre-populate volcano reference cache", "error", err)
+	} else {
+		log.Info("volcano catalog cached into memory successfully")
 	}
 
+	hazardRepo := repository.NewHazardRepository(pool)
+
+	// Register HTTP routes
 	mux := http.NewServeMux()
 
-	// GET /health
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(HealthResponse{
-			Status:  "UP",
-			Service: "aggregator",
-		})
-	})
+	healthHandler := api.NewHealthHandler(pool)
+	hazardHandler := api.NewHazardHandler(hazardRepo)
 
-	// GET /internal/hazards stub
-	mux.HandleFunc("GET /internal/hazards", func(w http.ResponseWriter, r *http.Request) {
-		// Stub response returning canonical hazard list matching aggregator_internal.yaml
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		resp := HazardListResponse{
-			Data: []domain.HazardEvent{},
-			Meta: Meta{
-				Total:      0,
-				Degraded:   false,
-				StaleSince: nil,
-			},
-		}
-		_ = json.NewEncoder(w).Encode(resp)
-	})
+	mux.Handle("GET /health", healthHandler)
+	mux.Handle("GET /internal/hazards", hazardHandler)
+
+	// Middleware chaining: Recovery -> CorrelationID -> Logging -> Router
+	var handler http.Handler = mux
+	handler = api.LoggingMiddleware(handler)
+	handler = api.CorrelationIDMiddleware(handler)
+	handler = api.RecoveryMiddleware(handler)
 
 	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
+		Addr:         ":" + cfg.Port,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("[aggregator] Internal service listening on port %s", port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[aggregator] Server error: %v", err)
+		log.Info("aggregator internal HTTP server listening", slog.String("addr", server.Addr))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	<-stop
-	log.Println("[aggregator] Shutting down server...")
+	// Wait for termination signal
+	sig := <-stopChan
+	log.Info("shutting down aggregator server gracefully", slog.String("signal", sig.String()))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("[aggregator] Forced shutdown: %v", err)
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error("forced shutdown error", "error", err)
 	} else {
-		log.Println("[aggregator] Server stopped cleanly")
+		log.Info("aggregator HTTP server stopped cleanly")
 	}
+}
+
+func connectDBWithRetry(ctx context.Context, connStr string, log *slog.Logger) (*pgxpool.Pool, error) {
+	var pool *pgxpool.Pool
+	var err error
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for attempt := 1; attempt <= 15; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		pool, err = repository.NewPostgresPool(ctx, connStr)
+		if err == nil {
+			log.Info("successfully established canonical postgres connection pool", slog.Int("attempt", attempt))
+			return pool, nil
+		}
+
+		log.Warn("database connection attempt failed, retrying in 2s...",
+			slog.Int("attempt", attempt),
+			slog.String("error", err.Error()),
+		)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+
+	return nil, err
 }
