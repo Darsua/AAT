@@ -128,7 +128,7 @@ func (r *HazardRepository) QueryHazards(ctx context.Context, filter HazardFilter
 
 		if len(rawAttrs) > 0 {
 			if err := json.Unmarshal(rawAttrs, &h.Attributes); err != nil {
-				h.Attributes = make(map[string]any)
+				return nil, 0, fmt.Errorf("failed to decode hazard attributes for %s: %w", h.HazardID, err)
 			}
 		} else {
 			h.Attributes = make(map[string]any)
@@ -235,7 +235,7 @@ func (r *HazardRepository) GetHazardByID(ctx context.Context, hazardID string) (
 
 	if len(rawAttrs) > 0 {
 		if err := json.Unmarshal(rawAttrs, &h.Attributes); err != nil {
-			h.Attributes = make(map[string]any)
+			return nil, fmt.Errorf("failed to decode hazard attributes for %s: %w", h.HazardID, err)
 		}
 	} else {
 		h.Attributes = make(map[string]any)

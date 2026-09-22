@@ -83,4 +83,7 @@ func TestRecoveryMiddleware(t *testing.T) {
 	if resp["error"] != "INTERNAL_ERROR" {
 		t.Errorf("expected error INTERNAL_ERROR, got %q", resp["error"])
 	}
+	if resp["message"] != "An unexpected internal server error occurred" {
+		t.Errorf("expected message 'An unexpected internal server error occurred', got %q", resp["message"])
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,14 @@ func TestHazardHandler_ValidationErrors(t *testing.T) {
 
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("expected status 400, got %d for url %s", rec.Code, tc.url)
+			}
+
+			var errResp ErrorResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+				t.Fatalf("failed to decode error response: %v", err)
+			}
+			if !strings.Contains(errResp.Message, tc.expectedMsg) {
+				t.Errorf("expected error message containing %q, got %q", tc.expectedMsg, errResp.Message)
 			}
 		})
 	}

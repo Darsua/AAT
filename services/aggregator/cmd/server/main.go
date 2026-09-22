@@ -31,6 +31,11 @@ func main() {
 	bootCtx, bootCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer bootCancel()
 
+	if cfg.DatabaseURL == "" {
+		log.Error("fatal: DATABASE_URL environment variable is required")
+		os.Exit(1)
+	}
+
 	// Connect to PostgreSQL with retry backoff
 	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
 	if err != nil {
@@ -66,11 +71,11 @@ func main() {
 	mux.Handle("GET /health", healthHandler)
 	mux.Handle("GET /internal/hazards", hazardHandler)
 
-	// Middleware chaining: Recovery -> CorrelationID -> Logging -> Router
+	// Middleware chaining: CorrelationID (outermost) -> Logging -> Recovery (innermost) -> Router
 	var handler http.Handler = mux
+	handler = api.RecoveryMiddleware(handler)
 	handler = api.LoggingMiddleware(handler)
 	handler = api.CorrelationIDMiddleware(handler)
-	handler = api.RecoveryMiddleware(handler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,

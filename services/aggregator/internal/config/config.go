@@ -41,15 +41,15 @@ func Load() *Config {
 
 	return &Config{
 		Port:             getEnv("PORT", "8083"),
-		DatabaseURL:      getEnv("DATABASE_URL", "postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable"),
+		DatabaseURL:      getEnv("DATABASE_URL", ""),
 		DatabaseMaxConns: maxConns,
 		DatabaseMinConns: minConns,
 		RedpandaBrokers:  getEnv("REDPANDA_BROKERS", "redpanda:9092"),
 		Topic:            getEnv("TOPIC", "bnpb.hazard-events"),
 		BMKGURL:          getEnv("BMKG_URL", "http://mock-bmkg:8081"),
-		BMKGKey:          getEnv("BMKG_KEY", "bmkg-secret-key-2026"),
+		BMKGKey:          getEnv("BMKG_KEY", ""),
 		PVMBGURL:         getEnv("PVMBG_URL", "http://mock-pvmbg:8082"),
-		PVMBGToken:       getEnv("PVMBG_TOKEN", "pvmbg-bearer-token-2026"),
+		PVMBGToken:       getEnv("PVMBG_TOKEN", ""),
 		PollIntervalSecs: time.Duration(pollSecs) * time.Second,
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 	}

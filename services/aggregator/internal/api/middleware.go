@@ -34,7 +34,9 @@ func (w *responseWriterInterceptor) Write(b []byte) (int, error) {
 // GenerateCorrelationID produces a pseudo-unique correlation ID if none is supplied.
 func GenerateCorrelationID() string {
 	b := make([]byte, 8)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("corr-%d-%08x", time.Now().UnixNano(), time.Now().UnixMilli()%100000000)
+	}
 	return fmt.Sprintf("corr-%d-%s", time.Now().UnixMilli(), hex.EncodeToString(b))
 }
 
@@ -96,7 +98,7 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"error":   "INTERNAL_ERROR",
-					"message": "An unexpected error occurred while querying hazard events",
+					"message": "An unexpected internal server error occurred",
 				})
 			}
 		}()

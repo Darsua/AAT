@@ -78,7 +78,8 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		filter.Since = &t
+		utc := t.UTC()
+		filter.Since = &utc
 	}
 
 	// Parse 'type'
