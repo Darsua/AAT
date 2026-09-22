@@ -55,6 +55,9 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	if migrations.InitSQL == "" {
 		return fmt.Errorf("embedded migration SQL is empty")
 	}
+	if pool == nil {
+		return fmt.Errorf("database connection pool cannot be nil")
+	}
 
 	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

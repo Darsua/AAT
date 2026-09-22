@@ -70,7 +70,8 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse 'since'
 	if sinceStr := q.Get("since"); sinceStr != "" {
 		t, err := time.Parse(time.RFC3339, sinceStr)
-		if err != nil {
+		_, offset := t.Zone()
+		if err != nil || offset != 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:   "BAD_REQUEST",

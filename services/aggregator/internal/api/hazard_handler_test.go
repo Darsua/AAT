@@ -165,6 +165,11 @@ func TestHazardHandler_ValidationErrors(t *testing.T) {
 			url:         "/internal/hazards?since=not-a-date",
 			expectedMsg: "RFC3339",
 		},
+		{
+			name:        "Non-UTC since offset",
+			url:         "/internal/hazards?since=2026-09-22T08:00:00+07:00",
+			expectedMsg: "RFC3339",
+		},
 	}
 
 	for _, tc := range testCases {
