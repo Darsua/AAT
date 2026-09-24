@@ -1,5 +1,8 @@
 package main
 
+// Sebenranya per fungsi bisa dipisah biar readable, tapi kayaknya kebanyakan file
+// I don't like this style, tapi aku ngikut saja :D
+
 import (
 	"context"
 	"crypto/rand"
@@ -35,8 +38,7 @@ var (
 	errInvalidGrant       = errors.New("invalid refresh token grant")
 )
 
-// Configuration and data models.
-
+// ---- Models
 type config struct {
 	Port      string
 	JWTSecret string
@@ -94,8 +96,7 @@ type refreshRecord struct {
 	Revoked   bool
 }
 
-// Refresh-token store.
-
+// --- Refresh-token store
 type refreshStore struct {
 	mu              sync.Mutex
 	records         map[string]*refreshRecord
@@ -109,6 +110,7 @@ func newRefreshStore() *refreshStore {
 	}
 }
 
+// create repo, this is not stateless and contradicts 005, tapi acc token masih stateless, it should be fine
 func (s *refreshStore) create(token string, record refreshRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -119,6 +121,7 @@ func (s *refreshStore) create(token string, record refreshRecord) error {
 	return nil
 }
 
+// throw token yang digunaan, cek apakah masih ada di repo
 func (s *refreshStore) consume(token string, now time.Time) (refreshRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,6 +138,7 @@ func (s *refreshStore) consume(token string, now time.Time) (refreshRecord, erro
 	return *record, nil
 }
 
+// mirip blacklist dengan ganti atribut revoked, jadi server side bukan client
 func (s *refreshStore) revokeSessionLocked(sessionID string) {
 	s.revokedSessions[sessionID] = struct{}{}
 	for _, record := range s.records {
@@ -144,8 +148,7 @@ func (s *refreshStore) revokeSessionLocked(sessionID string) {
 	}
 }
 
-// Authentication service.
-
+// --- Authentication service
 type authService struct {
 	jwtSecret []byte
 	accessTTL time.Duration
@@ -154,6 +157,7 @@ type authService struct {
 	now       func() time.Time
 }
 
+// Yang ngebangun authService kita
 func newAuthService(secret string, accessTTL time.Duration, clients map[string]clientCredential) *authService {
 	return &authService{
 		jwtSecret: []byte(secret),
@@ -164,6 +168,7 @@ func newAuthService(secret string, accessTTL time.Duration, clients map[string]c
 	}
 }
 
+// autentikasi + issuetokenpair
 func (s *authService) authenticate(clientID, clientSecret, requestedRole string) (tokenResponse, error) {
 	client, exists := s.clients[clientID]
 	if !exists || !secretsEqual(client.Secret, clientSecret) {
@@ -183,6 +188,7 @@ func (s *authService) refresh(refreshToken string) (tokenResponse, error) {
 	return s.issueTokenPair(record.ClientID, record.Role, record.Scope, record.SessionID)
 }
 
+// untuk session
 func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (tokenResponse, error) {
 	now := s.now().UTC()
 	claims := accessClaims{
@@ -229,8 +235,7 @@ func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (t
 	}, nil
 }
 
-// HTTP handlers.
-
+// ---- Handlers buat api
 type authHandler struct {
 	service *authService
 }
@@ -295,8 +300,7 @@ func (h *authHandler) refreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Configuration and utility helpers.
-
+// --- Config awal auth service dan utils
 func loadConfig() (config, error) {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -343,7 +347,7 @@ func clientRegistryFromEnvironment() (map[string]clientCredential, error) {
 		{"AUTH_MEDIA_CLIENT_ID", "test-media-client", "AUTH_MEDIA_CLIENT_SECRET", "media", "hazards:read:summary"},
 		{"AUTH_FIELD_CLIENT_ID", "test-field-client", "AUTH_FIELD_CLIENT_SECRET", "field", "hazards:read:all"},
 		{"AUTH_INTERNAL_CLIENT_ID", "test-internal-client", "AUTH_INTERNAL_CLIENT_SECRET", "internal", "hazards:read:all"},
-	}
+	} // mapping hardcoded, but untuk auth bisa diatur di env memakai admin
 
 	for _, definition := range definitions {
 		clientID := strings.TrimSpace(os.Getenv(definition.idEnvironment))
