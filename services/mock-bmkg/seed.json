@@ -1,0 +1,30 @@
+{
+  "seismic_events": [
+    {"event_id":"bmkg-seis-20260905-001","magnitude":5.6,"depth_km":15.0,"epicenter_lat":-7.5407,"epicenter_lon":110.4456,"region_name":"124 km BaratDaya KAB-BANTUL-DIY","occurred_at":"2026-09-05T15:30:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260906-001","magnitude":4.8,"depth_km":32.0,"epicenter_lat":-0.9471,"epicenter_lon":100.4172,"region_name":"Pesisir Padang-Sumatera Barat","occurred_at":"2026-09-06T04:20:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260907-001","magnitude":6.1,"depth_km":22.0,"epicenter_lat":-2.5489,"epicenter_lon":118.0149,"region_name":"Mamuju-Sulawesi Barat","occurred_at":"2026-09-07T09:45:00Z","potential_tsunami":true},
+    {"event_id":"bmkg-seis-20260908-001","magnitude":4.7,"depth_km":10.0,"epicenter_lat":3.5952,"epicenter_lon":98.6722,"region_name":"Deli Serdang-Sumatera Utara","occurred_at":"2026-09-08T12:10:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260909-001","magnitude":5.2,"depth_km":18.0,"epicenter_lat":-8.4095,"epicenter_lon":115.1889,"region_name":"Selatan Bali","occurred_at":"2026-09-09T18:35:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260910-001","magnitude":4.9,"depth_km":40.0,"epicenter_lat":-5.1477,"epicenter_lon":119.4327,"region_name":"Pesisir Makassar-Sulawesi Selatan","occurred_at":"2026-09-10T02:25:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260911-001","magnitude":5.8,"depth_km":27.0,"epicenter_lat":-3.3194,"epicenter_lon":128.0986,"region_name":"Ambon-Maluku","occurred_at":"2026-09-11T06:50:00Z","potential_tsunami":true},
+    {"event_id":"bmkg-seis-20260912-001","magnitude":4.6,"depth_km":12.0,"epicenter_lat":-6.2088,"epicenter_lon":106.8456,"region_name":"Selatan Jakarta","occurred_at":"2026-09-12T11:15:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260913-001","magnitude":5.0,"depth_km":65.0,"epicenter_lat":-2.2136,"epicenter_lon":113.9108,"region_name":"Palangka Raya-Kalimantan Tengah","occurred_at":"2026-09-13T14:40:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260914-001","magnitude":5.4,"depth_km":21.0,"epicenter_lat":-8.1077,"epicenter_lon":112.9224,"region_name":"Selatan Kabupaten Malang-Jawa Timur","occurred_at":"2026-09-14T20:05:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260915-001","magnitude":4.5,"depth_km":8.0,"epicenter_lat":-0.8615,"epicenter_lon":131.2558,"region_name":"Sorong-Papua Barat Daya","occurred_at":"2026-09-15T03:30:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260916-001","magnitude":6.0,"depth_km":19.0,"epicenter_lat":-9.5,"epicenter_lon":119.5,"region_name":"Selatan Sumba-Nusa Tenggara Timur","occurred_at":"2026-09-16T07:55:00Z","potential_tsunami":true},
+    {"event_id":"bmkg-seis-20260917-001","magnitude":4.8,"depth_km":14.0,"epicenter_lat":-7.7956,"epicenter_lon":110.3695,"region_name":"Yogyakarta-Jawa","occurred_at":"2026-09-17T10:20:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260918-001","magnitude":5.1,"depth_km":29.0,"epicenter_lat":-1.6099,"epicenter_lon":103.6131,"region_name":"Jambi-Sumatera","occurred_at":"2026-09-18T13:45:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260919-001","magnitude":4.4,"depth_km":9.0,"epicenter_lat":0.5071,"epicenter_lon":101.4478,"region_name":"Pekanbaru-Riau","occurred_at":"2026-09-19T16:10:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260920-001","magnitude":5.7,"depth_km":24.0,"epicenter_lat":-7.2504,"epicenter_lon":112.7688,"region_name":"Surabaya-Jawa Timur","occurred_at":"2026-09-20T19:35:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260921-001","magnitude":4.9,"depth_km":31.0,"epicenter_lat":-3.6954,"epicenter_lon":128.1814,"region_name":"Seram-Maluku","occurred_at":"2026-09-21T22:00:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260922-001","magnitude":5.6,"depth_km":15.0,"epicenter_lat":-7.5407,"epicenter_lon":110.4456,"region_name":"124 km BaratDaya KAB-BANTUL-DIY","occurred_at":"2026-09-22T01:25:00Z","potential_tsunami":false},
+    {"event_id":"bmkg-seis-20260923-001","magnitude":5.3,"depth_km":36.0,"epicenter_lat":2.3014,"epicenter_lon":125.3697,"region_name":"Kepulauan Sangihe-Sulawesi Utara","occurred_at":"2026-09-23T05:50:00Z","potential_tsunami":true},
+    {"event_id":"bmkg-seis-20260924-001","magnitude":4.7,"depth_km":11.0,"epicenter_lat":-6.9175,"epicenter_lon":107.6191,"region_name":"Bandung-Jawa Barat","occurred_at":"2026-09-24T08:15:00Z","potential_tsunami":false}
+  ],
+  "tsunami_warnings": [
+    {"warning_id":"tsu-bmkg-20260907-01","related_event_id":"bmkg-seis-20260907-001","threat_level":"Waspada","affected_zones":["Pesisir Mamuju","Pesisir Majene"],"estimated_arrival":"2026-09-07T10:15:00Z"},
+    {"warning_id":"tsu-bmkg-20260911-01","related_event_id":"bmkg-seis-20260911-001","threat_level":"Siaga","affected_zones":["Pesisir Ambon","Pesisir Seram"],"estimated_arrival":"2026-09-11T07:20:00Z"},
+    {"warning_id":"tsu-bmkg-20260916-01","related_event_id":"bmkg-seis-20260916-001","threat_level":"Waspada","affected_zones":["Pesisir Sumba Timur","Pesisir Sumba Barat"],"estimated_arrival":"2026-09-16T08:25:00Z"},
+    {"warning_id":"tsu-bmkg-20260923-01","related_event_id":"bmkg-seis-20260923-001","threat_level":"Awas","affected_zones":["Pesisir Sangihe","Pesisir Talaud"],"estimated_arrival":"2026-09-23T06:20:00Z"}
+  ]
+}
