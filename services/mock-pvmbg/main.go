@@ -34,6 +34,7 @@ type VolcanicReport struct {
 	EruptionCount24h int       `json:"eruption_count_24h"`
 	AshColumnHeightM float64   `json:"ash_column_height_m"`
 	ReportedAt       time.Time `json:"reported_at"`
+	ConfidenceLevel  *float64  `json:"confidence_level,omitempty"`
 }
 
 type seedData struct {
@@ -41,11 +42,13 @@ type seedData struct {
 }
 
 type service struct {
-	mu           sync.RWMutex
-	reports      []VolcanicReport
-	nextSequence uint64
-	delay        func()
-	now          func() time.Time
+	mu                     sync.RWMutex
+	reports                []VolcanicReport
+	includeConfidenceLevel bool
+	isOutage               bool
+	nextSequence           uint64
+	delay                  func()
+	now                    func() time.Time
 }
 
 func main() {
@@ -119,6 +122,8 @@ func (s *service) routes(token string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.Handle("GET /volcanic-reports", requireBearerToken(token, http.HandlerFunc(s.handleReports)))
+	mux.Handle("POST /admin/schema-version", requireBearerToken(token, http.HandlerFunc(s.handleSchemaVersion)))
+	mux.Handle("POST /admin/outage", requireBearerToken(token, http.HandlerFunc(s.handleOutage)))
 	return mux
 }
 
@@ -165,10 +170,18 @@ func (s *service) generateReport() {
 }
 
 func (s *service) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if s.outageActive() {
+		writeJSON(w, http.StatusServiceUnavailable, HealthResponse{Status: "DOWN", Service: "mock-pvmbg"})
+		return
+	}
 	writeJSON(w, http.StatusOK, HealthResponse{Status: "UP", Service: "mock-pvmbg"})
 }
 
 func (s *service) handleReports(w http.ResponseWriter, r *http.Request) {
+	if s.outageActive() {
+		writeError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "PVMBG service temporarily unreachable")
+		return
+	}
 	s.delay()
 
 	since, err := parseSince(r)
@@ -178,9 +191,68 @@ func (s *service) handleReports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
+	includeConfidence := s.includeConfidenceLevel
 	reports := filterReports(s.reports, since)
 	s.mu.RUnlock()
+	if includeConfidence {
+		confidence := 0.95
+		for i := range reports {
+			reports[i].ConfidenceLevel = &confidence
+		}
+	}
 	writeJSON(w, http.StatusOK, reports)
+}
+
+func (s *service) handleSchemaVersion(w http.ResponseWriter, r *http.Request) {
+	var request schemaVersionRequest
+	if err := decodeJSON(r, &request); err != nil || request.IncludeConfidenceLevel == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "include_confidence_level must be a boolean")
+		return
+	}
+
+	s.mu.Lock()
+	s.includeConfidenceLevel = *request.IncludeConfidenceLevel
+	includeConfidence := s.includeConfidenceLevel
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":                   "updated",
+		"include_confidence_level": includeConfidence,
+		"message":                  "Dynamic schema updated successfully",
+	})
+}
+
+func (s *service) handleOutage(w http.ResponseWriter, r *http.Request) {
+	var request outageRequest
+	if err := decodeJSON(r, &request); err != nil || request.IsOutage == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "is_outage must be a boolean")
+		return
+	}
+
+	s.mu.Lock()
+	s.isOutage = *request.IsOutage
+	isOutage := s.isOutage
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":    "updated",
+		"is_outage": isOutage,
+		"message":   "Outage mode updated successfully",
+	})
+}
+
+type schemaVersionRequest struct {
+	IncludeConfidenceLevel *bool `json:"include_confidence_level"`
+}
+
+type outageRequest struct {
+	IsOutage *bool `json:"is_outage"`
+}
+
+func (s *service) outageActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isOutage
 }
 
 func filterReports(reports []VolcanicReport, since *time.Time) []VolcanicReport {

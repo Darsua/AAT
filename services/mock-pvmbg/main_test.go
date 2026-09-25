@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 	"time"
 )
 
-func TestPVMBGAuthAndReports(t *testing.T) {
+func TestPVMBGAuthSchemaAndOutageControls(t *testing.T) {
 	data, err := loadSeedData()
 	if err != nil {
 		t.Fatalf("loadSeedData() error = %v", err)
@@ -41,6 +42,61 @@ func TestPVMBGAuthAndReports(t *testing.T) {
 	}
 	if len(reports) != len(data.Reports) {
 		t.Fatalf("report count = %d, want %d", len(reports), len(data.Reports))
+	}
+	for _, report := range reports {
+		if report.ConfidenceLevel != nil {
+			t.Fatalf("confidence_level should be absent before schema toggle: %+v", report)
+		}
+	}
+
+	request = authorizedRequest(http.MethodPost, "/admin/schema-version", bytes.NewBufferString(`{"include_confidence_level":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("schema toggle status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	request = authorizedRequest(http.MethodGet, "/volcanic-reports", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if err := json.NewDecoder(recorder.Body).Decode(&reports); err != nil {
+		t.Fatalf("decode evolved reports response: %v", err)
+	}
+	for _, report := range reports {
+		if report.ConfidenceLevel == nil || *report.ConfidenceLevel != 0.95 {
+			t.Fatalf("confidence_level missing or incorrect: %+v", report)
+		}
+	}
+
+	request = authorizedRequest(http.MethodPost, "/admin/outage", bytes.NewBufferString(`{"is_outage":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("outage toggle status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	request = authorizedRequest(http.MethodGet, "/volcanic-reports", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("outage reports status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/health", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("outage health status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+
+	request = authorizedRequest(http.MethodPost, "/admin/outage", bytes.NewBufferString(`{"is_outage":false}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("restore outage status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 }
 
