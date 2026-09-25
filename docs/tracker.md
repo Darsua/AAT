@@ -67,11 +67,11 @@
 
 ### Phase 3: Integration & Core Pipeline (28–30 Sep)
 
-#### Member A (Aldoy) — Upstream Data Adapters
-- [ ] **`A-05`** — **Build BMKG/PVMBG adapters and dynamic source parsing** (28–30 Sep)  
-  *Deliverable:* Stable upstream data delivery under continuous polling without panics.
-
 #### Member B (Darrel) — Aggregator Pipeline & Outbox Relay
+- [ ] **`A-05`** — **Implement Aggregator adapters and dynamic source parsing** (28–30 Sep)
+  *Owner:* Member B (Darrel)
+  *Dependency:* `A-01`, `A-02`, `A-04`, `B-02`.
+  *Deliverable:* Aggregator polling parses BMKG/PVMBG contracts without strict-field failures and forwards dynamic fields to `attributes`.
 - [ ] **`B-03`** — **Implement independent polling workers, cursors, overlap, and deduplication** (28–30 Sep)  
   *Deliverable:* 2–5s polling loops for BMKG and PVMBG with `since` query parameter, error backoff, and idempotent DB upsert on `(source, source_ref_id)`.
 - [ ] **`B-04`** — **Implement HazardEvent mapping, severity rules, and attributes** (28–30 Sep)  
@@ -153,7 +153,7 @@ Use this matrix to track and link evidence artifacts for the final report:
 |---|---|---|---|---|---|---|---|
 | **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Planned | `report/evidence/p1/` |
 | **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Planned | `report/evidence/p1/` |
-| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Planned | `report/evidence/p1/` |
+| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded to Aggregator `attributes` without crash or schema migration | Darrel | Planned | `report/evidence/p1/` |
 | **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Planned | `report/evidence/p2/` |
 | **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms | Darrel | Planned | `report/evidence/p2/` |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Planned | `report/evidence/p2/` |
