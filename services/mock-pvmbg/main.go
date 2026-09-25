@@ -16,6 +16,15 @@ type HealthResponse struct {
 	Service string `json:"service"`
 }
 
+type VolcanicReport struct {
+	ReportID         string    `json:"report_id"`
+	VolcanoID        string    `json:"volcano_id"`
+	AlertLevel       string    `json:"alert_level"`
+	EruptionCount24h int       `json:"eruption_count_24h"`
+	AshColumnHeightM float64   `json:"ash_column_height_m"`
+	ReportedAt       time.Time `json:"reported_at"`
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -23,20 +32,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-
-	// Health check endpoint (for container readiness & orchestration)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(HealthResponse{
-			Status:  "UP",
-			Service: "mock-pvmbg",
-		})
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, HealthResponse{Status: "UP", Service: "mock-pvmbg"})
 	})
-
-	// NOTE (Aldoy / Member A):
-	// Implement mock endpoints here (GET /volcanic-reports, POST /admin/schema-version, POST /admin/outage).
-	// Refer to services/mock-pvmbg/README.md and contracts/pvmbg.yaml for specifications.
+	mux.HandleFunc("GET /volcanic-reports", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, []VolcanicReport{})
+	})
 
 	server := &http.Server{
 		Addr:         ":" + port,
@@ -48,7 +49,6 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
 	go func() {
 		log.Printf("[mock-pvmbg] Server listening on port %s", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -57,14 +57,17 @@ func main() {
 	}()
 
 	<-stop
-	log.Println("[mock-pvmbg] Shutting down server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("[mock-pvmbg] Forced shutdown: %v", err)
 	} else {
 		log.Println("[mock-pvmbg] Server stopped cleanly")
 	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }
