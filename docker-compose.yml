@@ -127,7 +127,6 @@ services:
     environment:
       PORT: 8080
       AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
-      AUTH_URL: ${AUTH_URL:-http://auth:8084}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
     depends_on:
       aggregator:
