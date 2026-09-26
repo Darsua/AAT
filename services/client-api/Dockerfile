@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Cache dependencies
 COPY go.mod go.sum* ./
-RUN go mod download || true
+RUN go mod download
 
 COPY . .
 
