@@ -100,20 +100,25 @@ type refreshRecord struct {
 type refreshStore struct {
 	mu              sync.Mutex
 	records         map[string]*refreshRecord
-	revokedSessions map[string]struct{}
+	revokedSessions map[string]time.Time
 }
 
 func newRefreshStore() *refreshStore {
 	return &refreshStore{
 		records:         make(map[string]*refreshRecord),
-		revokedSessions: make(map[string]struct{}),
+		revokedSessions: make(map[string]time.Time),
 	}
 }
 
-// create repo, this is not stateless and contradicts 005, tapi acc token masih stateless, it should be fine
-func (s *refreshStore) create(token string, record refreshRecord) error {
+// create stores only the refresh-token hash. Expired records are removed lazily
+// during token creation and consumption so the in-memory store stays bounded.
+func (s *refreshStore) create(token string, record refreshRecord, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(now)
+	if !now.Before(record.ExpiresAt) {
+		return errInvalidGrant
+	}
 	if _, revoked := s.revokedSessions[record.SessionID]; revoked {
 		return errInvalidGrant
 	}
@@ -121,13 +126,13 @@ func (s *refreshStore) create(token string, record refreshRecord) error {
 	return nil
 }
 
-// throw token yang digunaan, cek apakah masih ada di repo
 func (s *refreshStore) consume(token string, now time.Time) (refreshRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cleanupExpiredLocked(now)
 
 	record, exists := s.records[tokenHash(token)]
-	if !exists || record.Revoked || !now.Before(record.ExpiresAt) {
+	if !exists || record.Revoked {
 		return refreshRecord{}, errInvalidGrant
 	}
 	if record.Used {
@@ -138,12 +143,30 @@ func (s *refreshStore) consume(token string, now time.Time) (refreshRecord, erro
 	return *record, nil
 }
 
-// mirip blacklist dengan ganti atribut revoked, jadi server side bukan client
 func (s *refreshStore) revokeSessionLocked(sessionID string) {
-	s.revokedSessions[sessionID] = struct{}{}
+	var expiresAt time.Time
 	for _, record := range s.records {
 		if record.SessionID == sessionID {
 			record.Revoked = true
+			if record.ExpiresAt.After(expiresAt) {
+				expiresAt = record.ExpiresAt
+			}
+		}
+	}
+	if !expiresAt.IsZero() {
+		s.revokedSessions[sessionID] = expiresAt
+	}
+}
+
+func (s *refreshStore) cleanupExpiredLocked(now time.Time) {
+	for hash, record := range s.records {
+		if !now.Before(record.ExpiresAt) {
+			delete(s.records, hash)
+		}
+	}
+	for sessionID, expiresAt := range s.revokedSessions {
+		if !now.Before(expiresAt) {
+			delete(s.revokedSessions, sessionID)
 		}
 	}
 }
@@ -188,7 +211,6 @@ func (s *authService) refresh(refreshToken string) (tokenResponse, error) {
 	return s.issueTokenPair(record.ClientID, record.Role, record.Scope, record.SessionID)
 }
 
-// untuk session
 func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (tokenResponse, error) {
 	now := s.now().UTC()
 	claims := accessClaims{
@@ -222,7 +244,7 @@ func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (t
 		Scope:     scope,
 		SessionID: sessionID,
 		ExpiresAt: now.Add(refreshTokenTTL),
-	}); err != nil {
+	}, now); err != nil {
 		return tokenResponse{}, err
 	}
 
@@ -357,6 +379,9 @@ func clientRegistryFromEnvironment() (map[string]clientCredential, error) {
 		secret, err := requiredEnvironment(definition.secretEnvironment)
 		if err != nil {
 			return nil, err
+		}
+		if _, exists := clients[clientID]; exists {
+			return nil, fmt.Errorf("duplicate client ID configured: %q", clientID)
 		}
 		clients[clientID] = clientCredential{Secret: secret, Role: definition.role, Scope: definition.scope}
 	}

@@ -49,8 +49,8 @@ The service is self-contained in one Go module. Other microservices communicate 
 - **Algorithm:** HMAC-SHA256 (`HS256`).
 - **Secret Key:** Provided via environment variable `JWT_SECRET` (default: `super-secret-jwt-key-2026`).
 
-### 2.3 Access Token Lifetime (60s TTL Requirement)
-- **TTL:** Exactly **60 seconds** (`exp = time.Now().Add(60 * time.Second).Unix()`).
+### 2.3 Access Token Lifetime
+- **TTL:** Defaults to **60 seconds** and can be configured with `JWT_TTL_SECONDS`, as defined by `contracts/auth_api.yaml`.
 - Short TTL minimizes the blast radius of compromised tokens and ensures near real-time revocation enforcement when permissions change.
 
 ### 2.4 Token Claims Structure
@@ -200,6 +200,6 @@ curl -i -X POST http://localhost:8084/auth/refresh \
 - [x] Configure `jwt.SigningMethodHS256` using `JWT_SECRET`.
 - [x] Implement user/client credential validation table or in-memory store for `media`, `field`, and `internal` identities.
 - [x] Implement role → scope mapping (`media`→`hazards:read:summary`, `field`/`internal`→`hazards:read:all`) per §2.5, and embed the resulting string in the JWT `scope` claim — **not** the bare role name. This is what `client-api` actually validates.
-- [x] Implement JWT token generation with standard and custom claims (`scope`, `role`), ensuring `exp` is 60 seconds.
+- [x] Implement JWT token generation with standard and custom claims (`scope`, `role`), with a default `exp` of 60 seconds.
 - [x] Implement in-memory or Redis-backed store for active refresh tokens.
 - [x] Implement refresh token rotation logic in `POST /auth/refresh` with reuse detection.
