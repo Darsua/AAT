@@ -103,14 +103,14 @@ services:
       - "${AUTH_PORT:-8084}:8084"
     environment:
       PORT: 8084
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-60}
       AUTH_MEDIA_CLIENT_ID: ${AUTH_MEDIA_CLIENT_ID:-test-media-client}
-      AUTH_MEDIA_CLIENT_SECRET: ${AUTH_MEDIA_CLIENT_SECRET:?AUTH_MEDIA_CLIENT_SECRET is required}
+      AUTH_MEDIA_CLIENT_SECRET: ${AUTH_MEDIA_CLIENT_SECRET:-secret123}
       AUTH_FIELD_CLIENT_ID: ${AUTH_FIELD_CLIENT_ID:-test-field-client}
-      AUTH_FIELD_CLIENT_SECRET: ${AUTH_FIELD_CLIENT_SECRET:?AUTH_FIELD_CLIENT_SECRET is required}
+      AUTH_FIELD_CLIENT_SECRET: ${AUTH_FIELD_CLIENT_SECRET:-secret123}
       AUTH_INTERNAL_CLIENT_ID: ${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}
-      AUTH_INTERNAL_CLIENT_SECRET: ${AUTH_INTERNAL_CLIENT_SECRET:?AUTH_INTERNAL_CLIENT_SECRET is required}
+      AUTH_INTERNAL_CLIENT_SECRET: ${AUTH_INTERNAL_CLIENT_SECRET:-secret123}
     networks:
       - bnpb-internal
       - bnpb-public
@@ -127,7 +127,7 @@ services:
     environment:
       PORT: 8080
       AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
     depends_on:
       aggregator:
         condition: service_healthy
