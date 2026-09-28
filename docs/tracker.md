@@ -4,6 +4,7 @@
 **Target Project Completion:** **02 October 2026** (Internal target with 7-day contingency buffer)  
 **Hard Submission Deadline:** **09 October 2026, 23:59 WIB**  
 **Demonstration:** H+1 after deadline  
+**Last Updated:** **28 September 2026**
 
 ---
 
@@ -13,7 +14,7 @@
 |---|---|---|---|---|
 | **Phase 1: Alignment** | 21–22 Sep | Architecture decisions, service boundaries, frozen contracts, Docker Compose & CI | All ADRs, contracts, compose, and CI active on `main` | **COMPLETED ✅** |
 | **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **IN PROGRESS** |
-| **Phase 3: Integration** | 28–30 Sep | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers | **NOT STARTED** |
+| **Phase 3: Integration** | 28–30 Sep | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers | **IN PROGRESS** |
 | **Phase 4: Validation** | 30 Sep–01 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, failure injection | All acceptance criteria evidenced | **NOT STARTED** |
 | **Phase 5: Closeout** | 01–02 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **NOT STARTED** |
 | **Buffer Period** | 03–08 Oct | 7-day contingency buffer for rehearsal, edge-case bugfixes, and grading prep | Zero new feature code; dry runs only | **NOT STARTED** |
@@ -56,12 +57,18 @@
   *Deliverable:* Config parser from environment variables, correlation ID middleware (`X-Correlation-ID`), structured logger, and `:8083` server engine.
 
 #### Member C (Jenka) — Authentication & Broker Provisioning
-- [ ] **`C-01`** — **Build Auth Service, client identities, token model, and environment config** (23–25 Sep)  
-  *Path:* [`services/auth/`](../services/auth/)  
-  *Deliverable:* `POST /auth/token` with 60s TTL (`JWT_TTL_SECONDS`), HS256 JWT generation with `scope` claim (`hazards:read:summary` vs `hazards:read:all`), and `POST /auth/refresh` single-use token rotation.
-- [ ] **`C-02`** — **Provision Redpanda/Kafka topic and consumer-group configuration** (23–25 Sep)  
-  *Path:* [`docker-compose.yml`](../docker-compose.yml)  
-  *Deliverable:* Verified topic `bnpb.hazard-events` with 3 partitions and consumer groups (`bnpb-dashboard-group`, `bnpb-notifier-group`).
+- [x] **`C-01`** — **Build Auth Service, client identities, token model, and environment config** (23–25 Sep)
+
+  *Path:* [`services/auth/`](../services/auth/)
+
+  *Deliverable:* `POST /auth/token` with 60s default TTL (`JWT_TTL_SECONDS`), HS256 JWT generation with `scope` claim (`hazards:read:summary` vs `hazards:read:all`), and `POST /auth/refresh` single-use token rotation with replay-driven session revocation.
+
+  *Verification:* [`services/auth/main_test.go`](../services/auth/main_test.go) covers token claims, invalid credentials, scope escalation, refresh rotation/replay, expiry, and duplicate client IDs; `go test -race ./...` passes.
+- [x] **`C-02`** — **Provision Redpanda/Kafka topic and consumer-group configuration** (23–25 Sep)
+
+  *Path:* [`docker-compose.yml`](../docker-compose.yml)
+
+  *Deliverable:* One-shot, idempotent `redpanda-init` provisioning for topic `bnpb.hazard-events` with 3 partitions and replication factor 1, plus configured consumer group IDs (`bnpb-dashboard-group`, `bnpb-notifier-group`). Consumer groups are created by Redpanda when their consumers first join.
 
 ---
 
@@ -80,9 +87,13 @@
   *Deliverable:* Atomic DB transaction committing `hazards` + `outbox_events`, and background relay goroutine publishing canonical `HazardEvent` messages to Redpanda (`hazard_id` as key).
 
 #### Member C (Jenka) — Client API & Downstream Consumers
-- [ ] **`C-03`** — **Build read-only API, filters, pagination, and Aggregator client** (28–30 Sep)  
-  *Path:* [`services/client-api/`](../services/client-api/)  
-  *Deliverable:* `GET /api/v1/hazards` proxying to `aggregator:8083/internal/hazards`, supporting `fields`, `since`, `type`, `severity`, `limit`, and `offset`.
+- [x] **`C-03`** — **Build read-only API, filters, pagination, and Aggregator client** (28–30 Sep)
+
+  *Path:* [`services/client-api/`](../services/client-api/)
+
+  *Deliverable:* `GET /api/v1/hazards` and `GET /api/v1/hazards/{id}` proxying to `aggregator:8083/internal/hazards`, with local JWT verification, Media summary-field protection, correlation-ID propagation, and support for `fields`, `since`, `type`, `severity`, `limit`, and `offset`.
+
+  *Verification:* [`services/client-api/main_test.go`](../services/client-api/main_test.go) covers JWT rejection, Media `403`, raw/summary projection, filter forwarding, by-ID retrieval, correlation IDs, and Aggregator failure handling; `go test -race ./...` passes.
 - [ ] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–01 Oct)  
   *Deliverable:* Enforce Media 403 Forbidden when requesting raw fields or `fields=all`. Allow Field/Internal full access.
 - [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01 Oct)  
@@ -158,8 +169,8 @@ Use this matrix to track and link evidence artifacts for the final report:
 | **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms | Darrel | Planned | `report/evidence/p2/` |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Planned | `report/evidence/p2/` |
 | **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `report/evidence/p3/` |
-| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `report/evidence/p3/` |
-| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `report/evidence/p3/` |
+| **`P3-02`** | P3 | Media Authorization (RBAC) | `go test ./services/client-api/...`; `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Unit tests pass; demo pending | `report/evidence/p3/` |
+| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `go test ./services/auth/...`; `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Unit tests pass; demo pending | `report/evidence/p3/` |
 | **`P4-01`** | P4 | Independent Container Restart | `docker compose restart aggregator` | Unrelated services remain functional; clean reconnect to database | Darrel | Planned | `report/evidence/p4/` |
 | **`P4-02`** | P4 | Flexible Canonical Storage | Query DB hazards table | Records before and after schema evolution coexist seamlessly | Darrel | Planned | `report/evidence/p4/` |
 | **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `report/evidence/p5/` |
