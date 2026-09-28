@@ -63,9 +63,12 @@ func TestPVMBGAuthSchemaAndOutageControls(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode evolved reports response: %v", err)
 	}
-	for _, report := range reports {
-		if report.ConfidenceLevel == nil || *report.ConfidenceLevel != 0.95 {
-			t.Fatalf("confidence_level missing or incorrect: %+v", report)
+	for i, report := range reports {
+		if report.ConfidenceLevel == nil {
+			t.Fatalf("confidence_level missing on report %d: %+v", i, report)
+		}
+		if *report.ConfidenceLevel < 0.80 || *report.ConfidenceLevel > 1.0 {
+			t.Fatalf("confidence_level out of range on report %d: %v", i, *report.ConfidenceLevel)
 		}
 	}
 

@@ -195,9 +195,9 @@ func (s *service) handleReports(w http.ResponseWriter, r *http.Request) {
 	reports := filterReports(s.reports, since)
 	s.mu.RUnlock()
 	if includeConfidence {
-		confidence := 0.95
 		for i := range reports {
-			reports[i].ConfidenceLevel = &confidence
+			c := 0.80 + float64(i%20)*0.01
+			reports[i].ConfidenceLevel = &c
 		}
 	}
 	writeJSON(w, http.StatusOK, reports)
@@ -280,9 +280,7 @@ func requireBearerToken(expected string, next http.Handler) http.Handler {
 }
 
 func decodeJSON(r *http.Request, destination any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(destination)
+	return json.NewDecoder(r.Body).Decode(destination)
 }
 
 func parseSince(r *http.Request) (*time.Time, error) {
