@@ -34,6 +34,36 @@ services:
       timeout: 3s
       retries: 5
 
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if rpk topic describe "$${TOPIC}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
+          echo "Topic '$${TOPIC}' already exists"
+        else
+          rpk topic create "$${TOPIC}" \
+            --partitions "$${TOPIC_PARTITIONS}" \
+            --replicas 1 \
+            -X brokers=redpanda:9092
+        fi
+        partition_metadata="$$(rpk topic describe "$${TOPIC}" --print-partitions -X brokers=redpanda:9092)"
+        printf '%s\n' "$${partition_metadata}"
+        actual_partitions="$$(printf '%s\n' "$${partition_metadata}" | awk 'NR > 1 && $$1 ~ /^[0-9]+$$/ { count++ } END { print count + 0 }')"
+        if [ "$${actual_partitions}" -ne "$${TOPIC_PARTITIONS}" ]; then
+          echo "Expected $${TOPIC_PARTITIONS} partitions for '$${TOPIC}', found $${actual_partitions}" >&2
+          exit 1
+        fi
+    environment:
+      TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - bnpb-internal
+    restart: "no"
+
   mock-bmkg:
     build: ./services/mock-bmkg
     ports:
@@ -83,6 +113,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
       mock-bmkg:
         condition: service_healthy
       mock-pvmbg:

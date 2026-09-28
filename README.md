@@ -375,6 +375,7 @@ docker compose run --rm \
 | `DATABASE_URL` | `postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable` | Full PostgreSQL connection URI. |
 | `REDPANDA_BROKERS` | `redpanda:9092` | Internal Kafka broker address for services. |
 | `KAFKA_TOPIC_HAZARDS` | `bnpb.hazard-events` | Redpanda topic for canonical hazard event broadcasts. |
+| `KAFKA_TOPIC_PARTITIONS` | `3` | Number of partitions provisioned for the hazard-event topic. |
 | `CONSUMER_GROUP_DASHBOARD` | `bnpb-dashboard-group` | Consumer group ID for dashboard subscriber. |
 | `CONSUMER_GROUP_NOTIFIER` | `bnpb-notifier-group` | Consumer group ID for notification alert subscriber. |
 | `BMKG_URL` | `http://mock-bmkg:8081` | Internal URL for polling BMKG mock. |
