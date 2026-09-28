@@ -1,0 +1,24 @@
+{
+  "reports": [
+    {"report_id":"pvmbg-rpt-20260905-001","volcano_id":"VLC-001","alert_level":"Siaga","eruption_count_24h":12,"ash_column_height_m":750.0,"reported_at":"2026-09-05T15:30:00Z"},
+    {"report_id":"pvmbg-rpt-20260906-001","volcano_id":"VLC-002","alert_level":"Waspada","eruption_count_24h":2,"ash_column_height_m":180.0,"reported_at":"2026-09-06T04:20:00Z"},
+    {"report_id":"pvmbg-rpt-20260907-001","volcano_id":"VLC-003","alert_level":"Siaga","eruption_count_24h":8,"ash_column_height_m":900.0,"reported_at":"2026-09-07T09:45:00Z"},
+    {"report_id":"pvmbg-rpt-20260908-001","volcano_id":"VLC-004","alert_level":"Waspada","eruption_count_24h":4,"ash_column_height_m":250.0,"reported_at":"2026-09-08T12:10:00Z"},
+    {"report_id":"pvmbg-rpt-20260909-001","volcano_id":"VLC-005","alert_level":"Waspada","eruption_count_24h":3,"ash_column_height_m":320.0,"reported_at":"2026-09-09T18:35:00Z"},
+    {"report_id":"pvmbg-rpt-20260910-001","volcano_id":"VLC-006","alert_level":"Awas","eruption_count_24h":15,"ash_column_height_m":1800.0,"reported_at":"2026-09-10T02:25:00Z"},
+    {"report_id":"pvmbg-rpt-20260911-001","volcano_id":"VLC-001","alert_level":"Siaga","eruption_count_24h":10,"ash_column_height_m":680.0,"reported_at":"2026-09-11T06:50:00Z"},
+    {"report_id":"pvmbg-rpt-20260912-001","volcano_id":"VLC-002","alert_level":"Waspada","eruption_count_24h":1,"ash_column_height_m":120.0,"reported_at":"2026-09-12T11:15:00Z"},
+    {"report_id":"pvmbg-rpt-20260913-001","volcano_id":"VLC-003","alert_level":"Siaga","eruption_count_24h":7,"ash_column_height_m":820.0,"reported_at":"2026-09-13T14:40:00Z"},
+    {"report_id":"pvmbg-rpt-20260914-001","volcano_id":"VLC-004","alert_level":"Siaga","eruption_count_24h":6,"ash_column_height_m":520.0,"reported_at":"2026-09-14T20:05:00Z"},
+    {"report_id":"pvmbg-rpt-20260915-001","volcano_id":"VLC-005","alert_level":"Normal","eruption_count_24h":0,"ash_column_height_m":0.0,"reported_at":"2026-09-15T03:30:00Z"},
+    {"report_id":"pvmbg-rpt-20260916-001","volcano_id":"VLC-006","alert_level":"Awas","eruption_count_24h":17,"ash_column_height_m":2100.0,"reported_at":"2026-09-16T07:55:00Z"},
+    {"report_id":"pvmbg-rpt-20260917-001","volcano_id":"VLC-001","alert_level":"Siaga","eruption_count_24h":11,"ash_column_height_m":710.0,"reported_at":"2026-09-17T10:20:00Z"},
+    {"report_id":"pvmbg-rpt-20260918-001","volcano_id":"VLC-002","alert_level":"Waspada","eruption_count_24h":2,"ash_column_height_m":210.0,"reported_at":"2026-09-18T13:45:00Z"},
+    {"report_id":"pvmbg-rpt-20260919-001","volcano_id":"VLC-003","alert_level":"Siaga","eruption_count_24h":9,"ash_column_height_m":970.0,"reported_at":"2026-09-19T16:10:00Z"},
+    {"report_id":"pvmbg-rpt-20260920-001","volcano_id":"VLC-004","alert_level":"Waspada","eruption_count_24h":5,"ash_column_height_m":400.0,"reported_at":"2026-09-20T19:35:00Z"},
+    {"report_id":"pvmbg-rpt-20260921-001","volcano_id":"VLC-005","alert_level":"Waspada","eruption_count_24h":3,"ash_column_height_m":280.0,"reported_at":"2026-09-21T22:00:00Z"},
+    {"report_id":"pvmbg-rpt-20260922-001","volcano_id":"VLC-006","alert_level":"Awas","eruption_count_24h":14,"ash_column_height_m":1750.0,"reported_at":"2026-09-22T01:25:00Z"},
+    {"report_id":"pvmbg-rpt-20260923-001","volcano_id":"VLC-001","alert_level":"Siaga","eruption_count_24h":13,"ash_column_height_m":800.0,"reported_at":"2026-09-23T05:50:00Z"},
+    {"report_id":"pvmbg-rpt-20260924-001","volcano_id":"VLC-002","alert_level":"Waspada","eruption_count_24h":2,"ash_column_height_m":160.0,"reported_at":"2026-09-24T08:15:00Z"}
+  ]
+}
