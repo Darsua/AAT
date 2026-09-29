@@ -37,15 +37,15 @@
 ### Phase 2: Foundation Build (23–25 Sep)
 
 #### Member A (Aldoy) — Mock Services
-- [ ] **`A-01`** — **Build BMKG mock endpoints and health check** (23–24 Sep)  
+- [x] **`A-01`** — **Build BMKG mock endpoints and health check** (23–24 Sep)<br>
   *Path:* [`services/mock-bmkg/`](../services/mock-bmkg/)  
   *Deliverable:* `GET /health` and `GET /seismic-events` responding on `:8081`.
-- [ ] **`A-02`** — **Build PVMBG mock endpoints and health check** (23–24 Sep)  
+- [x] **`A-02`** — **Build PVMBG mock endpoints and health check** (23–24 Sep)<br>
   *Path:* [`services/mock-pvmbg/`](../services/mock-pvmbg/)  
   *Deliverable:* `GET /health` and `GET /volcanic-reports` responding on `:8082`.
-- [ ] **`A-03`** — **Add seed generation, new-event generation, auth, and delay controls** (24–25 Sep)  
+- [x] **`A-03`** — **Add seed generation, new-event generation, auth, and delay controls** (24–25 Sep)<br>
   *Deliverable:* `X-BMKG-Key` check, Bearer token check, 50–150ms BMKG latency, 500ms–3s PVMBG latency, and $\ge 1$ new event / 10s generation rate.
-- [ ] **`A-04`** — **Add PVMBG schema toggle and instant outage control** (25 Sep)  
+- [x] **`A-04`** — **Add PVMBG schema toggle and instant outage control** (25 Sep)<br>
   *Deliverable:* `POST /admin/schema-version` (`include_confidence_level`) and `POST /admin/outage` (`is_outage`).
 
 #### Member B (Darrel) — Storage & Aggregator Core
@@ -74,11 +74,11 @@
 
 ### Phase 3: Integration & Core Pipeline (28–30 Sep)
 
-#### Member A (Aldoy) — Upstream Data Adapters
-- [ ] **`A-05`** — **Build BMKG/PVMBG adapters and dynamic source parsing** (28–30 Sep)  
-  *Deliverable:* Stable upstream data delivery under continuous polling without panics.
-
 #### Member B (Darrel) — Aggregator Pipeline & Outbox Relay
+- [ ] **`A-05`** — **Implement Aggregator adapters and dynamic source parsing** (28–30 Sep)
+  *Owner:* Member B (Darrel)
+  *Dependency:* `A-01`, `A-02`, `A-04`, `B-02`.
+  *Deliverable:* Aggregator polling parses BMKG/PVMBG contracts without strict-field failures and forwards dynamic fields to `attributes`.
 - [ ] **`B-03`** — **Implement independent polling workers, cursors, overlap, and deduplication** (28–30 Sep)  
   *Deliverable:* 2–5s polling loops for BMKG and PVMBG with `since` query parameter, error backoff, and idempotent DB upsert on `(source, source_ref_id)`.
 - [ ] **`B-04`** — **Implement HazardEvent mapping, severity rules, and attributes** (28–30 Sep)  
