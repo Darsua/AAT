@@ -192,12 +192,12 @@ func newAuthService(secret string, accessTTL time.Duration, clients map[string]c
 }
 
 // autentikasi + issuetokenpair
-func (s *authService) authenticate(clientID, clientSecret, requestedRole string) (tokenResponse, error) {
+func (s *authService) authenticate(clientID, clientSecret, requestedScope string) (tokenResponse, error) {
 	client, exists := s.clients[clientID]
 	if !exists || !secretsEqual(client.Secret, clientSecret) {
 		return tokenResponse{}, errInvalidCredentials
 	}
-	if requestedRole != client.Role {
+	if requestedScope != client.Role && requestedScope != client.Scope {
 		return tokenResponse{}, errForbiddenScope
 	}
 	return s.issueTokenPair(clientID, client.Role, client.Scope, "")

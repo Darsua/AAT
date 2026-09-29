@@ -54,6 +54,17 @@ func TestIssueToken(t *testing.T) {
 	if claims.IssuedAt == nil || claims.ExpiresAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) != time.Minute {
 		t.Fatalf("expected a 60-second token lifetime, got iat=%v exp=%v", claims.IssuedAt, claims.ExpiresAt)
 	}
+
+	// Verify that requesting the canonical scope name directly also succeeds
+	canonicalScopeReq := tokenRequest{
+		ClientID:       "media-test-client",
+		ClientSecret:   clientSecret,
+		RequestedScope: "hazards:read:summary",
+	}
+	canonicalResp := performJSONRequest(t, handler, http.MethodPost, "/auth/token", canonicalScopeReq)
+	if canonicalResp.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for canonical scope, got %d: %s", canonicalResp.Code, canonicalResp.Body.String())
+	}
 }
 
 func TestIssueTokenRejectsInvalidRequests(t *testing.T) {
