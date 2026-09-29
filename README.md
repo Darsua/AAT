@@ -13,6 +13,26 @@ The platform continuously ingests, harmonizes, enriches, and broadcasts critical
 
 ---
 
+## Table of Contents
+- [1. Engineering Team & Ownership Matrix](#1-engineering-team--ownership-matrix)
+- [2. Architecture Overview](#2-architecture-overview)
+- [3. Port Mapping & Service Directory](#3-port-mapping--service-directory)
+- [4. Architecture Decision Records (ADRs)](#4-architecture-decision-records-adrs)
+- [5. Frozen Data Contracts](#5-frozen-data-contracts)
+- [6. System Prerequisites](#6-system-prerequisites)
+- [7. Quickstart Guide](#7-quickstart-guide)
+- [8. Demonstration & Grading Runbook](#8-demonstration--grading-runbook)
+  - [Evaluator Quick Verification Matrix](#evaluator-quick-verification-matrix)
+  - [Problem 1 (P1): Dynamic Live Schema Evolution](#problem-1-p1-dynamic-live-schema-evolution)
+  - [Problem 2 (P2): Upstream Outage Simulation & 50-Connection Load Test](#problem-2-p2-upstream-outage-simulation--50-connection-load-test)
+  - [Problem 3 (P3): Scoped Access Control, Media 403 & 60s TTL Token Refresh](#problem-3-p3-scoped-access-control-media-403--60s-ttl-token-refresh)
+  - [Problem 4 (P4): Independent Container Rebuild & Restart Resilience](#problem-4-p4-independent-container-rebuild--restart-resilience)
+  - [Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer](#problem-5-p5-pub-sub-fan-out-consumer-downtime-recovery--dynamic-3rd-consumer)
+- [9. Configuration Reference (`.env.example`)](#9-configuration-reference-envexample)
+- [10. Project Management & Service Guides](#10-project-management--service-guides)
+
+---
+
 ## 1. Engineering Team & Ownership Matrix
 
 | Member | Student ID (NIM) | Role & Responsibility Boundaries | Assigned Scope |
@@ -42,6 +62,7 @@ flowchart TD
 
         subgraph EventBroker["Event Fan-Out (Redpanda / Kafka API)"]
             Broker[("redpanda:9092 / 19092\nTopic: bnpb.hazard-events\n- Committed Offset Management\n- Log Compaction & Replay")]
+            Init["redpanda-init (one-shot)\nTopic Bootstrap: 3 Partitions"]
         end
 
         subgraph SecurityGateway["Access Control & Gateway (Jenka / Member C)"]
@@ -61,6 +82,9 @@ flowchart TD
         Field["Field Teams (BASARNAS / Pemda)\nScope: hazards:read:all\n(Full Telemetry, 60s TTL + Refresh)"]
         InternalOps["BNPB Pusat Command Center\nScope: hazards:read:all"]
     end
+
+    %% Initialization Flow
+    Init -.->|Bootstrap Topic & Partitions| Broker
 
     %% Ingestion Flow
     BMKG -->|HTTP Polling every 3s| Aggregator
@@ -88,7 +112,7 @@ flowchart TD
 | **`client-api`** | `services/client-api/` | `8080` | `8080:8080` | Public (`bnpb-public`) | Public API Gateway. Enforces JWT scopes, redacts raw telemetry for media, propagates `X-Correlation-ID`. |
 | **`mock-bmkg`** | `services/mock-bmkg/` | `8081` | `8081:8081` | Public / Internal | Upstream mock for BMKG. Injects 50–150ms simulated latency, requires `X-BMKG-Key`. |
 | **`mock-pvmbg`** | `services/mock-pvmbg/` | `8082` | `8082:8082` | Public / Internal | Upstream mock for PVMBG. Injects 500ms–3s latency, requires Bearer token, supports schema/outage admin toggles. |
-| **`aggregator`** | `services/aggregator/` | `8083` | *None* | Internal Only (`bnpb-internal`) | Core orchestrator. Polls sources, performs static volcano joins, writes to Postgres + Outbox, exposes `/internal/hazards`. |
+| **`aggregator`** | `services/aggregator/` | `8083` | `127.0.0.1:8083` | Host Loopback / Internal (`bnpb-internal`) | Core orchestrator. Polls sources, performs static volcano joins, writes to Postgres + Outbox, exposes `/internal/hazards`. Loopback bound to localhost for safe inspection without exposing to external network. |
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
@@ -180,7 +204,20 @@ make down
 
 Automated test scripts under [`scripts/`](scripts/) and Makefile targets provide instant verification for each assigned problem.
 
+### Evaluator Quick Verification Matrix
+
+| Problem | Focus Area | Make Target | Direct Script / Command | Key Verification Criterion | Target Ports | Tracker Reference |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Problem 1 (P1)** | Dynamic Schema Evolution | `make demo-p1` | `./scripts/test_schema_change.sh` | Additive `confidence_level` dynamically ingested into Postgres JSONB without restart/migrations. | `8082`, `8080` | [`P1-01..P1-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+| **Problem 2 (P2)** | Outage Handling & Concurrency | `make demo-p2`<br>`make load-test` | `./scripts/test_outage.sh`<br>`k6 run scripts/load_test.js` | BMKG stays healthy during PVMBG outage (`degraded: true`); 50 VUs sustained with p95 < 300ms. | `8082`, `8081`, `8080` | [`P2-01..P2-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+| **Problem 3 (P3)** | Scoped RBAC & Token Lifecycle | `make demo-p3` | `./scripts/test_cross_credential.sh`<br>`./scripts/test_auth_scopes.sh` | Media role gets `403 Forbidden` on raw fields / `fields=all`; 60s TTL token refresh rotation works. | `8084`, `8080`, `8081`, `8082` | [`P3-01..P3-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+| **Problem 4 (P4)** | Container Isolation & Rebuild | — | `docker compose restart aggregator`<br>`docker compose up -d --build client-api` | Zero cascading failures; clean DB reconnection on restart; schema coexistence in DB. | `8083`, `8080`, `5432` | [`P4-01..P4-02`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+| **Problem 5 (P5)** | Pub-Sub Fan-Out & Recovery | `make demo-p5` | `./scripts/test_consumer_recovery.sh` | Independent consumer group replay from offset after downtime; dynamic 3rd consumer addition. | `19092` | [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+
+---
+
 ### Problem 1 (P1): Dynamic Live Schema Evolution
+**Evidence Tracker Reference:** [`P1-01..P1-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify that PVMBG can introduce an additive field (`confidence_level: 0.95`) at runtime, and that the Aggregator persists it into PostgreSQL's `attributes JSONB` column without schema breaking, crashes, or migrations.
 
 ```bash
@@ -212,12 +249,13 @@ make demo-p1
 4. Wait 3 seconds for Aggregator ingestion, then query Client API with Field Responder token to verify the dynamic attribute is preserved in canonical storage:
    ```bash
    # Request full fields from Client API
-   curl -s -H "Authorization: Bearer <field_token>" "http://localhost:8080/api/v1/hazards?type=VOLCANIC&fields=all" | jq '.[0].attributes'
+   curl -s -H "Authorization: Bearer <field_token>" "http://localhost:8080/api/v1/hazards?type=VOLCANIC&fields=all" | jq '.data[0].attributes'
    ```
 
 ---
 
 ### Problem 2 (P2): Upstream Outage Simulation & 50-Connection Load Test
+**Evidence Tracker Reference:** [`P2-01..P2-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Simulate an unexpected outage of PVMBG (`mock-pvmbg`). Verify that:
 1. BMKG seismic reports continue to ingest and query normally (fault isolation).
 2. Volcanic queries gracefully return cached/stale data with `degraded: true` and `stale_since` timestamp.
@@ -259,6 +297,7 @@ curl -s -X POST http://localhost:8082/admin/outage \
 ---
 
 ### Problem 3 (P3): Scoped Access Control, Media 403 & 60s TTL Token Refresh
+**Evidence Tracker Reference:** [`P3-01..P3-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify Role-Based Access Control (RBAC):
 1. **Media Role**: Accessing summary fields returns `200 OK`. Requesting raw telemetry (`fields=all`) strictly returns **`403 Forbidden`**.
 2. **Field / Internal Role**: Accessing full telemetry (`fields=all`) returns `200 OK`.
@@ -299,6 +338,7 @@ curl -s -X POST http://localhost:8084/auth/refresh \
 ---
 
 ### Problem 4 (P4): Independent Container Rebuild & Restart Resilience
+**Evidence Tracker Reference:** [`P4-01..P4-02`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify zero tight coupling by demonstrating that any single container can be stopped, restarted, or rebuilt without cascading crashes across dependent services.
 
 ```bash
@@ -319,6 +359,7 @@ docker compose logs --tail=20 aggregator
 ---
 
 ### Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
+**Evidence Tracker Reference:** [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 > [!NOTE]
 > `dashboard-consumer`/`notifier-consumer` below are example names from `services/consumers/README.md`; the actual consumer service names/groups may differ once Member C implements them (see `docker-compose.yml`). Substitute your real names, or use the `CONSUMER_1_SERVICE`/`CONSUMER_2_SERVICE` env vars accepted by `scripts/test_consumer_recovery.sh`.
 
