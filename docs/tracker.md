@@ -13,7 +13,7 @@
 | Phase | Window | Focus / Goal | Exit Criteria | Status |
 |---|---|---|---|---|
 | **Phase 1: Alignment** | 21–22 Sep | Architecture decisions, service boundaries, frozen contracts, Docker Compose & CI | All ADRs, contracts, compose, and CI active on `main` | **COMPLETED ✅** |
-| **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **IN PROGRESS** |
+| **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **COMPLETED ✅** |
 | **Phase 3: Integration** | 28–30 Sep | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers | **IN PROGRESS** |
 | **Phase 4: Validation** | 30 Sep–01 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, failure injection | All acceptance criteria evidenced | **NOT STARTED** |
 | **Phase 5: Closeout** | 01–02 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **NOT STARTED** |

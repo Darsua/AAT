@@ -150,8 +150,9 @@ curl -i -H "X-BMKG-Key: bmkg-secret-key-2026" http://localhost:8081/tsunami-warn
 
 ## 6. Implementation Checklist for Aldoy
 
-- [ ] Parse and validate incoming `X-BMKG-Key` against `BMKG_API_KEY`.
-- [ ] Implement random latency generator between `50ms` and `150ms` before responding.
-- [ ] Load seed dataset from `seed.json` on startup.
-- [ ] Implement query filtering on `GET /seismic-events` (`limit`, `min_magnitude`).
-- [ ] Implement `GET /tsunami-warnings` filtering by active alert status.
+- [x] Parse and validate incoming `X-BMKG-Key` against `BMKG_API_KEY`.
+- [x] Implement random latency generator between `50ms` and `150ms` before responding.
+- [x] Load seed dataset from `seed.json` on startup (minimum 20 records).
+- [x] Implement query filtering on `GET /seismic-events` via `since` RFC3339 timestamp.
+- [x] Implement `GET /tsunami-warnings` filtering via `since` RFC3339 timestamp.
+- [x] Implement background event generator producing new events at least once every 10 seconds.

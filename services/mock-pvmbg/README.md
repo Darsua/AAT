@@ -212,9 +212,9 @@ curl -i -X POST http://localhost:8082/admin/schema-version \
 
 ## 7. Implementation Checklist for Aldoy
 
-- [ ] Implement Bearer token extraction and validation from `Authorization` header against `PVMBG_TOKEN`.
-- [ ] Implement random latency generator between `500ms` and `3000ms`.
-- [ ] Store state for schema evolution (`include_confidence_level`) and outage mode (`is_outage`) protected by a `sync.RWMutex`.
-- [ ] Handle `POST /admin/schema-version` to toggle `include_confidence_level`.
-- [ ] Handle `POST /admin/outage` to toggle `is_outage`.
-- [ ] Ensure `GET /volcanic-reports` immediately yields HTTP 503 when outage mode is active.
+- [x] Implement Bearer token extraction and validation from `Authorization` header against `PVMBG_TOKEN`.
+- [x] Implement random latency generator between `500ms` and `3000ms`.
+- [x] Store state for schema evolution (`include_confidence_level`) and outage mode (`is_outage`) protected by a `sync.RWMutex`.
+- [x] Handle `POST /admin/schema-version` to toggle `include_confidence_level`.
+- [x] Handle `POST /admin/outage` to toggle `is_outage`.
+- [x] Ensure `GET /volcanic-reports` immediately yields HTTP 503 when outage mode is active.

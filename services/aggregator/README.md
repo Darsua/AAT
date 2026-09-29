@@ -249,10 +249,10 @@ curl -i http://localhost:8083/internal/hazards
 
 ## 8. Implementation Plan for Darrel
 
-- [ ] Wire `pgxpool.New(ctx, databaseURL)` with connection pooling configurations (MaxConns: 25, MinConns: 5).
-- [ ] Implement database migrations (auto-migrate or migrate tool).
+- [x] Wire `pgxpool.New(ctx, databaseURL)` with connection pooling configurations (MaxConns: 25, MinConns: 5).
+- [x] Implement database migrations (auto-migrate or migrate tool).
 - [ ] Implement BMKG poller worker (`internal/ingest/bmkg.go`).
 - [ ] Implement PVMBG poller worker with circuit breaker and schema adapter (`internal/ingest/pvmbg.go`).
 - [ ] Implement atomic ingestion repository inserting into `hazards` and `outbox_events`.
 - [ ] Implement outbox publisher loop using `kafka-go.Writer` streaming to `bnpb.hazard-events`.
-- [ ] Implement `GET /internal/hazards` handler querying PostgreSQL with optional pagination & filtering.
+- [x] Implement `GET /internal/hazards` handler querying PostgreSQL with optional pagination & filtering.
