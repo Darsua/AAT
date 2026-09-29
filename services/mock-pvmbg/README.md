@@ -66,7 +66,7 @@ Controls dynamic live schema evolution (adding dynamic attribute `confidence_lev
   ```
 - **Behavior:**
   - When `include_confidence_level == false`: return reports without `confidence_level`.
-  - When `include_confidence_level == true`: return reports with dynamic `confidence_level: 0.95`.
+  - When `include_confidence_level == true`: return reports with dynamic `confidence_level` (deterministic range 0.80–0.99 per report).
 - **Response `200 OK`:**
   ```json
   {
@@ -107,7 +107,7 @@ Simulates upstream downtime (server crash, maintenance, satellite link drop).
 
 ## 4. Endpoints Contract
 
-Refer to authoritative OpenAPI specification in [`contracts/pvmbg.yaml`](file:///home/darrel/Projects/AAT/contracts/pvmbg.yaml).
+Refer to authoritative OpenAPI specification in [`contracts/pvmbg.yaml`](../../contracts/pvmbg.yaml).
 
 ### 4.1 `GET /health`
 Liveness check.

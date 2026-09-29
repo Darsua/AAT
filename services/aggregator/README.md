@@ -139,7 +139,7 @@ Shared contract between the Aggregator publisher and all downstream consumers:
 
 ## 4. Database Schema Design (PostgreSQL)
 
-Mounted automatically from [`migrations/001_init.sql`](file:///home/darrel/Projects/AAT/services/aggregator/migrations/001_init.sql):
+Mounted automatically from [`migrations/001_init.sql`](migrations/001_init.sql):
 
 ```sql
 -- 1. Canonical Hazards Table (Envelope + JSONB Attributes)
@@ -204,7 +204,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 
 ## 6. Domain Models Reference
 
-Defined in [`internal/domain/models.go`](file:///home/darrel/Projects/AAT/services/aggregator/internal/domain/models.go) (matching [`contracts/hazard_event.json`](file:///home/darrel/Projects/AAT/contracts/hazard_event.json)):
+Defined in [`internal/domain/models.go`](internal/domain/models.go) (matching [`contracts/hazard_event.json`](../../contracts/hazard_event.json)):
 - `Source`: `BMKG`, `PVMBG`.
 - `HazardType`: `SEISMIC`, `VOLCANIC`.
 - `Severity`: `NORMAL`, `WASPADA`, `SIAGA`, `AWAS`.

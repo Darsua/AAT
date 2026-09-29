@@ -98,30 +98,30 @@ flowchart TD
 
 ## 4. Architecture Decision Records (ADRs)
 
-All foundational architectural decisions are codified in central ADRs under [`docs/adr/`](file:///home/darrel/Projects/AAT/docs/adr/):
+All foundational architectural decisions are codified in central ADRs under [`docs/adr/`](docs/adr/):
 
-* **[ADR 001: Standardizing Microservices Implementation on Go](file:///home/darrel/Projects/AAT/docs/adr/001-service-language-all-go.md)**  
+* **[ADR 001: Standardizing Microservices Implementation on Go](docs/adr/001-service-language-all-go.md)**  
   *Justification for standardizing all 6 services on Go 1.22 instead of Python/FastAPI or a polyglot stack. Container efficiency (<25MB images, <100MB total idle memory), native concurrency handling 50 sustained connections without GIL/event-loop starvation, and zero multi-runtime friction via `go.work`.*
-* **[ADR 002: Selecting Redpanda as Kafka-Compatible Message Broker for Event Fan-Out](file:///home/darrel/Projects/AAT/docs/adr/002-message-broker-redpanda.md)**  
+* **[ADR 002: Selecting Redpanda as Kafka-Compatible Message Broker for Event Fan-Out](docs/adr/002-message-broker-redpanda.md)**  
   *Justification for Redpanda and pure Go `segmentio/kafka-go` over Apache Kafka (JVM bloat, slow startup), RabbitMQ, and NATS JetStream. Details consumer group offset tracking, at-least-once delivery, and consumer downtime recovery.*
-* **[ADR 003: Canonical Data Storage using PostgreSQL 16 with JSONB and Transactional Outbox](file:///home/darrel/Projects/AAT/docs/adr/003-canonical-storage-postgres-jsonb.md)**  
+* **[ADR 003: Canonical Data Storage using PostgreSQL 16 with JSONB and Transactional Outbox](docs/adr/003-canonical-storage-postgres-jsonb.md)**  
   *Mandatory 3-way comparative evaluation (PostgreSQL + JSONB vs. MongoDB vs. Strict SQL). Details why MongoDB was rejected (multi-document transactions strictly require replica sets) and why strict relational was rejected (violates P1 live schema changes). Details the Transactional Outbox pattern eliminating dual-write hazards.*
-* **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](file:///home/darrel/Projects/AAT/docs/adr/004-internal-communication-rest.md)**  
+* **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](docs/adr/004-internal-communication-rest.md)**  
   *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), sub-millisecond bridge network latency, and interface-driven decoupling (`HazardService`).*
-* **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](file:///home/darrel/Projects/AAT/docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
+* **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
   *Roadmap proving that Milestone 1 requires zero architectural rewrites for Milestone 2: stateless compute services, time-ordered UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), Envoy load balancing, Redis caching decorators, and circuit breakers.*
 
 ---
 
 ## 5. Frozen Data Contracts
 
-All service boundaries are governed by formal contracts located in [`contracts/`](file:///home/darrel/Projects/AAT/contracts/):
-* **[`contracts/hazard_event.json`](file:///home/darrel/Projects/AAT/contracts/hazard_event.json)**: Canonical JSON Schema classifying fields into **Summary Fields** (public/media) and **Raw Fields** (restricted).
-* **[`contracts/bmkg.yaml`](file:///home/darrel/Projects/AAT/contracts/bmkg.yaml)**: OpenAPI 3.0 specification for `mock-bmkg` (`:8081`).
-* **[`contracts/pvmbg.yaml`](file:///home/darrel/Projects/AAT/contracts/pvmbg.yaml)**: OpenAPI 3.0 specification for `mock-pvmbg` (`:8082`).
-* **[`contracts/aggregator_internal.yaml`](file:///home/darrel/Projects/AAT/contracts/aggregator_internal.yaml)**: OpenAPI 3.0 specification for `aggregator` internal endpoints (`:8083`).
-* **[`contracts/auth_api.yaml`](file:///home/darrel/Projects/AAT/contracts/auth_api.yaml)**: OpenAPI 3.0 specification for `auth` token authority (`:8084`).
-* **[`contracts/client_api.yaml`](file:///home/darrel/Projects/AAT/contracts/client_api.yaml)**: OpenAPI 3.0 specification for public `client-api` (`:8080`).
+All service boundaries are governed by formal contracts located in [`contracts/`](contracts/):
+* **[`contracts/hazard_event.json`](contracts/hazard_event.json)**: Canonical JSON Schema classifying fields into **Summary Fields** (public/media) and **Raw Fields** (restricted).
+* **[`contracts/bmkg.yaml`](contracts/bmkg.yaml)**: OpenAPI 3.0 specification for `mock-bmkg` (`:8081`).
+* **[`contracts/pvmbg.yaml`](contracts/pvmbg.yaml)**: OpenAPI 3.0 specification for `mock-pvmbg` (`:8082`).
+* **[`contracts/aggregator_internal.yaml`](contracts/aggregator_internal.yaml)**: OpenAPI 3.0 specification for `aggregator` internal endpoints (`:8083`).
+* **[`contracts/auth_api.yaml`](contracts/auth_api.yaml)**: OpenAPI 3.0 specification for `auth` token authority (`:8084`).
+* **[`contracts/client_api.yaml`](contracts/client_api.yaml)**: OpenAPI 3.0 specification for public `client-api` (`:8080`).
 
 ---
 
@@ -178,7 +178,7 @@ make down
 
 ## 8. Demonstration & Grading Runbook
 
-Automated test scripts under [`scripts/`](file:///home/darrel/Projects/AAT/scripts/) and Makefile targets provide instant verification for each assigned problem.
+Automated test scripts under [`scripts/`](scripts/) and Makefile targets provide instant verification for each assigned problem.
 
 ### Problem 1 (P1): Dynamic Live Schema Evolution
 **Goal**: Verify that PVMBG can introduce an additive field (`confidence_level: 0.95`) at runtime, and that the Aggregator persists it into PostgreSQL's `attributes JSONB` column without schema breaking, crashes, or migrations.
@@ -274,7 +274,7 @@ make demo-p3
 # 1. Acquire Media Token
 MEDIA_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"media-kompas","client_secret":"secret123","requested_scope":"media"}' | jq -r .access_token)
+  -d '{"client_id":"test-media-client","client_secret":"secret123","requested_scope":"media"}' | jq -r .access_token)
 
 # 2. Media queries summary fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=summary"
@@ -285,7 +285,7 @@ curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/
 # 4. Acquire Field Token
 FIELD_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"field-basarnas","client_secret":"secret123","requested_scope":"field"}' | jq -r .access_token)
+  -d '{"client_id":"test-field-client","client_secret":"secret123","requested_scope":"field"}' | jq -r .access_token)
 
 # 5. Field queries raw fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=all"
@@ -387,11 +387,22 @@ docker compose run --rm \
 | `AGGREGATOR_URL` | `http://aggregator:8083` | Internal URL for Aggregator service queries. |
 | `JWT_SECRET` | `super-secret-jwt-key-2026` | Shared HMAC-SHA256 secret for signing and verifying JWTs. |
 | `JWT_TTL_SECONDS` | `60` | Expiration lifetime for issued JWT access tokens. |
+| `AUTH_MEDIA_CLIENT_ID` | `test-media-client` | Client identity for Media role authentication. |
+| `AUTH_MEDIA_CLIENT_SECRET` | `secret123` | Shared secret for Media client authentication. |
+| `AUTH_FIELD_CLIENT_ID` | `test-field-client` | Client identity for Field responder role authentication. |
+| `AUTH_FIELD_CLIENT_SECRET` | `secret123` | Shared secret for Field responder client authentication. |
+| `AUTH_INTERNAL_CLIENT_ID` | `test-internal-client` | Client identity for Internal operations role authentication. |
+| `AUTH_INTERNAL_CLIENT_SECRET` | `secret123` | Shared secret for Internal operations client authentication. |
 
 ---
 
-## 10. Service Developer Guides
+## 10. Project Management & Service Guides
 
+### 10.1 Project Management & Guardrails
+* [Master Team Project Tracker & Evidence Matrix](docs/tracker.md) — 38-task breakdown, Gantt timeline, and grading evidence mapping.
+* [AI Agent Operating Guidelines & Guardrails](AGENTS.md) — Non-negotiable course rules, RACI ownership, and verification checklist.
+
+### 10.2 Service Developer Guides
 For localized developer instructions, internal contracts, and implementation checklists:
 * [Aggregator & Persistence Developer Guide](services/aggregator/README.md) (Member B — Darrel)
 * [Auth Service Developer Guide](services/auth/README.md) (Member C — Jenka)

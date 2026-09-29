@@ -115,4 +115,4 @@ Kafka guarantees **at-least-once delivery**, meaning transient network retransmi
   In production, this is backed by a local Redis set or database table with a unique constraint on `hazard_id`.
 
 ### 2. Synchronous Outbox Relay Decoupling
-To ensure that database transactions are not blocked by message broker network latency or transient broker outages, `services/aggregator` never publishes directly to Redpanda inside the HTTP request or polling transaction. Instead, it writes to an `outbox_events` table in PostgreSQL, which an asynchronous background relay publishes to Redpanda (see [ADR 003](file:///home/darrel/Projects/AAT/docs/adr/003-canonical-storage-postgres-jsonb.md)).
+To ensure that database transactions are not blocked by message broker network latency or transient broker outages, `services/aggregator` never publishes directly to Redpanda inside the HTTP request or polling transaction. Instead, it writes to an `outbox_events` table in PostgreSQL, which an asynchronous background relay publishes to Redpanda (see [ADR 003](003-canonical-storage-postgres-jsonb.md)).

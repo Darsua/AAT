@@ -45,7 +45,7 @@ The `mock-bmkg` service acts as an upstream simulation of the Indonesian BMKG se
 
 ## 3. Endpoints Contract
 
-Refer to authoritative OpenAPI specification in [`contracts/bmkg.yaml`](file:///home/darrel/Projects/AAT/contracts/bmkg.yaml).
+Refer to authoritative OpenAPI specification in [`contracts/bmkg.yaml`](../../contracts/bmkg.yaml).
 
 ### 3.1 `GET /health`
 Liveness and readiness probe for container orchestrator / docker-compose.

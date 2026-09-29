@@ -83,7 +83,7 @@ Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) D
 
 ### 2. Traffic Spikes and Read-Through Caching
 * During major disaster events, read queries on `GET /hazards` spike exponentially.
-* In Milestone 1, `client-api` uses the decoupled `HazardService` interface (see [ADR 004](file:///home/darrel/Projects/AAT/docs/adr/004-internal-communication-rest.md)):
+* In Milestone 1, `client-api` uses the decoupled `HazardService` interface (see [ADR 004](004-internal-communication-rest.md)):
   ```go
   type HazardService interface {
       GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error)

@@ -94,7 +94,7 @@ Tokens issued by `auth` contain a `scope` claim with one of two literal values: 
 
 ## 4. Endpoints Contract
 
-Refer to authoritative OpenAPI specification in [`contracts/client_api.yaml`](file:///home/darrel/Projects/AAT/contracts/client_api.yaml).
+Refer to authoritative OpenAPI specification in [`contracts/client_api.yaml`](../../contracts/client_api.yaml).
 
 ### 4.1 `GET /health`
 Liveness probe.
