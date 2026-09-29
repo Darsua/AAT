@@ -34,6 +34,36 @@ services:
       timeout: 3s
       retries: 5
 
+  redpanda-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if rpk topic describe "$${TOPIC}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
+          echo "Topic '$${TOPIC}' already exists"
+        else
+          rpk topic create "$${TOPIC}" \
+            --partitions "$${TOPIC_PARTITIONS}" \
+            --replicas 1 \
+            -X brokers=redpanda:9092
+        fi
+        partition_metadata="$$(rpk topic describe "$${TOPIC}" --print-partitions -X brokers=redpanda:9092)"
+        printf '%s\n' "$${partition_metadata}"
+        actual_partitions="$$(printf '%s\n' "$${partition_metadata}" | awk 'NR > 1 && $$1 ~ /^[0-9]+$$/ { count++ } END { print count + 0 }')"
+        if [ "$${actual_partitions}" -ne "$${TOPIC_PARTITIONS}" ]; then
+          echo "Expected $${TOPIC_PARTITIONS} partitions for '$${TOPIC}', found $${actual_partitions}" >&2
+          exit 1
+        fi
+    environment:
+      TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - bnpb-internal
+    restart: "no"
+
   mock-bmkg:
     build: ./services/mock-bmkg
     ports:
@@ -83,6 +113,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
       mock-bmkg:
         condition: service_healthy
       mock-pvmbg:
@@ -105,6 +137,12 @@ services:
       PORT: 8084
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-60}
+      AUTH_MEDIA_CLIENT_ID: ${AUTH_MEDIA_CLIENT_ID:-test-media-client}
+      AUTH_MEDIA_CLIENT_SECRET: ${AUTH_MEDIA_CLIENT_SECRET:-secret123}
+      AUTH_FIELD_CLIENT_ID: ${AUTH_FIELD_CLIENT_ID:-test-field-client}
+      AUTH_FIELD_CLIENT_SECRET: ${AUTH_FIELD_CLIENT_SECRET:-secret123}
+      AUTH_INTERNAL_CLIENT_ID: ${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}
+      AUTH_INTERNAL_CLIENT_SECRET: ${AUTH_INTERNAL_CLIENT_SECRET:-secret123}
     networks:
       - bnpb-internal
       - bnpb-public
@@ -121,7 +159,6 @@ services:
     environment:
       PORT: 8080
       AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
-      AUTH_URL: ${AUTH_URL:-http://auth:8084}
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
     depends_on:
       aggregator:

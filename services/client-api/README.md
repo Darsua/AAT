@@ -180,9 +180,9 @@ curl -i http://localhost:8080/api/v1/hazards?fields=summary \
 
 ## 6. Implementation Checklist for Jenka
 
-- [ ] Middleware: Read `X-Correlation-ID` or generate new UUID; set on context and response header.
-- [ ] Middleware: Parse and validate JWT from `Authorization: Bearer <token>` using `jwt.Parse` and `JWT_SECRET`.
-- [ ] Middleware / Guard: Check the JWT `scope` claim. Return `403 Forbidden` if a token with `scope: hazards:read:summary` (Media) requests `fields=all` or attempts to access raw telemetry.
-- [ ] Implement reverse proxy / HTTP client forwarder to `AGGREGATOR_URL + "/internal/hazards"`.
-- [ ] Forward `X-Correlation-ID` to downstream `aggregator`.
-- [ ] Handle aggregator network errors gracefully (return `502 Bad Gateway` or `504 Gateway Timeout`).
+- [x] Middleware: Read `X-Correlation-ID` or generate new UUID; set on context and response header.
+- [x] Middleware: Parse and validate JWT from `Authorization: Bearer <token>` using `jwt.Parse` and `JWT_SECRET`.
+- [x] Middleware / Guard: Check the JWT `scope` claim. Return `403 Forbidden` if a token with `scope: hazards:read:summary` (Media) requests `fields=all` or attempts to access raw telemetry.
+- [x] Implement reverse proxy / HTTP client forwarder to `AGGREGATOR_URL + "/internal/hazards"`.
+- [x] Forward `X-Correlation-ID` to downstream `aggregator`.
+- [x] Handle aggregator network errors gracefully (return `502 Bad Gateway` or `504 Gateway Timeout`).

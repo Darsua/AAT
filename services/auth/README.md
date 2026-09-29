@@ -1,6 +1,5 @@
 # Service: Authentication & Token Authority (Auth)
 
-**Assigned Owner:** Member C (Jenka)  
 **Module Name:** `bnpb/auth`  
 **Default Port:** `8084`  
 **Dependencies:** `github.com/golang-jwt/jwt/v5`  
@@ -11,6 +10,18 @@
 ## 1. Overview & Architecture Role
 
 The `auth` service is the central security authority for the BNPB platform. It issues short-lived JSON Web Tokens (JWTs) and manages refresh token rotation. Downstream services such as `client-api` use the shared secret or public key to verify incoming client credentials without coupling to user databases.
+
+### Project Structure
+
+```text
+services/auth/
+├── main.go                     # HTTP, authentication, and token logic
+├── Dockerfile
+├── go.mod
+└── go.sum
+```
+
+The service is self-contained in one Go module. Other microservices communicate with Auth through its HTTP contract instead of importing its implementation.
 
 ```
 +---------------+      POST /auth/token       +---------------+
@@ -38,8 +49,8 @@ The `auth` service is the central security authority for the BNPB platform. It i
 - **Algorithm:** HMAC-SHA256 (`HS256`).
 - **Secret Key:** Provided via environment variable `JWT_SECRET` (default: `super-secret-jwt-key-2026`).
 
-### 2.3 Access Token Lifetime (60s TTL Requirement)
-- **TTL:** Exactly **60 seconds** (`exp = time.Now().Add(60 * time.Second).Unix()`).
+### 2.3 Access Token Lifetime
+- **TTL:** Defaults to **60 seconds** and can be configured with `JWT_TTL_SECONDS`, as defined by `contracts/auth_api.yaml`.
 - Short TTL minimizes the blast radius of compromised tokens and ensures near real-time revocation enforcement when permissions change.
 
 ### 2.4 Token Claims Structure
@@ -149,13 +160,21 @@ Rotate refresh token and issue new 60s access token.
 # In services/auth
 export PORT=8084
 export JWT_SECRET="super-secret-jwt-key-2026"
+export AUTH_MEDIA_CLIENT_SECRET="secret123"
+export AUTH_FIELD_CLIENT_SECRET="secret123"
+export AUTH_INTERNAL_CLIENT_SECRET="secret123"
 go run main.go
 ```
 
 ### Build & Run with Docker
 ```bash
 docker build -t bnpb/auth:latest services/auth/
-docker run -p 8084:8084 -e JWT_SECRET="super-secret-jwt-key-2026" bnpb/auth:latest
+docker run -p 8084:8084 \
+  -e JWT_SECRET="super-secret-jwt-key-2026" \
+  -e AUTH_MEDIA_CLIENT_SECRET="secret123" \
+  -e AUTH_FIELD_CLIENT_SECRET="secret123" \
+  -e AUTH_INTERNAL_CLIENT_SECRET="secret123" \
+  bnpb/auth:latest
 ```
 
 ### Verification Commands
@@ -166,7 +185,7 @@ curl -i http://localhost:8084/health
 # 2. Issue token stub
 curl -i -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"media-cnn-indonesia","client_secret":"secret","requested_scope":"media"}'
+  -d '{"client_id":"test-media-client","client_secret":"secret123","requested_scope":"media"}'
 
 # 3. Refresh token stub
 curl -i -X POST http://localhost:8084/auth/refresh \
@@ -178,9 +197,9 @@ curl -i -X POST http://localhost:8084/auth/refresh \
 
 ## 6. Implementation Checklist for Jenka
 
-- [ ] Configure `jwt.SigningMethodHS256` using `JWT_SECRET`.
-- [ ] Implement user/client credential validation table or in-memory store for `media`, `field`, and `internal` identities.
-- [ ] Implement role → scope mapping (`media`→`hazards:read:summary`, `field`/`internal`→`hazards:read:all`) per §2.5, and embed the resulting string in the JWT `scope` claim — **not** the bare role name. This is what `client-api` actually validates.
-- [ ] Implement JWT token generation with standard and custom claims (`scope`, `role`), ensuring `exp` is 60 seconds.
-- [ ] Implement in-memory or Redis-backed store for active refresh tokens.
-- [ ] Implement refresh token rotation logic in `POST /auth/refresh` with reuse detection.
+- [x] Configure `jwt.SigningMethodHS256` using `JWT_SECRET`.
+- [x] Implement user/client credential validation table or in-memory store for `media`, `field`, and `internal` identities.
+- [x] Implement role → scope mapping (`media`→`hazards:read:summary`, `field`/`internal`→`hazards:read:all`) per §2.5, and embed the resulting string in the JWT `scope` claim — **not** the bare role name. This is what `client-api` actually validates.
+- [x] Implement JWT token generation with standard and custom claims (`scope`, `role`), with a default `exp` of 60 seconds.
+- [x] Implement in-memory or Redis-backed store for active refresh tokens.
+- [x] Implement refresh token rotation logic in `POST /auth/refresh` with reuse detection.

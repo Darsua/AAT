@@ -22,7 +22,7 @@ flowchart TD
         C1["client-api:8080"]
         A1["aggregator:8083"]
         DB1[("canonical-db:5432\nPostgreSQL")]
-        RP1[("redpanda:9092\nPartition 0")]
+        RP1[("redpanda:9092\nPartitions 0–2")]
         CG1["consumers (1 replica)"]
     end
 
@@ -128,8 +128,8 @@ Problem 2 introduces external provider outages (e.g., PVMBG downtime).
   * **Half-Open State**: Canary probe sent to verify provider recovery.
 
 ### 4. Topic Partitioning & High Throughput
-In Milestone 1, `bnpb.hazard-events` uses a single partition. For Milestone 2:
-* Increase partitions from 1 to 6.
+In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the one-shot `redpanda-init` Compose service. For Milestone 2:
+* Increase partitions from 3 to 6.
 * Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`).
 * Guarantees strict chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
 
