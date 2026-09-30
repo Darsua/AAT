@@ -207,3 +207,54 @@ func TestHazardHandler_InternalError(t *testing.T) {
 		t.Fatalf("expected status 500, got %d", rec.Code)
 	}
 }
+
+type mockDegradedProvider struct {
+	degraded   bool
+	staleSince *time.Time
+}
+
+func (m *mockDegradedProvider) GetDegradedStatus(hazardType *domain.HazardType) (bool, *time.Time) {
+	if hazardType != nil && *hazardType == domain.HazardTypeSeismic {
+		return false, nil
+	}
+	return m.degraded, m.staleSince
+}
+
+func TestHazardHandler_DegradedStatus(t *testing.T) {
+	stale := time.Now().Add(-5 * time.Minute).UTC()
+	mockStatus := &mockDegradedProvider{
+		degraded:   true,
+		staleSince: &stale,
+	}
+
+	mockRepo := &mockHazardQuerier{events: []domain.HazardEvent{}, total: 0}
+	handler := NewHazardHandler(mockRepo, mockStatus)
+
+	// Volcanic query should be degraded
+	req := httptest.NewRequest(http.MethodGet, "/internal/hazards?type=VOLCANIC", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	var resp HazardListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Meta.Degraded || resp.Meta.StaleSince == nil {
+		t.Errorf("expected degraded: true and stale_since not nil")
+	}
+
+	// Seismic query should NOT be degraded (fault isolation)
+	req2 := httptest.NewRequest(http.MethodGet, "/internal/hazards?type=SEISMIC", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	var resp2 HazardListResponse
+	if err := json.Unmarshal(rec2.Body.Bytes(), &resp2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp2.Meta.Degraded || resp2.Meta.StaleSince != nil {
+		t.Errorf("expected seismic query not degraded, got degraded=%v", resp2.Meta.Degraded)
+	}
+}

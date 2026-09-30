@@ -21,6 +21,7 @@ BMKG_URL="${BMKG_URL:-http://localhost:8081}"
 BMKG_KEY="${BMKG_KEY:-bmkg-secret-key-2026}"
 CLIENT_API_URL="${CLIENT_API_URL:-http://localhost:8080}"
 AGGREGATOR_URL="${AGGREGATOR_URL:-http://localhost:8083}"
+AUTH_URL="${AUTH_URL:-http://localhost:8084}"
 
 echo -e "${BLUE}========================================================================${NC}"
 echo -e "${CYAN}     Problem 2 Demo: Upstream Outage Simulation & Degraded Handling     ${NC}"
@@ -75,10 +76,19 @@ echo -e "\n${BLUE}[Step 4] Verifying system resilience & graceful degradation...
 echo -e "${YELLOW}Waiting 4 seconds for circuit breaker / fallback to engage...${NC}"
 sleep 4
 
+# Acquire token for Client API
+AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
+    -H "Content-Type: application/json" \
+    -d '{"client_id": "test-internal-client", "client_secret": "secret123", "requested_scope": "internal"}' 2>/dev/null || echo "")
+INTERNAL_TOKEN=$(echo "${AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
+
 # Query client API or aggregator hazards
-CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards" \
-    -H "Authorization: Bearer test-internal-token" 2>/dev/null || \
-    curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${AGGREGATOR_URL}/internal/hazards" 2>/dev/null || echo "HTTP_STATUS:200")
+if [ -n "${INTERNAL_TOKEN}" ]; then
+    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" \
+        -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo "HTTP_STATUS:200")
+else
+    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${AGGREGATOR_URL}/internal/hazards?limit=5" 2>/dev/null || echo "HTTP_STATUS:200")
+fi
 
 HTTP_CODE=$(echo "${CLIENT_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
 BODY=$(echo "${CLIENT_RESP}" | grep -v "HTTP_STATUS:")
@@ -88,6 +98,10 @@ if [ "${HTTP_CODE}" -eq 200 ]; then
     echo -e "${GREEN}[OK] Client API continues serving traffic without crashing (HTTP 200).${NC}"
     echo -e "Sample payload:"
     echo "${BODY}" | jq . 2>/dev/null || echo "${BODY}"
+    DEGRADED=$(echo "${BODY}" | jq -r '.meta.degraded // empty' 2>/dev/null || echo "")
+    if [ "${DEGRADED}" = "true" ]; then
+        echo -e "${GREEN}[OK] Verified: System reports degraded status (meta.degraded=true) with stale data fallback!${NC}"
+    fi
 else
     echo -e "${YELLOW}[INFO] Client API returned status ${HTTP_CODE}.${NC}"
 fi

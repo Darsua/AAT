@@ -19,6 +19,7 @@ PVMBG_URL="${PVMBG_URL:-http://localhost:8082}"
 PVMBG_TOKEN="${PVMBG_TOKEN:-pvmbg-bearer-token-2026}"
 CLIENT_API_URL="${CLIENT_API_URL:-http://localhost:8080}"
 AGGREGATOR_URL="${AGGREGATOR_URL:-http://localhost:8083}"
+AUTH_URL="${AUTH_URL:-http://localhost:8084}"
 
 echo -e "${BLUE}========================================================================${NC}"
 echo -e "${CYAN}   Problem 1 Demo: Dynamic Schema Evolution (PVMBG Confidence Level)     ${NC}"
@@ -81,14 +82,26 @@ echo -e "\n${BLUE}[Step 5] Verifying canonical ingestion tolerance in Client API
 echo -e "${YELLOW}Waiting 4 seconds for aggregator polling cycle...${NC}"
 sleep 4
 
+# Acquire token for Client API
+AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
+    -H "Content-Type: application/json" \
+    -d '{"client_id": "test-internal-client", "client_secret": "secret123", "requested_scope": "internal"}' 2>/dev/null || echo "")
+INTERNAL_TOKEN=$(echo "${AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
+
 # Check client API hazards or aggregator endpoint
-HAZARDS_RESP=$(curl -s -X GET "${CLIENT_API_URL}/api/v1/hazards?type=VOLCANIC" \
-    -H "Authorization: Bearer test-internal-token" 2>/dev/null || \
-    curl -s -X GET "${AGGREGATOR_URL}/internal/hazards?type=VOLCANIC" 2>/dev/null || echo "")
+if [ -n "${INTERNAL_TOKEN}" ]; then
+    HAZARDS_RESP=$(curl -s -X GET "${CLIENT_API_URL}/api/v1/hazards?type=VOLCANIC&fields=all&limit=5" \
+        -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo "")
+else
+    HAZARDS_RESP=$(curl -s -X GET "${AGGREGATOR_URL}/internal/hazards?type=VOLCANIC&limit=5" 2>/dev/null || echo "")
+fi
 
 if [ -n "${HAZARDS_RESP}" ]; then
     echo -e "Canonical hazards response:"
     echo "${HAZARDS_RESP}" | jq . 2>/dev/null || echo "${HAZARDS_RESP}"
+    if echo "${HAZARDS_RESP}" | grep -q '"confidence_level"'; then
+        echo -e "${GREEN}[OK] Verified: Canonical hazards successfully contain dynamic 'confidence_level' in attributes!${NC}"
+    fi
     echo -e "${GREEN}[OK] Aggregator digested dynamic schema without schema rupture or crash.${NC}"
 else
     echo -e "${YELLOW}[INFO] Client API / Aggregator hazard endpoint queried.${NC}"

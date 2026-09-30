@@ -1,0 +1,163 @@
+package normalizer
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"bnpb/aggregator/internal/adapter"
+	"bnpb/aggregator/internal/domain"
+)
+
+// VolcanoProvider defines the dependency needed to enrich volcanic reports with static coordinates.
+type VolcanoProvider interface {
+	GetVolcanoByID(ctx context.Context, id string) (*domain.VolcanoReference, error)
+}
+
+// Normalizer transforms upstream provider payloads into canonical HazardEvent entities.
+type Normalizer struct {
+	volcanoes VolcanoProvider
+}
+
+// NewNormalizer creates a new Normalizer instance.
+func NewNormalizer(volcanoes VolcanoProvider) *Normalizer {
+	return &Normalizer{
+		volcanoes: volcanoes,
+	}
+}
+
+// NormalizeSeismic maps BMKG seismic sensor data and correlated tsunami advisories into a canonical HazardEvent.
+func (n *Normalizer) NormalizeSeismic(event adapter.SeismicEventDTO, warnings []adapter.TsunamiWarningDTO) domain.HazardEvent {
+	hazardID := fmt.Sprintf("haz-bmkg-%s", event.EventID)
+	lat := event.EpicenterLat
+	lon := event.EpicenterLon
+
+	// Check for correlated tsunami warning
+	var correlated *adapter.TsunamiWarningDTO
+	for i := range warnings {
+		if warnings[i].RelatedEventID == event.EventID {
+			correlated = &warnings[i]
+			break
+		}
+	}
+
+	severity := deriveSeismicSeverity(event.Magnitude, correlated)
+
+	attrs := map[string]any{
+		"magnitude":         event.Magnitude,
+		"depth_km":          event.DepthKM,
+		"potential_tsunami": event.PotentialTsunami,
+	}
+
+	if correlated != nil {
+		attrs["tsunami_warning"] = map[string]any{
+			"warning_id":        correlated.WarningID,
+			"threat_level":      correlated.ThreatLevel,
+			"affected_zones":    correlated.AffectedZones,
+			"estimated_arrival": correlated.EstimatedArrival.UTC().Format(time.RFC3339),
+		}
+	}
+
+	return domain.HazardEvent{
+		HazardID:    hazardID,
+		Source:      domain.SourceBMKG,
+		SourceRefID: event.EventID,
+		HazardType:  domain.HazardTypeSeismic,
+		Severity:    severity,
+		AreaName:    event.RegionName,
+		Latitude:    &lat,
+		Longitude:   &lon,
+		Attributes:  attrs,
+		OccurredAt:  event.OccurredAt.UTC(),
+		IngestedAt:  time.Now().UTC(),
+	}
+}
+
+// NormalizeVolcanic maps PVMBG volcanic observations into a canonical HazardEvent, enriching coordinates from static references.
+func (n *Normalizer) NormalizeVolcanic(ctx context.Context, report adapter.VolcanicReportDTO) (domain.HazardEvent, error) {
+	hazardID := fmt.Sprintf("haz-pvmbg-%s", report.ReportID)
+
+	areaName := report.VolcanoID
+	var latPtr, lonPtr *float64
+
+	if n.volcanoes != nil {
+		volcano, err := n.volcanoes.GetVolcanoByID(ctx, report.VolcanoID)
+		if err != nil {
+			return domain.HazardEvent{}, fmt.Errorf("failed to lookup volcano reference %q: %w", report.VolcanoID, err)
+		}
+		if volcano != nil {
+			areaName = volcano.VolcanoName
+			lat := volcano.Latitude
+			lon := volcano.Longitude
+			latPtr = &lat
+			lonPtr = &lon
+		}
+	}
+
+	severity := mapAlertLevelToSeverity(report.AlertLevel)
+
+	attrs := map[string]any{
+		"volcano_id":          report.VolcanoID,
+		"eruption_count_24h":  report.EruptionCount24h,
+		"ash_column_height_m": report.AshColumnHeightM,
+	}
+
+	// Dynamic additive field forwarding (P1 live schema evolution requirement)
+	for k, v := range report.DynamicFields {
+		attrs[k] = v
+	}
+
+	return domain.HazardEvent{
+		HazardID:    hazardID,
+		Source:      domain.SourcePVMBG,
+		SourceRefID: report.ReportID,
+		HazardType:  domain.HazardTypeVolcanic,
+		Severity:    severity,
+		AreaName:    areaName,
+		Latitude:    latPtr,
+		Longitude:   lonPtr,
+		Attributes:  attrs,
+		OccurredAt:  report.ReportedAt.UTC(),
+		IngestedAt:  time.Now().UTC(),
+	}, nil
+}
+
+// deriveSeismicSeverity implements the graded severity derivation rules in spec §3.3.
+func deriveSeismicSeverity(magnitude float64, warning *adapter.TsunamiWarningDTO) domain.Severity {
+	if warning != nil {
+		lvl := strings.ToUpper(strings.TrimSpace(warning.ThreatLevel))
+		switch lvl {
+		case "AWAS":
+			return domain.SeverityAwas
+		case "SIAGA":
+			return domain.SeveritySiaga
+		case "WASPADA":
+			return domain.SeverityWaspada
+		}
+	}
+
+	// Fallback to magnitude-based severity
+	if magnitude < 5.0 {
+		return domain.SeverityNormal
+	} else if magnitude < 6.5 {
+		return domain.SeverityWaspada
+	}
+	return domain.SeveritySiaga
+}
+
+// mapAlertLevelToSeverity maps PVMBG alert levels 1:1 to canonical Severity enum.
+func mapAlertLevelToSeverity(alertLevel string) domain.Severity {
+	switch strings.ToUpper(strings.TrimSpace(alertLevel)) {
+	case "AWAS":
+		return domain.SeverityAwas
+	case "SIAGA":
+		return domain.SeveritySiaga
+	case "WASPADA":
+		return domain.SeverityWaspada
+	case "NORMAL":
+		return domain.SeverityNormal
+	default:
+		return domain.SeverityNormal
+	}
+}

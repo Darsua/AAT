@@ -40,7 +40,7 @@ export function setup() {
   let token = 'mock-loadtest-internal-token';
   try {
     const authPayload = JSON.stringify({
-      client_id: 'load-test-runner',
+      client_id: 'test-internal-client',
       client_secret: 'secret123',
       requested_scope: 'internal',
       role: 'internal',

@@ -243,3 +243,158 @@ func (r *HazardRepository) GetHazardByID(ctx context.Context, hazardID string) (
 
 	return &h, nil
 }
+
+// SaveHazardWithOutbox persists or updates a hazard record and an outbox event within a single ACID transaction.
+func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent) error {
+	if h.Attributes == nil {
+		h.Attributes = make(map[string]any)
+	}
+
+	attrsJSON, err := json.Marshal(h.Attributes)
+	if err != nil {
+		return fmt.Errorf("failed to marshal hazard attributes: %w", err)
+	}
+
+	payloadJSON, err := json.Marshal(h)
+	if err != nil {
+		return fmt.Errorf("failed to marshal hazard payload for outbox: %w", err)
+	}
+
+	ingestedAt := h.IngestedAt
+	if ingestedAt.IsZero() {
+		ingestedAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	// 1. Upsert hazard
+	hazardSQL := `
+		INSERT INTO hazards (
+			hazard_id, source, source_ref_id, hazard_type, severity, 
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (source, source_ref_id) DO UPDATE SET
+			severity = EXCLUDED.severity,
+			area_name = EXCLUDED.area_name,
+			latitude = EXCLUDED.latitude,
+			longitude = EXCLUDED.longitude,
+			attributes = EXCLUDED.attributes,
+			occurred_at = EXCLUDED.occurred_at,
+			ingested_at = EXCLUDED.ingested_at;
+	`
+	_, err = tx.Exec(ctx, hazardSQL,
+		h.HazardID,
+		string(h.Source),
+		h.SourceRefID,
+		string(h.HazardType),
+		string(h.Severity),
+		h.AreaName,
+		h.Latitude,
+		h.Longitude,
+		attrsJSON,
+		h.OccurredAt,
+		ingestedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert hazard %q: %w", h.HazardID, err)
+	}
+
+	// 2. Upsert outbox event
+	outboxEventID := fmt.Sprintf("outbox-%s-%s", strings.ToLower(string(h.Source)), h.SourceRefID)
+	outboxSQL := `
+		INSERT INTO outbox_events (event_id, event_type, payload, published)
+		VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (event_id) DO UPDATE SET
+			payload = EXCLUDED.payload,
+			published = FALSE,
+			published_at = NULL
+		WHERE outbox_events.payload != EXCLUDED.payload;
+	`
+	_, err = tx.Exec(ctx, outboxSQL, outboxEventID, "hazard_event", payloadJSON)
+	if err != nil {
+		return fmt.Errorf("failed to insert outbox event for %q: %w", h.HazardID, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction for hazard %q: %w", h.HazardID, err)
+	}
+
+	return nil
+}
+
+// GetLatestOccurredAt retrieves the most recent occurred_at timestamp for a given source.
+func (r *HazardRepository) GetLatestOccurredAt(ctx context.Context, source domain.Source) (*time.Time, error) {
+	sql := `SELECT MAX(occurred_at) FROM hazards WHERE source = $1;`
+	var latest *time.Time
+	err := r.pool.QueryRow(ctx, sql, string(source)).Scan(&latest)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query latest occurred_at for %s: %w", source, err)
+	}
+	return latest, nil
+}
+
+// FetchUnprocessedOutbox retrieves batch of unpublished outbox records.
+func (r *HazardRepository) FetchUnprocessedOutbox(ctx context.Context, limit int) ([]domain.OutboxEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	sql := `
+		SELECT id, event_id, event_type, payload, published, created_at, published_at
+		FROM outbox_events
+		WHERE published = FALSE
+		ORDER BY id ASC
+		LIMIT $1;
+	`
+	rows, err := r.pool.Query(ctx, sql, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unprocessed outbox: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.OutboxEvent
+	for rows.Next() {
+		var o domain.OutboxEvent
+		if err := rows.Scan(
+			&o.ID,
+			&o.EventID,
+			&o.EventType,
+			&o.Payload,
+			&o.Published,
+			&o.CreatedAt,
+			&o.PublishedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan outbox event: %w", err)
+		}
+		events = append(events, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during outbox iteration: %w", err)
+	}
+	return events, nil
+}
+
+// MarkOutboxPublished flags a slice of outbox record IDs as successfully published.
+func (r *HazardRepository) MarkOutboxPublished(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	sql := `
+		UPDATE outbox_events
+		SET published = TRUE, published_at = NOW()
+		WHERE id = ANY($1);
+	`
+	_, err := r.pool.Exec(ctx, sql, ids)
+	if err != nil {
+		return fmt.Errorf("failed to mark outbox events published: %w", err)
+	}
+	return nil
+}

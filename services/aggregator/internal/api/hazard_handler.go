@@ -37,14 +37,24 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// HazardHandler handles HTTP requests for hazard retrieval.
-type HazardHandler struct {
-	repo HazardQuerier
+// DegradedStatusProvider provides circuit degradation info for hazard queries.
+type DegradedStatusProvider interface {
+	GetDegradedStatus(hazardType *domain.HazardType) (bool, *time.Time)
 }
 
-// NewHazardHandler creates a new HazardHandler.
-func NewHazardHandler(repo HazardQuerier) *HazardHandler {
-	return &HazardHandler{repo: repo}
+// HazardHandler handles HTTP requests for hazard retrieval.
+type HazardHandler struct {
+	repo   HazardQuerier
+	status DegradedStatusProvider
+}
+
+// NewHazardHandler creates a new HazardHandler with optional DegradedStatusProvider.
+func NewHazardHandler(repo HazardQuerier, status ...DegradedStatusProvider) *HazardHandler {
+	var sp DegradedStatusProvider
+	if len(status) > 0 {
+		sp = status[0]
+	}
+	return &HazardHandler{repo: repo, status: sp}
 }
 
 // ServeHTTP parses query filters, fetches hazard records, and returns the response.
@@ -154,12 +164,18 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	degraded := false
+	var staleSince *time.Time
+	if h.status != nil {
+		degraded, staleSince = h.status.GetDegradedStatus(filter.Type)
+	}
+
 	resp := HazardListResponse{
 		Data: events,
 		Meta: HazardMeta{
 			Total:      total,
-			Degraded:   false,
-			StaleSince: nil,
+			Degraded:   degraded,
+			StaleSince: staleSince,
 		},
 	}
 

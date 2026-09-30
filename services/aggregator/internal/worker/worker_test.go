@@ -1,0 +1,176 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"sync"
+	"testing"
+	"time"
+
+	"bnpb/aggregator/internal/domain"
+
+	"github.com/segmentio/kafka-go"
+)
+
+type mockOutboxStore struct {
+	mu             sync.Mutex
+	records        []domain.OutboxEvent
+	publishedCalls []int64
+	fetchErr       error
+	publishErr     error
+}
+
+func (m *mockOutboxStore) FetchUnprocessedOutbox(_ context.Context, _ int) ([]domain.OutboxEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fetchErr != nil {
+		return nil, m.fetchErr
+	}
+	return m.records, nil
+}
+
+func (m *mockOutboxStore) MarkOutboxPublished(_ context.Context, ids []int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.publishErr != nil {
+		return m.publishErr
+	}
+	m.publishedCalls = append(m.publishedCalls, ids...)
+	return nil
+}
+
+type mockKafkaWriter struct {
+	mu       sync.Mutex
+	written  []kafka.Message
+	writeErr error
+	closed   bool
+}
+
+func (m *mockKafkaWriter) WriteMessages(_ context.Context, msgs ...kafka.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	m.written = append(m.written, msgs...)
+	return nil
+}
+
+func (m *mockKafkaWriter) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func TestOutboxRelay_Success(t *testing.T) {
+	discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	payload1, _ := json.Marshal(map[string]any{"hazard_id": "haz-1", "source": "BMKG"})
+	payload2, _ := json.Marshal(map[string]any{"hazard_id": "haz-2", "source": "PVMBG"})
+
+	store := &mockOutboxStore{
+		records: []domain.OutboxEvent{
+			{ID: 101, EventID: "evt-1", Payload: payload1, CreatedAt: time.Now()},
+			{ID: 102, EventID: "evt-2", Payload: payload2, CreatedAt: time.Now()},
+		},
+	}
+
+	writer := &mockKafkaWriter{}
+	relay := NewOutboxRelay(store, writer, 50*time.Millisecond, discardLogger)
+
+	// Run relay for one tick
+	relay.relayBatch(context.Background())
+
+	writer.mu.Lock()
+	writtenCount := len(writer.written)
+	writer.mu.Unlock()
+
+	if writtenCount != 2 {
+		t.Fatalf("expected 2 messages written to kafka, got %d", writtenCount)
+	}
+
+	if string(writer.written[0].Key) != "haz-1" || string(writer.written[1].Key) != "haz-2" {
+		t.Errorf("unexpected partition keys: %s, %s", writer.written[0].Key, writer.written[1].Key)
+	}
+
+	store.mu.Lock()
+	publishedCount := len(store.publishedCalls)
+	store.mu.Unlock()
+
+	if publishedCount != 2 {
+		t.Fatalf("expected 2 records marked published, got %d", publishedCount)
+	}
+}
+
+func TestOutboxRelay_BrokerFailureRetainsRecords(t *testing.T) {
+	discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	payload, _ := json.Marshal(map[string]any{"hazard_id": "haz-1"})
+	store := &mockOutboxStore{
+		records: []domain.OutboxEvent{
+			{ID: 201, EventID: "evt-201", Payload: payload, CreatedAt: time.Now()},
+		},
+	}
+
+	writer := &mockKafkaWriter{
+		writeErr: errors.New("kafka broker connection refused"),
+	}
+
+	relay := NewOutboxRelay(store, writer, 50*time.Millisecond, discardLogger)
+	relay.relayBatch(context.Background())
+
+	store.mu.Lock()
+	publishedCount := len(store.publishedCalls)
+	store.mu.Unlock()
+
+	if publishedCount != 0 {
+		t.Fatalf("records should not be marked published when broker write fails, got %d", publishedCount)
+	}
+}
+
+type mockHazardSaver struct {
+	mu      sync.Mutex
+	saved   []*domain.HazardEvent
+	saveErr error
+}
+
+func (m *mockHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.HazardEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.saveErr != nil {
+		return m.saveErr
+	}
+	m.saved = append(m.saved, h)
+	return nil
+}
+
+func (m *mockHazardSaver) GetLatestOccurredAt(_ context.Context, _ domain.Source) (*time.Time, error) {
+	return nil, nil
+}
+
+func TestPoller_GracefulCancellation(t *testing.T) {
+	discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	saver := &mockHazardSaver{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	poller := NewBMKGPoller(nil, nil, saver, nil, 100*time.Millisecond, discardLogger)
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		// Start with an already canceled or shortly canceled context
+		cancel()
+		poller.Start(ctx)
+	}()
+
+	select {
+	case <-stopped:
+		// Clean exit
+	case <-time.After(1 * time.Second):
+		t.Fatal("poller failed to stop cleanly on context cancellation")
+	}
+}
