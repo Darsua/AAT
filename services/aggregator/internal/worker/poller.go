@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"time"
@@ -17,7 +18,8 @@ const overlapWindow = 10 * time.Second
 
 // HazardSaver provides database operations needed by the poller workers.
 type HazardSaver interface {
-	SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent) error
+	SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error
+	GetHazardBySourceRef(ctx context.Context, source domain.Source, sourceRefID string) (*domain.HazardEvent, error)
 	GetLatestOccurredAt(ctx context.Context, source domain.Source) (*time.Time, error)
 }
 
@@ -67,32 +69,41 @@ func (p *BMKGPoller) Start(ctx context.Context) {
 		p.log.Info("bootstrapped BMKG cursor", slog.Time("cursor", *p.cursor))
 	}
 
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
-
-	// Initial poll if not canceled
-	select {
-	case <-ctx.Done():
-		p.log.Info("stopping BMKG polling worker")
-		return
-	default:
-		p.poll(ctx)
-	}
+	retryCount := 0
+	maxBackoff := 30 * time.Second
 
 	for {
+		sleepDuration := p.interval + randomJitter(0, 500*time.Millisecond)
+		if retryCount > 0 {
+			backoff := p.interval * (1 << retryCount)
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			sleepDuration = backoff + randomJitter(0, 1*time.Second)
+		}
+
 		select {
 		case <-ctx.Done():
 			p.log.Info("stopping BMKG polling worker")
 			return
-		case <-ticker.C:
-			p.poll(ctx)
+		case <-time.After(sleepDuration):
+			if err := p.poll(ctx); err != nil {
+				retryCount++
+				p.log.Warn("BMKG poll cycle failed, backing off",
+					"retry_count", retryCount,
+					"next_delay", sleepDuration,
+					"error", err,
+				)
+			} else {
+				retryCount = 0
+			}
 		}
 	}
 }
 
-func (p *BMKGPoller) poll(ctx context.Context) {
+func (p *BMKGPoller) poll(ctx context.Context) error {
 	if p.adapter == nil {
-		return
+		return nil
 	}
 	var since *time.Time
 	if p.cursor != nil {
@@ -103,29 +114,30 @@ func (p *BMKGPoller) poll(ctx context.Context) {
 	pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	events, err := p.adapter.FetchSeismicEvents(pollCtx, since)
-	if err != nil {
+	// 1. Fetch seismic events
+	events, seismicErr := p.adapter.FetchSeismicEvents(pollCtx, since)
+
+	// 2. Fetch tsunami warnings independently (never skipped if seismic is empty)
+	warnings, tsunamiErr := p.adapter.FetchTsunamiWarnings(pollCtx, since)
+
+	// 3. Mark healthy only if BOTH endpoints succeed
+	if seismicErr != nil || tsunamiErr != nil {
 		p.status.SetBMKGStatus(false)
-		p.log.Warn("BMKG seismic poll failed", "error", err)
-		return
+		if seismicErr != nil {
+			p.log.Warn("BMKG seismic poll failed", "error", seismicErr)
+			return seismicErr
+		}
+		p.log.Warn("BMKG tsunami warning poll failed", "error", tsunamiErr)
+		return tsunamiErr
 	}
 
 	p.status.SetBMKGStatus(true)
 
-	if len(events) == 0 {
-		return
-	}
-
-	// Fetch correlated tsunami warnings
-	warnings, err := p.adapter.FetchTsunamiWarnings(pollCtx, since)
-	if err != nil {
-		p.log.Warn("BMKG tsunami warning poll failed, continuing with seismic data alone", "error", err)
-		warnings = nil
-	}
-
+	// Process new seismic events with correlated warnings
 	for _, event := range events {
 		canonical := p.normalizer.NormalizeSeismic(event, warnings)
-		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical); err != nil {
+		corrID := fmt.Sprintf("bmkg-%s", event.EventID)
+		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical, corrID); err != nil {
 			p.log.Error("failed to persist normalized seismic hazard", "hazard_id", canonical.HazardID, "error", err)
 			continue
 		}
@@ -136,7 +148,27 @@ func (p *BMKGPoller) poll(ctx context.Context) {
 		}
 	}
 
-	p.log.Debug("BMKG poll cycle completed", slog.Int("ingested_events", len(events)))
+	// Update existing stored hazards if any tsunami warnings arrived
+	for _, w := range warnings {
+		if w.RelatedEventID == "" {
+			continue
+		}
+		existing, err := p.repo.GetHazardBySourceRef(ctx, domain.SourceBMKG, w.RelatedEventID)
+		if err != nil {
+			p.log.Debug("could not find existing seismic hazard for tsunami warning", "related_event_id", w.RelatedEventID, "error", err)
+			continue
+		}
+		if existing != nil {
+			updated := p.normalizer.ApplyTsunamiWarning(existing, w)
+			corrID := fmt.Sprintf("bmkg-tsu-%s", w.WarningID)
+			if err := p.repo.SaveHazardWithOutbox(ctx, updated, corrID); err != nil {
+				p.log.Error("failed to update hazard with tsunami warning", "hazard_id", updated.HazardID, "error", err)
+			}
+		}
+	}
+
+	p.log.Debug("BMKG poll cycle completed", slog.Int("ingested_events", len(events)), slog.Int("warnings", len(warnings)))
+	return nil
 }
 
 // PVMBGPoller periodically polls the PVMBG upstream API for volcanic monitoring reports.
@@ -185,32 +217,41 @@ func (p *PVMBGPoller) Start(ctx context.Context) {
 		p.log.Info("bootstrapped PVMBG cursor", slog.Time("cursor", *p.cursor))
 	}
 
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
-
-	// Initial poll if not canceled
-	select {
-	case <-ctx.Done():
-		p.log.Info("stopping PVMBG polling worker")
-		return
-	default:
-		p.poll(ctx)
-	}
+	retryCount := 0
+	maxBackoff := 30 * time.Second
 
 	for {
+		sleepDuration := p.interval + randomJitter(0, 500*time.Millisecond)
+		if retryCount > 0 {
+			backoff := p.interval * (1 << retryCount)
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			sleepDuration = backoff + randomJitter(0, 1*time.Second)
+		}
+
 		select {
 		case <-ctx.Done():
 			p.log.Info("stopping PVMBG polling worker")
 			return
-		case <-ticker.C:
-			p.poll(ctx)
+		case <-time.After(sleepDuration):
+			if err := p.poll(ctx); err != nil {
+				retryCount++
+				p.log.Warn("PVMBG poll cycle failed, backing off",
+					"retry_count", retryCount,
+					"next_delay", sleepDuration,
+					"error", err,
+				)
+			} else {
+				retryCount = 0
+			}
 		}
 	}
 }
 
-func (p *PVMBGPoller) poll(ctx context.Context) {
+func (p *PVMBGPoller) poll(ctx context.Context) error {
 	if p.adapter == nil {
-		return
+		return nil
 	}
 	var since *time.Time
 	if p.cursor != nil {
@@ -229,13 +270,13 @@ func (p *PVMBGPoller) poll(ctx context.Context) {
 		} else {
 			p.log.Warn("PVMBG volcanic poll failed", "error", err)
 		}
-		return
+		return err
 	}
 
 	p.status.SetPVMBGStatus(true)
 
 	if len(reports) == 0 {
-		return
+		return nil
 	}
 
 	for _, report := range reports {
@@ -245,7 +286,8 @@ func (p *PVMBGPoller) poll(ctx context.Context) {
 			continue
 		}
 
-		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical); err != nil {
+		corrID := fmt.Sprintf("pvmbg-%s", report.ReportID)
+		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical, corrID); err != nil {
 			p.log.Error("failed to persist normalized volcanic hazard", "hazard_id", canonical.HazardID, "error", err)
 			continue
 		}
@@ -257,8 +299,12 @@ func (p *PVMBGPoller) poll(ctx context.Context) {
 	}
 
 	p.log.Debug("PVMBG poll cycle completed", slog.Int("ingested_reports", len(reports)))
+	return nil
 }
 
 func randomJitter(base time.Duration, maxJitter time.Duration) time.Duration {
+	if maxJitter <= 0 {
+		return base
+	}
 	return base + time.Duration(rand.Int63n(int64(maxJitter)))
 }

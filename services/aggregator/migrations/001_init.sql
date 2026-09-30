@@ -50,10 +50,14 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     event_id VARCHAR(64) NOT NULL UNIQUE,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     published BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     published_at TIMESTAMPTZ
 );
+
+-- Idempotent column addition for existing volumes
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;

@@ -95,16 +95,21 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 			continue
 		}
 
-		key := hazard.HazardID
-		if key == "" {
-			key = rec.EventID
+		if hazard.HazardID == "" {
+			r.log.Error("outbox record missing required hazard_id in payload, skipping invalid event", "id", rec.ID, "event_id", rec.EventID)
+			continue
+		}
+
+		corrID := rec.CorrelationID
+		if corrID == "" {
+			corrID = fmt.Sprintf("outbox-relay-%d", rec.ID)
 		}
 
 		messages = append(messages, kafka.Message{
-			Key:   []byte(key),
+			Key:   []byte(hazard.HazardID),
 			Value: rec.Payload,
 			Headers: []kafka.Header{
-				{Key: "X-Correlation-ID", Value: []byte(fmt.Sprintf("outbox-relay-%d", rec.ID))},
+				{Key: "X-Correlation-ID", Value: []byte(corrID)},
 			},
 			Time: rec.CreatedAt,
 		})

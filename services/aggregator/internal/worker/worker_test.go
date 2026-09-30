@@ -74,7 +74,7 @@ func TestOutboxRelay_Success(t *testing.T) {
 
 	store := &mockOutboxStore{
 		records: []domain.OutboxEvent{
-			{ID: 101, EventID: "evt-1", Payload: payload1, CreatedAt: time.Now()},
+			{ID: 101, EventID: "evt-1", Payload: payload1, CorrelationID: "trace-bmkg-101", CreatedAt: time.Now()},
 			{ID: 102, EventID: "evt-2", Payload: payload2, CreatedAt: time.Now()},
 		},
 	}
@@ -97,12 +97,45 @@ func TestOutboxRelay_Success(t *testing.T) {
 		t.Errorf("unexpected partition keys: %s, %s", writer.written[0].Key, writer.written[1].Key)
 	}
 
+	// Verify correlation ID propagation
+	if string(writer.written[0].Headers[0].Value) != "trace-bmkg-101" {
+		t.Errorf("expected propagated correlation ID 'trace-bmkg-101', got '%s'", writer.written[0].Headers[0].Value)
+	}
+	if string(writer.written[1].Headers[0].Value) != "outbox-relay-102" {
+		t.Errorf("expected fallback correlation ID 'outbox-relay-102', got '%s'", writer.written[1].Headers[0].Value)
+	}
+
 	store.mu.Lock()
 	publishedCount := len(store.publishedCalls)
 	store.mu.Unlock()
 
 	if publishedCount != 2 {
 		t.Fatalf("expected 2 records marked published, got %d", publishedCount)
+	}
+}
+
+func TestOutboxRelay_QuarantinesMissingHazardID(t *testing.T) {
+	discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Payload with missing hazard_id must be skipped/quarantined rather than published with fallback key
+	invalidPayload, _ := json.Marshal(map[string]any{"source": "BMKG", "severity": "WASPADA"})
+	store := &mockOutboxStore{
+		records: []domain.OutboxEvent{
+			{ID: 301, EventID: "evt-corrupt", Payload: invalidPayload, CreatedAt: time.Now()},
+		},
+	}
+
+	writer := &mockKafkaWriter{}
+	relay := NewOutboxRelay(store, writer, 50*time.Millisecond, discardLogger)
+
+	relay.relayBatch(context.Background())
+
+	writer.mu.Lock()
+	writtenCount := len(writer.written)
+	writer.mu.Unlock()
+
+	if writtenCount != 0 {
+		t.Fatalf("expected 0 messages written to kafka for invalid payload missing hazard_id, got %d", writtenCount)
 	}
 }
 
@@ -138,7 +171,7 @@ type mockHazardSaver struct {
 	saveErr error
 }
 
-func (m *mockHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.HazardEvent) error {
+func (m *mockHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.HazardEvent, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.saveErr != nil {
@@ -146,6 +179,10 @@ func (m *mockHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.Haza
 	}
 	m.saved = append(m.saved, h)
 	return nil
+}
+
+func (m *mockHazardSaver) GetHazardBySourceRef(_ context.Context, _ domain.Source, _ string) (*domain.HazardEvent, error) {
+	return nil, nil
 }
 
 func (m *mockHazardSaver) GetLatestOccurredAt(_ context.Context, _ domain.Source) (*time.Time, error) {

@@ -64,8 +64,9 @@ type OutboxEvent struct {
 	ID          int64           `json:"id" db:"id"`
 	EventID     string          `json:"event_id" db:"event_id"`
 	EventType   string          `json:"event_type" db:"event_type"`
-	Payload     json.RawMessage `json:"payload" db:"payload"`
-	Published   bool            `json:"published" db:"published"`
-	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
-	PublishedAt *time.Time      `json:"published_at,omitempty" db:"published_at"`
+	Payload       json.RawMessage `json:"payload" db:"payload"`
+	CorrelationID string          `json:"correlation_id" db:"correlation_id"`
+	Published     bool            `json:"published" db:"published"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	PublishedAt   *time.Time      `json:"published_at,omitempty" db:"published_at"`
 }

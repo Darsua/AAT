@@ -77,17 +77,19 @@ echo -e "${YELLOW}Waiting 4 seconds for circuit breaker / fallback to engage...$
 sleep 4
 
 # Acquire token for Client API
+AUTH_INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
+AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-secret123}"
 AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
     -H "Content-Type: application/json" \
-    -d '{"client_id": "test-internal-client", "client_secret": "secret123", "requested_scope": "internal"}' 2>/dev/null || echo "")
+    -d "{\"client_id\": \"${AUTH_INTERNAL_CLIENT_ID}\", \"client_secret\": \"${AUTH_INTERNAL_CLIENT_SECRET}\", \"requested_scope\": \"internal\"}" 2>/dev/null || echo "")
 INTERNAL_TOKEN=$(echo "${AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
 
-# Query client API or aggregator hazards
+# Query client API hazards
 if [ -n "${INTERNAL_TOKEN}" ]; then
     CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" \
         -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo "HTTP_STATUS:200")
 else
-    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${AGGREGATOR_URL}/internal/hazards?limit=5" 2>/dev/null || echo "HTTP_STATUS:200")
+    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" 2>/dev/null || echo "HTTP_STATUS:200")
 fi
 
 HTTP_CODE=$(echo "${CLIENT_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)

@@ -205,11 +205,20 @@ func (r *HazardRepository) GetHazardByID(ctx context.Context, hazardID string) (
 		WHERE hazard_id = $1;
 	`
 
+	row := r.pool.QueryRow(ctx, sql, hazardID)
+	h, err := scanHazardRow(row)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query hazard by id %q: %w", hazardID, err)
+	}
+	return h, nil
+}
+
+func scanHazardRow(row pgx.Row) (*domain.HazardEvent, error) {
 	var h domain.HazardEvent
 	var rawAttrs []byte
 	var srcStr, typeStr, sevStr string
 
-	err := r.pool.QueryRow(ctx, sql, hazardID).Scan(
+	err := row.Scan(
 		&h.HazardID,
 		&srcStr,
 		&h.SourceRefID,
@@ -226,7 +235,7 @@ func (r *HazardRepository) GetHazardByID(ctx context.Context, hazardID string) (
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to query hazard by id %q: %w", hazardID, err)
+		return nil, err
 	}
 
 	h.Source = domain.Source(srcStr)
@@ -245,7 +254,7 @@ func (r *HazardRepository) GetHazardByID(ctx context.Context, hazardID string) (
 }
 
 // SaveHazardWithOutbox persists or updates a hazard record and an outbox event within a single ACID transaction.
-func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent) error {
+func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error {
 	if h.Attributes == nil {
 		h.Attributes = make(map[string]any)
 	}
@@ -253,16 +262,6 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 	attrsJSON, err := json.Marshal(h.Attributes)
 	if err != nil {
 		return fmt.Errorf("failed to marshal hazard attributes: %w", err)
-	}
-
-	payloadJSON, err := json.Marshal(h)
-	if err != nil {
-		return fmt.Errorf("failed to marshal hazard payload for outbox: %w", err)
-	}
-
-	ingestedAt := h.IngestedAt
-	if ingestedAt.IsZero() {
-		ingestedAt = time.Now().UTC()
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -273,7 +272,21 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 		_ = tx.Rollback(ctx)
 	}()
 
-	// 1. Upsert hazard
+	// Preserve existing IngestedAt if record was previously ingested to prevent outbox churn
+	var existingIngestedAt time.Time
+	err = tx.QueryRow(ctx, "SELECT ingested_at FROM hazards WHERE hazard_id = $1", h.HazardID).Scan(&existingIngestedAt)
+	if err == nil && !existingIngestedAt.IsZero() {
+		h.IngestedAt = existingIngestedAt
+	} else if h.IngestedAt.IsZero() {
+		h.IngestedAt = time.Now().UTC()
+	}
+
+	payloadJSON, err := json.Marshal(h)
+	if err != nil {
+		return fmt.Errorf("failed to marshal hazard payload for outbox: %w", err)
+	}
+
+	// 1. Upsert hazard (do NOT overwrite ingested_at on conflict to preserve first-seen timestamp)
 	hazardSQL := `
 		INSERT INTO hazards (
 			hazard_id, source, source_ref_id, hazard_type, severity, 
@@ -285,8 +298,7 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 			latitude = EXCLUDED.latitude,
 			longitude = EXCLUDED.longitude,
 			attributes = EXCLUDED.attributes,
-			occurred_at = EXCLUDED.occurred_at,
-			ingested_at = EXCLUDED.ingested_at;
+			occurred_at = EXCLUDED.occurred_at;
 	`
 	_, err = tx.Exec(ctx, hazardSQL,
 		h.HazardID,
@@ -299,24 +311,25 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 		h.Longitude,
 		attrsJSON,
 		h.OccurredAt,
-		ingestedAt,
+		h.IngestedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert hazard %q: %w", h.HazardID, err)
 	}
 
-	// 2. Upsert outbox event
+	// 2. Upsert outbox event (only reset published=FALSE if payload actually changes!)
 	outboxEventID := fmt.Sprintf("outbox-%s-%s", strings.ToLower(string(h.Source)), h.SourceRefID)
 	outboxSQL := `
-		INSERT INTO outbox_events (event_id, event_type, payload, published)
-		VALUES ($1, $2, $3, FALSE)
+		INSERT INTO outbox_events (event_id, event_type, payload, correlation_id, published)
+		VALUES ($1, $2, $3, $4, FALSE)
 		ON CONFLICT (event_id) DO UPDATE SET
 			payload = EXCLUDED.payload,
+			correlation_id = EXCLUDED.correlation_id,
 			published = FALSE,
 			published_at = NULL
 		WHERE outbox_events.payload != EXCLUDED.payload;
 	`
-	_, err = tx.Exec(ctx, outboxSQL, outboxEventID, "hazard_event", payloadJSON)
+	_, err = tx.Exec(ctx, outboxSQL, outboxEventID, "hazard_event", payloadJSON, correlationID)
 	if err != nil {
 		return fmt.Errorf("failed to insert outbox event for %q: %w", h.HazardID, err)
 	}
@@ -326,6 +339,17 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 	}
 
 	return nil
+}
+
+// GetHazardBySourceRef retrieves a hazard record by its origin source agency and source-native ID.
+func (r *HazardRepository) GetHazardBySourceRef(ctx context.Context, source domain.Source, sourceRefID string) (*domain.HazardEvent, error) {
+	sql := `
+		SELECT hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, attributes, occurred_at, ingested_at
+		FROM hazards
+		WHERE source = $1 AND source_ref_id = $2;
+	`
+	row := r.pool.QueryRow(ctx, sql, string(source), sourceRefID)
+	return scanHazardRow(row)
 }
 
 // GetLatestOccurredAt retrieves the most recent occurred_at timestamp for a given source.
@@ -348,7 +372,7 @@ func (r *HazardRepository) FetchUnprocessedOutbox(ctx context.Context, limit int
 		limit = 50
 	}
 	sql := `
-		SELECT id, event_id, event_type, payload, published, created_at, published_at
+		SELECT id, event_id, event_type, payload, correlation_id, published, created_at, published_at
 		FROM outbox_events
 		WHERE published = FALSE
 		ORDER BY id ASC
@@ -368,6 +392,7 @@ func (r *HazardRepository) FetchUnprocessedOutbox(ctx context.Context, limit int
 			&o.EventID,
 			&o.EventType,
 			&o.Payload,
+			&o.CorrelationID,
 			&o.Published,
 			&o.CreatedAt,
 			&o.PublishedAt,

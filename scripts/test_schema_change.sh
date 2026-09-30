@@ -83,17 +83,19 @@ echo -e "${YELLOW}Waiting 4 seconds for aggregator polling cycle...${NC}"
 sleep 4
 
 # Acquire token for Client API
+AUTH_INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
+AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-secret123}"
 AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
     -H "Content-Type: application/json" \
-    -d '{"client_id": "test-internal-client", "client_secret": "secret123", "requested_scope": "internal"}' 2>/dev/null || echo "")
+    -d "{\"client_id\": \"${AUTH_INTERNAL_CLIENT_ID}\", \"client_secret\": \"${AUTH_INTERNAL_CLIENT_SECRET}\", \"requested_scope\": \"internal\"}" 2>/dev/null || echo "")
 INTERNAL_TOKEN=$(echo "${AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
 
-# Check client API hazards or aggregator endpoint
+# Check client API hazards
 if [ -n "${INTERNAL_TOKEN}" ]; then
     HAZARDS_RESP=$(curl -s -X GET "${CLIENT_API_URL}/api/v1/hazards?type=VOLCANIC&fields=all&limit=5" \
         -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo "")
 else
-    HAZARDS_RESP=$(curl -s -X GET "${AGGREGATOR_URL}/internal/hazards?type=VOLCANIC&limit=5" 2>/dev/null || echo "")
+    HAZARDS_RESP=$(curl -s -X GET "${CLIENT_API_URL}/api/v1/hazards?type=VOLCANIC&limit=5" 2>/dev/null || echo "")
 fi
 
 if [ -n "${HAZARDS_RESP}" ]; then

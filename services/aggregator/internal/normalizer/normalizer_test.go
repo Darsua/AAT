@@ -202,3 +202,36 @@ func TestNormalizeVolcanic_UnknownVolcanoFallback(t *testing.T) {
 		t.Errorf("expected Severity NORMAL, got %s", canonical.Severity)
 	}
 }
+
+func TestApplyTsunamiWarning(t *testing.T) {
+	norm := NewNormalizer(nil)
+
+	hazard := &domain.HazardEvent{
+		HazardID:    "haz-bmkg-123",
+		Source:      domain.SourceBMKG,
+		SourceRefID: "bmkg-123",
+		Severity:    domain.SeverityWaspada,
+		Attributes:  map[string]any{"magnitude": 5.8},
+	}
+
+	warning := adapter.TsunamiWarningDTO{
+		WarningID:        "tsu-warn-999",
+		RelatedEventID:   "bmkg-123",
+		ThreatLevel:      "Awas",
+		AffectedZones:    []string{"Pesisir Selatan", "Bantul"},
+		EstimatedArrival: time.Now().Add(30 * time.Minute),
+	}
+
+	updated := norm.ApplyTsunamiWarning(hazard, warning)
+
+	if updated.Severity != domain.SeverityAwas {
+		t.Errorf("expected escalated severity AWAS, got %s", updated.Severity)
+	}
+	tsuWarning, ok := updated.Attributes["tsunami_warning"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected tsunami_warning attribute object, got %v", updated.Attributes["tsunami_warning"])
+	}
+	if tsuWarning["warning_id"] != "tsu-warn-999" {
+		t.Errorf("expected warning_id 'tsu-warn-999', got %v", tsuWarning["warning_id"])
+	}
+}

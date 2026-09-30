@@ -119,11 +119,8 @@ services:
         condition: service_healthy
       mock-pvmbg:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${AGGREGATOR_PORT:-8083}:8083"
     networks:
       - bnpb-internal
-      - bnpb-public
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1"]
       interval: 5s

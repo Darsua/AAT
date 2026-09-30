@@ -70,7 +70,6 @@ func (n *Normalizer) NormalizeSeismic(event adapter.SeismicEventDTO, warnings []
 		Longitude:   &lon,
 		Attributes:  attrs,
 		OccurredAt:  event.OccurredAt.UTC(),
-		IngestedAt:  time.Now().UTC(),
 	}
 }
 
@@ -119,8 +118,45 @@ func (n *Normalizer) NormalizeVolcanic(ctx context.Context, report adapter.Volca
 		Longitude:   lonPtr,
 		Attributes:  attrs,
 		OccurredAt:  report.ReportedAt.UTC(),
-		IngestedAt:  time.Now().UTC(),
 	}, nil
+}
+
+// ApplyTsunamiWarning updates an existing seismic hazard with new tsunami advisory information.
+func (n *Normalizer) ApplyTsunamiWarning(hazard *domain.HazardEvent, warning adapter.TsunamiWarningDTO) *domain.HazardEvent {
+	updated := *hazard
+	if updated.Attributes == nil {
+		updated.Attributes = make(map[string]any)
+	} else {
+		newAttrs := make(map[string]any, len(updated.Attributes)+2)
+		for k, v := range updated.Attributes {
+			newAttrs[k] = v
+		}
+		updated.Attributes = newAttrs
+	}
+
+	updated.Attributes["tsunami_warning"] = map[string]any{
+		"warning_id":        warning.WarningID,
+		"threat_level":      warning.ThreatLevel,
+		"affected_zones":    warning.AffectedZones,
+		"estimated_arrival": warning.EstimatedArrival.UTC().Format(time.RFC3339),
+	}
+	updated.Attributes["potential_tsunami"] = true
+
+	lvl := strings.ToUpper(strings.TrimSpace(warning.ThreatLevel))
+	switch lvl {
+	case "AWAS":
+		updated.Severity = domain.SeverityAwas
+	case "SIAGA":
+		if updated.Severity != domain.SeverityAwas {
+			updated.Severity = domain.SeveritySiaga
+		}
+	case "WASPADA":
+		if updated.Severity != domain.SeverityAwas && updated.Severity != domain.SeveritySiaga {
+			updated.Severity = domain.SeverityWaspada
+		}
+	}
+
+	return &updated
 }
 
 // deriveSeismicSeverity implements the graded severity derivation rules in spec §3.3.
