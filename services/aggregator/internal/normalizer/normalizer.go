@@ -176,10 +176,12 @@ func deriveSeismicSeverity(magnitude float64, warning *adapter.TsunamiWarningDTO
 	// Fallback to magnitude-based severity
 	if magnitude < 5.0 {
 		return domain.SeverityNormal
-	} else if magnitude < 6.5 {
+	} else if magnitude < 6.0 {
 		return domain.SeverityWaspada
+	} else if magnitude < 7.0 {
+		return domain.SeveritySiaga
 	}
-	return domain.SeveritySiaga
+	return domain.SeverityAwas
 }
 
 // mapAlertLevelToSeverity maps PVMBG alert levels 1:1 to canonical Severity enum.

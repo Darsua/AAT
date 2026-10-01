@@ -30,9 +30,11 @@ func TestNormalizeSeismic_MagnitudeThresholds(t *testing.T) {
 	}{
 		{4.9, domain.SeverityNormal},
 		{5.0, domain.SeverityWaspada},
-		{6.49, domain.SeverityWaspada},
-		{6.5, domain.SeveritySiaga},
-		{8.1, domain.SeveritySiaga},
+		{5.99, domain.SeverityWaspada},
+		{6.0, domain.SeveritySiaga},
+		{6.99, domain.SeveritySiaga},
+		{7.0, domain.SeverityAwas},
+		{8.1, domain.SeverityAwas},
 	}
 
 	for _, tt := range tests {

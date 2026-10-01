@@ -24,29 +24,34 @@ type mockOutboxStore struct {
 	publishErr       error
 }
 
-func (m *mockOutboxStore) FetchUnprocessedOutbox(_ context.Context, _ int) ([]domain.OutboxEvent, error) {
+func (m *mockOutboxStore) RelayOutboxBatch(
+	ctx context.Context,
+	limit int,
+	relayFn func(records []domain.OutboxEvent) (published []domain.OutboxEvent, quarantined []domain.OutboxEvent, err error),
+) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.fetchErr != nil {
-		return nil, m.fetchErr
+		m.mu.Unlock()
+		return m.fetchErr
 	}
-	return m.records, nil
-}
+	records := m.records
+	m.mu.Unlock()
 
-func (m *mockOutboxStore) MarkOutboxPublished(_ context.Context, records []domain.OutboxEvent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.publishErr != nil {
-		return m.publishErr
+	if len(records) == 0 {
+		return nil
 	}
-	m.publishedCalls = append(m.publishedCalls, records...)
-	return nil
-}
 
-func (m *mockOutboxStore) MarkOutboxQuarantined(_ context.Context, id int64, _ string) error {
+	published, quarantined, err := relayFn(records)
+	if err != nil {
+		return err
+	}
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.quarantinedCalls = append(m.quarantinedCalls, id)
+	m.publishedCalls = append(m.publishedCalls, published...)
+	for _, q := range quarantined {
+		m.quarantinedCalls = append(m.quarantinedCalls, q.ID)
+	}
+	m.mu.Unlock()
 	return nil
 }
 

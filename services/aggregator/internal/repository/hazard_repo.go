@@ -367,6 +367,123 @@ func (r *HazardRepository) GetLatestOccurredAt(ctx context.Context, source domai
 }
 
 // FetchUnprocessedOutbox retrieves batch of unpublished outbox records.
+// RelayOutboxBatch claims unprocessed outbox records atomically using SELECT ... FOR UPDATE SKIP LOCKED,
+// calls relayFn to dispatch them to Kafka, and within the same transaction updates their status:
+// published records are marked published (verified against payload to prevent stale updates),
+// and quarantined records are marked with event_type = 'hazard_event_quarantined'.
+// If relayFn returns an error (e.g. broker failure), the transaction rolls back and row locks are released.
+func (r *HazardRepository) RelayOutboxBatch(
+	ctx context.Context,
+	limit int,
+	relayFn func(records []domain.OutboxEvent) (published []domain.OutboxEvent, quarantined []domain.OutboxEvent, err error),
+) error {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin outbox relay tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	sql := `
+		SELECT id, event_id, event_type, payload, correlation_id, published, created_at, published_at
+		FROM outbox_events
+		WHERE published = FALSE
+		ORDER BY id ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED;
+	`
+	rows, err := tx.Query(ctx, sql, limit)
+	if err != nil {
+		return fmt.Errorf("failed to query unprocessed outbox with lock: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.OutboxEvent
+	for rows.Next() {
+		var o domain.OutboxEvent
+		if err := rows.Scan(
+			&o.ID,
+			&o.EventID,
+			&o.EventType,
+			&o.Payload,
+			&o.CorrelationID,
+			&o.Published,
+			&o.CreatedAt,
+			&o.PublishedAt,
+		); err != nil {
+			return fmt.Errorf("failed to scan outbox event: %w", err)
+		}
+		events = append(events, o)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during outbox iteration: %w", err)
+	}
+	rows.Close()
+
+	if len(events) == 0 {
+		return nil
+	}
+
+	published, quarantined, err := relayFn(events)
+	if err != nil {
+		return err
+	}
+
+	// 1. Mark published rows inside tx, checking payload equality
+	if len(published) > 0 {
+		publishBatch := &pgx.Batch{}
+		updateSQL := `
+			UPDATE outbox_events
+			SET published = TRUE, published_at = NOW()
+			WHERE id = $1 AND payload = $2::jsonb;
+		`
+		for _, rec := range published {
+			publishBatch.Queue(updateSQL, rec.ID, rec.Payload)
+		}
+		br := tx.SendBatch(ctx, publishBatch)
+		for range published {
+			if _, bErr := br.Exec(); bErr != nil {
+				_ = br.Close()
+				return fmt.Errorf("failed to mark outbox record published: %w", bErr)
+			}
+		}
+		_ = br.Close()
+	}
+
+	// 2. Mark quarantined rows inside tx
+	if len(quarantined) > 0 {
+		quarantineBatch := &pgx.Batch{}
+		quarantineSQL := `
+			UPDATE outbox_events
+			SET published = TRUE, event_type = 'hazard_event_quarantined', published_at = NOW()
+			WHERE id = $1;
+		`
+		for _, rec := range quarantined {
+			quarantineBatch.Queue(quarantineSQL, rec.ID)
+		}
+		br := tx.SendBatch(ctx, quarantineBatch)
+		for range quarantined {
+			if _, bErr := br.Exec(); bErr != nil {
+				_ = br.Close()
+				return fmt.Errorf("failed to quarantine outbox record: %w", bErr)
+			}
+		}
+		_ = br.Close()
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit outbox relay transaction: %w", err)
+	}
+
+	return nil
+}
+
+// FetchUnprocessedOutbox retrieves unpublished outbox records.
 func (r *HazardRepository) FetchUnprocessedOutbox(ctx context.Context, limit int) ([]domain.OutboxEvent, error) {
 	if limit <= 0 {
 		limit = 50
