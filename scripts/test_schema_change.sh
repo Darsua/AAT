@@ -103,10 +103,14 @@ if [ -n "${HAZARDS_RESP}" ]; then
     echo "${HAZARDS_RESP}" | jq . 2>/dev/null || echo "${HAZARDS_RESP}"
     if echo "${HAZARDS_RESP}" | grep -q '"confidence_level"'; then
         echo -e "${GREEN}[OK] Verified: Canonical hazards successfully contain dynamic 'confidence_level' in attributes!${NC}"
+        echo -e "${GREEN}[OK] Aggregator digested dynamic schema without schema rupture or crash.${NC}"
+    else
+        echo -e "${RED}[ERROR] Dynamic field 'confidence_level' not found in canonical hazards response!${NC}" >&2
+        exit 1
     fi
-    echo -e "${GREEN}[OK] Aggregator digested dynamic schema without schema rupture or crash.${NC}"
 else
-    echo -e "${YELLOW}[INFO] Client API / Aggregator hazard endpoint queried.${NC}"
+    echo -e "${RED}[ERROR] Client API hazard endpoint returned empty response!${NC}" >&2
+    exit 1
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"

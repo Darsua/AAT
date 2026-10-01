@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"bnpb/aggregator/internal/logger"
 )
 
 // SeismicEventDTO represents the upstream seismic event model from BMKG.
@@ -69,6 +71,9 @@ func (a *BMKGAdapter) FetchSeismicEvents(ctx context.Context, since *time.Time) 
 	if a.apiKey != "" {
 		req.Header.Set("X-BMKG-Key", a.apiKey)
 	}
+	if corrID := logger.CorrelationIDFromContext(ctx); corrID != "" {
+		req.Header.Set("X-Correlation-ID", corrID)
+	}
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -104,6 +109,9 @@ func (a *BMKGAdapter) FetchTsunamiWarnings(ctx context.Context, since *time.Time
 
 	if a.apiKey != "" {
 		req.Header.Set("X-BMKG-Key", a.apiKey)
+	}
+	if corrID := logger.CorrelationIDFromContext(ctx); corrID != "" {
+		req.Header.Set("X-Correlation-ID", corrID)
 	}
 
 	resp, err := a.httpClient.Do(req)

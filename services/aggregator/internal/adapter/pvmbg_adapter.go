@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"bnpb/aggregator/internal/logger"
 )
 
 // ErrUpstreamUnavailable is returned when the upstream service returns HTTP 503 (e.g. outage simulation).
@@ -93,10 +95,13 @@ func (a *PVMBGAdapter) FetchVolcanicReports(ctx context.Context, since *time.Tim
 	if a.token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
+	if corrID := logger.CorrelationIDFromContext(ctx); corrID != "" {
+		req.Header.Set("X-Correlation-ID", corrID)
+	}
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute PVMBG request: %w", err)
+		return nil, fmt.Errorf("%w: failed to execute PVMBG request: %w", ErrUpstreamUnavailable, err)
 	}
 	defer resp.Body.Close()
 

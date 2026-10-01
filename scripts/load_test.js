@@ -36,12 +36,18 @@ const BASE_URL = __ENV.TARGET_URL || 'http://localhost:8080';
 const AUTH_URL = __ENV.AUTH_URL || 'http://localhost:8084';
 
 export function setup() {
+  const clientSecret = __ENV.AUTH_INTERNAL_CLIENT_SECRET;
+  if (!clientSecret) {
+    throw new Error('AUTH_INTERNAL_CLIENT_SECRET environment variable is required');
+  }
+  const clientId = __ENV.AUTH_INTERNAL_CLIENT_ID || 'test-internal-client';
+
   // Try to obtain a valid auth token if auth service is up
   let token = 'mock-loadtest-internal-token';
   try {
     const authPayload = JSON.stringify({
-      client_id: __ENV.AUTH_INTERNAL_CLIENT_ID || 'test-internal-client',
-      client_secret: __ENV.AUTH_INTERNAL_CLIENT_SECRET || 'secret123',
+      client_id: clientId,
+      client_secret: clientSecret,
       requested_scope: 'internal',
       role: 'internal',
     });

@@ -103,9 +103,21 @@ if [ "${HTTP_CODE}" -eq 200 ]; then
     DEGRADED=$(echo "${BODY}" | jq -r '.meta.degraded // empty' 2>/dev/null || echo "")
     if [ "${DEGRADED}" = "true" ]; then
         echo -e "${GREEN}[OK] Verified: System reports degraded status (meta.degraded=true) with stale data fallback!${NC}"
+    else
+        echo -e "${RED}[ERROR] Expected meta.degraded=true during PVMBG outage, but got: '${DEGRADED}'${NC}" >&2
+        curl -s -X POST "${PVMBG_URL}/admin/outage" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${PVMBG_TOKEN}" \
+            -d '{"is_outage": false}' >/dev/null 2>&1 || true
+        exit 1
     fi
 else
-    echo -e "${YELLOW}[INFO] Client API returned status ${HTTP_CODE}.${NC}"
+    echo -e "${RED}[ERROR] Client API returned status ${HTTP_CODE} during PVMBG outage.${NC}" >&2
+    curl -s -X POST "${PVMBG_URL}/admin/outage" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${PVMBG_TOKEN}" \
+        -d '{"is_outage": false}' >/dev/null 2>&1 || true
+    exit 1
 fi
 
 # Verify BMKG isolation (BMKG should still be functioning 100%)

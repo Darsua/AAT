@@ -10,6 +10,7 @@ import (
 
 	"bnpb/aggregator/internal/adapter"
 	"bnpb/aggregator/internal/domain"
+	"bnpb/aggregator/internal/logger"
 	"bnpb/aggregator/internal/normalizer"
 	"bnpb/aggregator/internal/status"
 )
@@ -113,6 +114,8 @@ func (p *BMKGPoller) poll(ctx context.Context) error {
 
 	pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	cycleCorrID := fmt.Sprintf("bmkg-poll-%d", time.Now().UnixNano())
+	pollCtx = logger.WithCorrelationID(pollCtx, cycleCorrID)
 
 	// 1. Fetch seismic events
 	events, seismicErr := p.adapter.FetchSeismicEvents(pollCtx, since)
@@ -139,7 +142,7 @@ func (p *BMKGPoller) poll(ctx context.Context) error {
 		corrID := fmt.Sprintf("bmkg-%s", event.EventID)
 		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical, corrID); err != nil {
 			p.log.Error("failed to persist normalized seismic hazard", "hazard_id", canonical.HazardID, "error", err)
-			continue
+			return fmt.Errorf("failed to persist seismic hazard %s: %w", canonical.HazardID, err)
 		}
 
 		if p.cursor == nil || canonical.OccurredAt.After(*p.cursor) {
@@ -163,6 +166,7 @@ func (p *BMKGPoller) poll(ctx context.Context) error {
 			corrID := fmt.Sprintf("bmkg-tsu-%s", w.WarningID)
 			if err := p.repo.SaveHazardWithOutbox(ctx, updated, corrID); err != nil {
 				p.log.Error("failed to update hazard with tsunami warning", "hazard_id", updated.HazardID, "error", err)
+				return fmt.Errorf("failed to update hazard with tsunami warning %s: %w", updated.HazardID, err)
 			}
 		}
 	}
@@ -261,6 +265,8 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 
 	pollCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
+	cycleCorrID := fmt.Sprintf("pvmbg-poll-%d", time.Now().UnixNano())
+	pollCtx = logger.WithCorrelationID(pollCtx, cycleCorrID)
 
 	reports, err := p.adapter.FetchVolcanicReports(pollCtx, since)
 	if err != nil {
@@ -289,7 +295,7 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 		corrID := fmt.Sprintf("pvmbg-%s", report.ReportID)
 		if err := p.repo.SaveHazardWithOutbox(ctx, &canonical, corrID); err != nil {
 			p.log.Error("failed to persist normalized volcanic hazard", "hazard_id", canonical.HazardID, "error", err)
-			continue
+			return fmt.Errorf("failed to persist volcanic hazard %s: %w", canonical.HazardID, err)
 		}
 
 		if p.cursor == nil || canonical.OccurredAt.After(*p.cursor) {

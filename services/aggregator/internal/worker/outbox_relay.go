@@ -15,7 +15,8 @@ import (
 // OutboxStore defines database interactions required by the outbox relay.
 type OutboxStore interface {
 	FetchUnprocessedOutbox(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
-	MarkOutboxPublished(ctx context.Context, ids []int64) error
+	MarkOutboxPublished(ctx context.Context, records []domain.OutboxEvent) error
+	MarkOutboxQuarantined(ctx context.Context, id int64, reason string) error
 }
 
 // KafkaMessageWriter abstracts the kafka.Writer for testability.
@@ -83,7 +84,7 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 	}
 
 	messages := make([]kafka.Message, 0, len(records))
-	publishedIDs := make([]int64, 0, len(records))
+	publishedRecords := make([]domain.OutboxEvent, 0, len(records))
 
 	for _, rec := range records {
 		// Extract hazard_id from payload for partition key
@@ -91,12 +92,18 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 			HazardID string `json:"hazard_id"`
 		}
 		if err := json.Unmarshal(rec.Payload, &hazard); err != nil {
-			r.log.Error("malformed outbox payload, skipping", "id", rec.ID, "error", err)
+			r.log.Error("malformed outbox payload, quarantining record", "id", rec.ID, "error", err)
+			if qErr := r.store.MarkOutboxQuarantined(batchCtx, rec.ID, fmt.Sprintf("malformed json: %v", err)); qErr != nil {
+				r.log.Error("failed to mark outbox record quarantined", "id", rec.ID, "error", qErr)
+			}
 			continue
 		}
 
 		if hazard.HazardID == "" {
-			r.log.Error("outbox record missing required hazard_id in payload, skipping invalid event", "id", rec.ID, "event_id", rec.EventID)
+			r.log.Error("outbox record missing required hazard_id in payload, quarantining invalid event", "id", rec.ID, "event_id", rec.EventID)
+			if qErr := r.store.MarkOutboxQuarantined(batchCtx, rec.ID, "missing hazard_id in payload"); qErr != nil {
+				r.log.Error("failed to mark outbox record quarantined", "id", rec.ID, "error", qErr)
+			}
 			continue
 		}
 
@@ -113,7 +120,7 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 			},
 			Time: rec.CreatedAt,
 		})
-		publishedIDs = append(publishedIDs, rec.ID)
+		publishedRecords = append(publishedRecords, rec)
 	}
 
 	if len(messages) == 0 {
@@ -127,8 +134,8 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 	}
 
 	// Mark batch as published in PostgreSQL
-	if err := r.store.MarkOutboxPublished(batchCtx, publishedIDs); err != nil {
-		r.log.Error("failed to mark outbox records as published in database", "error", err, "count", len(publishedIDs))
+	if err := r.store.MarkOutboxPublished(batchCtx, publishedRecords); err != nil {
+		r.log.Error("failed to mark outbox records as published in database", "error", err, "count", len(publishedRecords))
 		return
 	}
 

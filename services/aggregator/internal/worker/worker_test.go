@@ -16,11 +16,12 @@ import (
 )
 
 type mockOutboxStore struct {
-	mu             sync.Mutex
-	records        []domain.OutboxEvent
-	publishedCalls []int64
-	fetchErr       error
-	publishErr     error
+	mu               sync.Mutex
+	records          []domain.OutboxEvent
+	publishedCalls   []domain.OutboxEvent
+	quarantinedCalls []int64
+	fetchErr         error
+	publishErr       error
 }
 
 func (m *mockOutboxStore) FetchUnprocessedOutbox(_ context.Context, _ int) ([]domain.OutboxEvent, error) {
@@ -32,13 +33,20 @@ func (m *mockOutboxStore) FetchUnprocessedOutbox(_ context.Context, _ int) ([]do
 	return m.records, nil
 }
 
-func (m *mockOutboxStore) MarkOutboxPublished(_ context.Context, ids []int64) error {
+func (m *mockOutboxStore) MarkOutboxPublished(_ context.Context, records []domain.OutboxEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.publishErr != nil {
 		return m.publishErr
 	}
-	m.publishedCalls = append(m.publishedCalls, ids...)
+	m.publishedCalls = append(m.publishedCalls, records...)
+	return nil
+}
+
+func (m *mockOutboxStore) MarkOutboxQuarantined(_ context.Context, id int64, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.quarantinedCalls = append(m.quarantinedCalls, id)
 	return nil
 }
 
@@ -136,6 +144,18 @@ func TestOutboxRelay_QuarantinesMissingHazardID(t *testing.T) {
 
 	if writtenCount != 0 {
 		t.Fatalf("expected 0 messages written to kafka for invalid payload missing hazard_id, got %d", writtenCount)
+	}
+
+	store.mu.Lock()
+	quarantinedCount := len(store.quarantinedCalls)
+	quarantinedID := int64(0)
+	if quarantinedCount > 0 {
+		quarantinedID = store.quarantinedCalls[0]
+	}
+	store.mu.Unlock()
+
+	if quarantinedCount != 1 || quarantinedID != 301 {
+		t.Fatalf("expected record 301 to be quarantined, got count=%d, id=%d", quarantinedCount, quarantinedID)
 	}
 }
 

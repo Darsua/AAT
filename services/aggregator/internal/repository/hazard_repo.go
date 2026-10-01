@@ -407,19 +407,45 @@ func (r *HazardRepository) FetchUnprocessedOutbox(ctx context.Context, limit int
 	return events, nil
 }
 
-// MarkOutboxPublished flags a slice of outbox record IDs as successfully published.
-func (r *HazardRepository) MarkOutboxPublished(ctx context.Context, ids []int64) error {
-	if len(ids) == 0 {
+// MarkOutboxPublished flags records as published ONLY IF the payload in the database matches
+// the payload that was published, preventing race conditions where newer payloads from concurrent
+// ingestion are inadvertently marked as published without being sent.
+func (r *HazardRepository) MarkOutboxPublished(ctx context.Context, records []domain.OutboxEvent) error {
+	if len(records) == 0 {
 		return nil
 	}
+
+	batch := &pgx.Batch{}
 	sql := `
 		UPDATE outbox_events
 		SET published = TRUE, published_at = NOW()
-		WHERE id = ANY($1);
+		WHERE id = $1 AND payload = $2::jsonb;
 	`
-	_, err := r.pool.Exec(ctx, sql, ids)
+	for _, rec := range records {
+		batch.Queue(sql, rec.ID, rec.Payload)
+	}
+
+	br := r.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range records {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("failed to mark outbox event published: %w", err)
+		}
+	}
+	return nil
+}
+
+// MarkOutboxQuarantined flags a malformed or invalid outbox record as quarantined so it does not block the queue.
+func (r *HazardRepository) MarkOutboxQuarantined(ctx context.Context, id int64, reason string) error {
+	sql := `
+		UPDATE outbox_events
+		SET published = TRUE, event_type = 'hazard_event_quarantined', published_at = NOW()
+		WHERE id = $1;
+	`
+	_, err := r.pool.Exec(ctx, sql, id)
 	if err != nil {
-		return fmt.Errorf("failed to mark outbox events published: %w", err)
+		return fmt.Errorf("failed to quarantine outbox event %d: %w", id, err)
 	}
 	return nil
 }
