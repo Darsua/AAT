@@ -30,11 +30,9 @@ func TestNormalizeSeismic_MagnitudeThresholds(t *testing.T) {
 	}{
 		{4.9, domain.SeverityNormal},
 		{5.0, domain.SeverityWaspada},
-		{5.99, domain.SeverityWaspada},
-		{6.0, domain.SeveritySiaga},
-		{6.99, domain.SeveritySiaga},
-		{7.0, domain.SeverityAwas},
-		{8.1, domain.SeverityAwas},
+		{6.49, domain.SeverityWaspada},
+		{6.5, domain.SeveritySiaga},
+		{8.1, domain.SeveritySiaga},
 	}
 
 	for _, tt := range tests {
@@ -235,5 +233,18 @@ func TestApplyTsunamiWarning(t *testing.T) {
 	}
 	if tsuWarning["warning_id"] != "tsu-warn-999" {
 		t.Errorf("expected warning_id 'tsu-warn-999', got %v", tsuWarning["warning_id"])
+	}
+
+	// Test warning downgrade: later warning with Waspada replaces earlier Awas
+	downgradeWarning := adapter.TsunamiWarningDTO{
+		WarningID:        "tsu-warn-1000",
+		RelatedEventID:   "bmkg-123",
+		ThreatLevel:      "Waspada",
+		AffectedZones:    []string{"Pesisir Selatan"},
+		EstimatedArrival: time.Now().Add(15 * time.Minute),
+	}
+	downgraded := norm.ApplyTsunamiWarning(updated, downgradeWarning)
+	if downgraded.Severity != domain.SeverityWaspada {
+		t.Errorf("expected downgraded severity WASPADA, got %s", downgraded.Severity)
 	}
 }

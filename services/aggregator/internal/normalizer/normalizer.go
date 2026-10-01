@@ -147,13 +147,9 @@ func (n *Normalizer) ApplyTsunamiWarning(hazard *domain.HazardEvent, warning ada
 	case "AWAS":
 		updated.Severity = domain.SeverityAwas
 	case "SIAGA":
-		if updated.Severity != domain.SeverityAwas {
-			updated.Severity = domain.SeveritySiaga
-		}
+		updated.Severity = domain.SeveritySiaga
 	case "WASPADA":
-		if updated.Severity != domain.SeverityAwas && updated.Severity != domain.SeveritySiaga {
-			updated.Severity = domain.SeverityWaspada
-		}
+		updated.Severity = domain.SeverityWaspada
 	}
 
 	return &updated
@@ -176,12 +172,10 @@ func deriveSeismicSeverity(magnitude float64, warning *adapter.TsunamiWarningDTO
 	// Fallback to magnitude-based severity
 	if magnitude < 5.0 {
 		return domain.SeverityNormal
-	} else if magnitude < 6.0 {
+	} else if magnitude < 6.5 {
 		return domain.SeverityWaspada
-	} else if magnitude < 7.0 {
-		return domain.SeveritySiaga
 	}
-	return domain.SeverityAwas
+	return domain.SeveritySiaga
 }
 
 // mapAlertLevelToSeverity maps PVMBG alert levels 1:1 to canonical Severity enum.

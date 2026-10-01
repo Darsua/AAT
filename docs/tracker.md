@@ -178,9 +178,9 @@ Use this matrix to track and link evidence artifacts for the final report:
 | **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | `report/evidence/p2/` |
 | **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | `report/evidence/p2/` |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | `report/evidence/p2/` |
-| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Verified ✅ | `report/evidence/p3/` |
-| **`P3-02`** | P3 | Media Authorization (RBAC) | `go test ./services/client-api/...`; `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Verified ✅ | `report/evidence/p3/` |
-| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `go test ./services/auth/...`; `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Verified ✅ | `report/evidence/p3/` |
+| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `report/evidence/p3/` |
+| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `report/evidence/p3/` |
+| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `report/evidence/p3/` |
 | **`P4-01`** | P4 | Independent Container Restart | `docker compose restart aggregator` | Unrelated services remain functional; clean reconnect to database | Darrel | Verified ✅ | `report/evidence/p4/` |
 | **`P4-02`** | P4 | Flexible Canonical Storage | Query DB hazards table | Records before and after schema evolution coexist seamlessly | Darrel | Verified ✅ | `report/evidence/p4/` |
 | **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `report/evidence/p5/` |
