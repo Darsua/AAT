@@ -1,7 +1,7 @@
 # Project Tracker: BNPB Disaster Coordination Platform
 
 **Course:** IF4031 Arsitektur Aplikasi Terdistribusi (Milestone 1)  
-**Target Project Completion:** **02 October 2026** (Internal target with 7-day contingency buffer)  
+**Target Project Completion:** **08 October 2026** (Internal target with 24h contingency buffer ahead of hard deadline)  
 **Hard Submission Deadline:** **09 October 2026, 23:59 WIB**  
 **Demonstration:** H+1 after deadline  
 **Last Updated:** **02 October 2026**
@@ -14,10 +14,10 @@
 |---|---|---|---|---|
 | **Phase 1: Alignment** | 21–22 Sep | Architecture decisions, service boundaries, frozen contracts, Docker Compose & CI | All ADRs, contracts, compose, and CI active on `main` | **COMPLETED ✅** |
 | **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **COMPLETED ✅** |
-| **Phase 3: Integration** | 28–30 Sep | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers | **IN PROGRESS** |
-| **Phase 4: Validation** | 30 Sep–01 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, failure injection | All acceptance criteria evidenced | **NOT STARTED** |
-| **Phase 5: Closeout** | 01–02 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **NOT STARTED** |
-| **Buffer Period** | 03–08 Oct | 7-day contingency buffer for rehearsal, edge-case bugfixes, and grading prep | Zero new feature code; dry runs only | **NOT STARTED** |
+| **Phase 3: Integration** | 28 Sep–04 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Sunday exit) | **IN PROGRESS** |
+| **Phase 4: Validation** | 03–05 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Monday in-person alignment) | **IN PROGRESS** |
+| **Phase 5: Closeout** | 05–08 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **PLANNED** |
+| **Buffer Window** | 08–09 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 09 Oct 23:59 WIB deadline | **PLANNED** |
 
 ---
 
@@ -104,23 +104,23 @@
   *Deliverable:* `GET /api/v1/hazards` and `GET /api/v1/hazards/{id}` proxying to `aggregator:8083/internal/hazards`, with local JWT verification, Media summary-field protection, correlation-ID propagation, and support for `fields`, `since`, `type`, `severity`, `limit`, and `offset`.
 
   *Verification:* [`services/client-api/main_test.go`](../services/client-api/main_test.go) covers JWT rejection, Media `403`, raw/summary projection, filter forwarding, by-ID retrieval, correlation IDs, and Aggregator failure handling; `go test -race ./...` passes.
-- [ ] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–01 Oct)  
+- [ ] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–04 Oct)  
   *Deliverable:* Enforce Media 403 Forbidden when requesting raw fields or `fields=all`. Allow Field/Internal full access.
-- [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01 Oct)  
+- [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01–04 Oct)  
   *Path:* [`services/consumers/`](../services/consumers/)  
   *Deliverable:* ≥2 independent consumers with dedicated consumer groups consuming from `bnpb.hazard-events`, deduplicating events by `hazard_id`.
-- [ ] **`C-06`** — **Complete Dockerfiles, Compose wiring, health checks, and startup order** (29 Sep–01 Oct)  
+- [ ] **`C-06`** — **Complete Dockerfiles, Compose wiring, health checks, and startup order** (29 Sep–04 Oct)  
   *Deliverable:* Full multi-service container startup order verified via health checks.
 
 ---
 
-### Phase 4: Validation & Scenarios (30 Sep–01 Oct)
+### Phase 4: Validation & Scenarios (03–05 Oct)
 
 #### Member A (Aldoy) — P1 Evidence & Contract Tests
-- [ ] **`A-06`** — **Run live schema-evolution demo and capture evidence** (30 Sep–01 Oct)  
+- [ ] **`A-06`** — **Run live schema-evolution demo and capture evidence** (03–05 Oct)  
   *Script:* [`scripts/test_schema_change.sh`](../scripts/test_schema_change.sh)  
   *Deliverable:* Evidence showing `confidence_level` dynamically ingested without restart.
-- [ ] **`A-07`** — **Run mock contract tests and package P1 evidence** (01 Oct)  
+- [ ] **`A-07`** — **Run mock contract tests and package P1 evidence** (03–05 Oct)  
   *Deliverable:* P1 test logs and screenshots saved in evidence folder.
 
 #### Member B (Darrel) — P2 & P4 Evidence & Load Testing
@@ -134,35 +134,35 @@
   *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,532 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 4.18ms, error rate = 0.20% (threshold < 1%).
 
 #### Member C (Jenka) — P3 & P5 Evidence & Observability
-- [ ] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (30 Sep–01 Oct)  
+- [ ] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (03–05 Oct)  
   *Scripts:* [`scripts/test_cross_credential.sh`](../scripts/test_cross_credential.sh) and [`scripts/test_auth_scopes.sh`](../scripts/test_auth_scopes.sh)  
   *Deliverable:* Evidence of BMKG/PVMBG cross-credential 401/403 rejection, Media 403 raw field blocking, 60s natural TTL expiration, and refresh token rotation.
-- [ ] **`C-08`** — **Run fan-out, consumer-stop, recovery, and new-consumer scenarios** (30 Sep–01 Oct)  
+- [ ] **`C-08`** — **Run fan-out, consumer-stop, recovery, and new-consumer scenarios** (03–05 Oct)  
   *Script:* [`scripts/test_consumer_recovery.sh`](../scripts/test_consumer_recovery.sh)  
   *Deliverable:* Evidence of identical fan-out, consumer downtime offset recovery, and dynamic 3rd consumer joining without publisher modification.
-- [ ] **`C-09`** — **Audit correlation IDs, latency logs, health checks, and metrics** (01 Oct)  
+- [ ] **`C-09`** — **Audit correlation IDs, latency logs, health checks, and metrics** (03–05 Oct)  
   *Deliverable:* Full log trail proving end-to-end `X-Correlation-ID` propagation.
 
 #### Joint Validation (All)
-- [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (01 Oct)  
-  *Deliverable:* Rehearsal execution of all 5 demonstration scripts in sequence (`make demo-p1`, `demo-p2`, `demo-p3`, `demo-p5`, `load-test`).
+- [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (05 Oct, In-person on campus)  
+  *Deliverable:* Rehearsal execution of all 5 demonstration scripts in sequence (`make demo-p1`, `demo-p2`, `demo-p3`, `demo-p5`, `load-test`) and cross-service oral defense review.
 
 ---
 
-### Phase 5: Closeout & Submission Prep (01–02 Oct)
+### Phase 5: Closeout & Submission Prep (05–08 Oct)
 
-- [ ] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (01–02 Oct)  
+- [ ] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (05–07 Oct)  
   *Deliverable:* Drafted report sections for Problem 1 and mock architectures.
-- [ ] **`B-09`** *(Darrel)* — **Write P2/P4 sections with load and storage evidence** (01–02 Oct)  
+- [ ] **`B-09`** *(Darrel)* — **Write P2/P4 sections with load and storage evidence** (03–07 Oct)  
   *Deliverable:* 3-way storage comparative evaluation (PostgreSQL+JSONB vs MongoDB vs Strict SQL), concurrency analysis, and k6 benchmark graphs.
-- [ ] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (01–02 Oct)  
+- [ ] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (05–07 Oct)  
   *Deliverable:* RBAC security design, token lifecycle documentation, and pub-sub recovery architecture.
-- [ ] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (02 Oct)  
+- [ ] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (07–08 Oct)  
   *Deliverable:* Root [`README.md`](../README.md) verified against rubric; signed ITB AI Declaration Form attached.
-- [ ] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (02 Oct)  
+- [ ] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (08 Oct)  
   *Deliverable:* Pristine `git checkout` test in clean directory; tag `milestone-1` pushed to GitHub.
-- [ ] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-week buffer** (02 Oct)  
-  *Deliverable:* Final PDF report, GitHub repository link, and submission form ready 7 days ahead of deadline.
+- [ ] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-day buffer** (08–09 Oct)  
+  *Deliverable:* Final PDF report, GitHub repository link, and submission form ready 24 hours ahead of hard deadline.
 
 ---
 
@@ -192,7 +192,7 @@ Use this matrix to track and link evidence artifacts for the final report:
 
 ## 4. Operational Rules
 
-1. **Target Completion Date is 02 October 2026:** All feature code, integration, tests, and evidence capture must finish by 02 October. The 03–08 October window is strictly a contingency buffer for report polishing, rehearsals, and bugfixes.
+1. **Adjusted Phase Roadmap & Milestones:** Phase 3 wraps up remotely on Sunday 04 October. Joint in-person validation and rehearsal (`ALL-01`) takes place Monday 05 October around the IF4031 class session on campus. Report consolidation occurs 05–08 October, preserving an 08–09 October contingency buffer before the hard submission deadline on 09 October 2026, 23:59 WIB.
 2. **Strict RACI Boundaries:** Do not write code or business logic in another member's assigned services.
 3. **No Shared Go Packages:** Every service must be 100% self-contained (`pkg/` and `common/` are forbidden).
 4. **Git Branch & PR Workflow:** Work on feature branches, ensure `make test` and Docker builds pass, and merge into `main` via reviewed Pull Requests.
