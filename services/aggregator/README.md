@@ -251,8 +251,8 @@ curl -i http://localhost:8083/internal/hazards
 
 - [x] Wire `pgxpool.New(ctx, databaseURL)` with connection pooling configurations (MaxConns: 25, MinConns: 5).
 - [x] Implement database migrations (auto-migrate or migrate tool).
-- [ ] Implement BMKG poller worker (`internal/ingest/bmkg.go`).
-- [ ] Implement PVMBG poller worker with circuit breaker and schema adapter (`internal/ingest/pvmbg.go`).
-- [ ] Implement atomic ingestion repository inserting into `hazards` and `outbox_events`.
-- [ ] Implement outbox publisher loop using `kafka-go.Writer` streaming to `bnpb.hazard-events`.
-- [x] Implement `GET /internal/hazards` handler querying PostgreSQL with optional pagination & filtering.
+- [x] Implement BMKG poller worker (`internal/worker/poller.go`).
+- [x] Implement PVMBG poller worker with circuit breaker and schema adapter (`internal/worker/poller.go`).
+- [x] Implement atomic ingestion repository inserting into `hazards` and `outbox_events` (`internal/repository/hazard_repo.go`).
+- [x] Implement outbox publisher loop using `kafka-go.Writer` streaming to `bnpb.hazard-events` (`internal/worker/outbox_relay.go`).
+- [x] Implement `GET /internal/hazards` handler querying PostgreSQL with optional pagination & filtering (`internal/api/hazard_handler.go`).
