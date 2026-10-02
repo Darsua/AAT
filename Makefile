@@ -78,10 +78,14 @@ demo-p5:
 
 ## Load test using k6 (native binary or container fallback)
 load-test:
+	@if [ -z "$$AUTH_INTERNAL_CLIENT_SECRET" ]; then \
+		echo "[load-test] ERROR: AUTH_INTERNAL_CLIENT_SECRET environment variable is required" >&2; \
+		exit 1; \
+	fi
 	@if command -v k6 >/dev/null 2>&1; then \
 		echo "[load-test] Running k6 load test via local binary..."; \
 		k6 run ./scripts/load_test.js; \
 	else \
 		echo "[load-test] k6 binary not found locally. Running via Docker grafana/k6..."; \
-		$(DOCKER) run --rm -i --network host grafana/k6 run - < ./scripts/load_test.js; \
+		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi

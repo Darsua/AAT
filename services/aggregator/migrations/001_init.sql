@@ -3,9 +3,9 @@
 
 -- 1. Hazards Table
 CREATE TABLE IF NOT EXISTS hazards (
-    hazard_id VARCHAR(64) PRIMARY KEY,
+    hazard_id VARCHAR(128) PRIMARY KEY,
     source VARCHAR(32) NOT NULL,
-    source_ref_id VARCHAR(64) NOT NULL,
+    source_ref_id VARCHAR(128) NOT NULL,
     hazard_type VARCHAR(32) NOT NULL,
     severity VARCHAR(32) NOT NULL,
     area_name TEXT NOT NULL,
@@ -47,13 +47,22 @@ ON CONFLICT (volcano_id) DO UPDATE SET
 -- 3. Transactional Outbox Table
 CREATE TABLE IF NOT EXISTS outbox_events (
     id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(64) NOT NULL UNIQUE,
+    event_id VARCHAR(128) NOT NULL UNIQUE,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     published BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at TIMESTAMPTZ
+    published_at TIMESTAMPTZ,
+    claim_expires_at TIMESTAMPTZ
 );
+
+-- Idempotent column addition and alterations for existing volumes
+ALTER TABLE hazards ALTER COLUMN hazard_id TYPE VARCHAR(128);
+ALTER TABLE hazards ALTER COLUMN source_ref_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ALTER COLUMN event_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;

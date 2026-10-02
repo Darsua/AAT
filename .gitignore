@@ -13,6 +13,7 @@ bin/
 tmp/
 dist/
 services/*/server
+/server
 services/*/aggregator
 services/*/auth
 services/*/client-api

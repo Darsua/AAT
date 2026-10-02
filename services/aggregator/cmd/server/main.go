@@ -7,15 +7,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"bnpb/aggregator/internal/adapter"
 	"bnpb/aggregator/internal/api"
 	"bnpb/aggregator/internal/config"
 	"bnpb/aggregator/internal/logger"
+	"bnpb/aggregator/internal/normalizer"
 	"bnpb/aggregator/internal/repository"
+	"bnpb/aggregator/internal/status"
+	"bnpb/aggregator/internal/worker"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/segmentio/kafka-go"
 )
 
 func main() {
@@ -63,11 +70,62 @@ func main() {
 	hazardRepo := repository.NewHazardRepository(pool)
 	brokerPinger := repository.NewTCPBrokerPinger(cfg.RedpandaBrokers)
 
+	// Initialize circuit status tracker and normalizer
+	statusTracker := status.NewTracker()
+	norm := normalizer.NewNormalizer(volcanoRepo)
+
+	// Initialize upstream adapters
+	bmkgAdapter := adapter.NewBMKGAdapter(cfg.BMKGURL, cfg.BMKGKey, 10*time.Second)
+	pvmbgAdapter := adapter.NewPVMBGAdapter(cfg.PVMBGURL, cfg.PVMBGToken, 10*time.Second)
+
+	// Initialize Kafka message writer for Redpanda
+	rawBrokers := strings.Split(cfg.RedpandaBrokers, ",")
+	brokers := make([]string, 0, len(rawBrokers))
+	for _, b := range rawBrokers {
+		if trimmed := strings.TrimSpace(b); trimmed != "" {
+			brokers = append(brokers, trimmed)
+		}
+	}
+	kafkaWriter := &kafka.Writer{
+		Addr:         kafka.TCP(brokers...),
+		Topic:        cfg.Topic,
+		Balancer:     &kafka.Hash{},
+		MaxAttempts:  3,
+		BatchSize:    50,
+		BatchTimeout: 10 * time.Millisecond,
+		WriteTimeout: 5 * time.Second,
+		RequiredAcks: kafka.RequireOne,
+	}
+	defer kafkaWriter.Close()
+
+	// Initialize background polling and outbox relay workers
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
+	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
+	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
+
+	var workerWg sync.WaitGroup
+	workerWg.Add(3)
+	go func() {
+		defer workerWg.Done()
+		bmkgPoller.Start(workerCtx)
+	}()
+	go func() {
+		defer workerWg.Done()
+		pvmbgPoller.Start(workerCtx)
+	}()
+	go func() {
+		defer workerWg.Done()
+		outboxRelay.Start(workerCtx)
+	}()
+
 	// Register HTTP routes
 	mux := http.NewServeMux()
 
 	healthHandler := api.NewHealthHandler(pool, brokerPinger)
-	hazardHandler := api.NewHazardHandler(hazardRepo)
+	hazardHandler := api.NewHazardHandler(hazardRepo, statusTracker)
 
 	mux.Handle("GET /health", healthHandler)
 	mux.Handle("GET /internal/hazards", hazardHandler)
@@ -101,6 +159,12 @@ func main() {
 	sig := <-stopChan
 	log.Info("shutting down aggregator server gracefully", slog.String("signal", sig.String()))
 
+	// 1. Drain and stop background workers
+	workerCancel()
+	workerWg.Wait()
+	log.Info("background polling and outbox workers stopped cleanly")
+
+	// 2. Stop HTTP server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 

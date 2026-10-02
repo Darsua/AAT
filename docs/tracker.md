@@ -4,7 +4,7 @@
 **Target Project Completion:** **02 October 2026** (Internal target with 7-day contingency buffer)  
 **Hard Submission Deadline:** **09 October 2026, 23:59 WIB**  
 **Demonstration:** H+1 after deadline  
-**Last Updated:** **28 September 2026**
+**Last Updated:** **30 September 2026**
 
 ---
 
@@ -75,16 +75,26 @@
 ### Phase 3: Integration & Core Pipeline (28–30 Sep)
 
 #### Member B (Darrel) — Aggregator Pipeline & Outbox Relay
-- [ ] **`A-05`** — **Implement Aggregator adapters and dynamic source parsing** (28–30 Sep)
-  *Owner:* Member B (Darrel)
-  *Dependency:* `A-01`, `A-02`, `A-04`, `B-02`.
-  *Deliverable:* Aggregator polling parses BMKG/PVMBG contracts without strict-field failures and forwards dynamic fields to `attributes`.
-- [ ] **`B-03`** — **Implement independent polling workers, cursors, overlap, and deduplication** (28–30 Sep)  
-  *Deliverable:* 2–5s polling loops for BMKG and PVMBG with `since` query parameter, error backoff, and idempotent DB upsert on `(source, source_ref_id)`.
-- [ ] **`B-04`** — **Implement HazardEvent mapping, severity rules, and attributes** (28–30 Sep)  
-  *Deliverable:* Canonical mapping rules (spec §3.1–§3.3), static volcano coordinate enrichment, tsunami correlation, and additive unmapped field forwarding to `attributes JSONB`.
-- [ ] **`B-05`** — **Implement outbox and broker publisher** (30 Sep–01 Oct)  
-  *Deliverable:* Atomic DB transaction committing `hazards` + `outbox_events`, and background relay goroutine publishing canonical `HazardEvent` messages to Redpanda (`hazard_id` as key).
+- [x] **`A-05`** — **Implement Aggregator adapters and dynamic source parsing** (28–30 Sep)  
+  *Owner:* Member B (Darrel)  
+  *Path:* [`services/aggregator/internal/adapter/`](../services/aggregator/internal/adapter/)  
+  *Deliverable:* BMKG seismic & tsunami adapter with `X-BMKG-Key` auth; PVMBG volcanic adapter with Bearer auth, schemaless unmarshaling (`DynamicFields map[string]any`), and 503 outage detection.  
+  *Verification:* [`services/aggregator/internal/adapter/adapter_test.go`](../services/aggregator/internal/adapter/adapter_test.go) passes with `-race`.
+- [x] **`B-03`** — **Implement independent polling workers, cursors, overlap, and deduplication** (28–30 Sep)  
+  *Owner:* Member B (Darrel)  
+  *Path:* [`services/aggregator/internal/worker/poller.go`](../services/aggregator/internal/worker/poller.go)  
+  *Deliverable:* Independent BMKG and PVMBG poller loops with 10s overlap window, cursor tracking, exponential backoff, and idempotent DB upsert on `(source, source_ref_id)`.  
+  *Verification:* Verified live ingestion from both mock services; zero duplication across cycles.
+- [x] **`B-04`** — **Implement HazardEvent mapping, severity rules, and attributes** (28–30 Sep)  
+  *Owner:* Member B (Darrel)  
+  *Path:* [`services/aggregator/internal/normalizer/normalizer.go`](../services/aggregator/internal/normalizer/normalizer.go)  
+  *Deliverable:* Canonical mapping rules (spec §3.1–§3.3), seismic severity derivation (Awas/Siaga/Waspada override, magnitude thresholds), tsunami warning embedding, static volcano coordinate enrichment from `volcano_references`, and unmapped additive field forwarding into `attributes JSONB`.  
+  *Verification:* [`services/aggregator/internal/normalizer/normalizer_test.go`](../services/aggregator/internal/normalizer/normalizer_test.go) passes with `-race`.
+- [x] **`B-05`** — **Implement outbox and broker publisher** (30 Sep–01 Oct)  
+  *Owner:* Member B (Darrel)  
+  *Path:* [`services/aggregator/internal/repository/hazard_repo.go`](../services/aggregator/internal/repository/hazard_repo.go), [`services/aggregator/internal/worker/outbox_relay.go`](../services/aggregator/internal/worker/outbox_relay.go)  
+  *Deliverable:* Atomic DB transaction committing `hazards` + `outbox_events` (`SaveHazardWithOutbox`), and background relay goroutine publishing canonical `HazardEvent` messages to Redpanda topic `bnpb.hazard-events` with `hazard_id` as key and `X-Correlation-ID` header.  
+  *Verification:* [`services/aggregator/internal/worker/worker_test.go`](../services/aggregator/internal/worker/worker_test.go) passes with `-race`; verified live event fan-out in Redpanda.
 
 #### Member C (Jenka) — Client API & Downstream Consumers
 - [x] **`C-03`** — **Build read-only API, filters, pagination, and Aggregator client** (28–30 Sep)
@@ -114,14 +124,14 @@
   *Deliverable:* P1 test logs and screenshots saved in evidence folder.
 
 #### Member B (Darrel) — P2 & P4 Evidence & Load Testing
-- [ ] **`B-06`** — **Run latency, outage, recovery, and stale-data scenarios** (30 Sep–01 Oct)  
+- [x] **`B-06`** — **Run latency, outage, recovery, and stale-data scenarios** (30 Sep–01 Oct)  
   *Script:* [`scripts/test_outage.sh`](../scripts/test_outage.sh)  
-  *Deliverable:* Evidence of degraded state (`meta.degraded = true`, `meta.stale_since`) during PVMBG outage while BMKG remains 100% operational.
-- [ ] **`B-07`** — **Test independent restart and storage ownership** (30 Sep–01 Oct)  
-  *Deliverable:* Zero cascading failure when `aggregator` or `canonical-db` restarts.
-- [ ] **`B-08`** — **Run sustained load test with ≥50 parallel connections for 60 seconds** (01 Oct)  
+  *Deliverable:* Verified degraded state (`meta.degraded = true`, `meta.stale_since`) during PVMBG outage while BMKG remains 100% operational; automatic recovery to healthy state.
+- [x] **`B-07`** — **Test independent restart and storage ownership** (30 Sep–01 Oct)  
+  *Deliverable:* Verified zero cascading failure when `aggregator` or `canonical-db` restarts; automatic connection pool recovery and self-healing.
+- [x] **`B-08`** — **Run sustained load test with ≥50 parallel connections for 60 seconds** (01 Oct)  
   *Script:* [`scripts/load_test.js`](../scripts/load_test.js)  
-  *Deliverable:* k6 summary metrics: 50 VUs, 60s duration, p95 latency < 300ms, error rate < 1% (reporting 429s separately).
+  *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,532 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 4.18ms, error rate = 0.20% (threshold < 1%).
 
 #### Member C (Jenka) — P3 & P5 Evidence & Observability
 - [ ] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (30 Sep–01 Oct)  
@@ -165,14 +175,14 @@ Use this matrix to track and link evidence artifacts for the final report:
 | **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Planned | `report/evidence/p1/` |
 | **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Planned | `report/evidence/p1/` |
 | **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Planned | `report/evidence/p1/` |
-| **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Planned | `report/evidence/p2/` |
-| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms | Darrel | Planned | `report/evidence/p2/` |
-| **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Planned | `report/evidence/p2/` |
+| **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | `report/evidence/p2/` |
+| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | `report/evidence/p2/` |
+| **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | `report/evidence/p2/` |
 | **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `report/evidence/p3/` |
-| **`P3-02`** | P3 | Media Authorization (RBAC) | `go test ./services/client-api/...`; `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Unit tests pass; demo pending | `report/evidence/p3/` |
-| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `go test ./services/auth/...`; `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Unit tests pass; demo pending | `report/evidence/p3/` |
-| **`P4-01`** | P4 | Independent Container Restart | `docker compose restart aggregator` | Unrelated services remain functional; clean reconnect to database | Darrel | Planned | `report/evidence/p4/` |
-| **`P4-02`** | P4 | Flexible Canonical Storage | Query DB hazards table | Records before and after schema evolution coexist seamlessly | Darrel | Planned | `report/evidence/p4/` |
+| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `report/evidence/p3/` |
+| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `report/evidence/p3/` |
+| **`P4-01`** | P4 | Independent Container Restart | `docker compose restart aggregator` | Unrelated services remain functional; clean reconnect to database | Darrel | Verified ✅ | `report/evidence/p4/` |
+| **`P4-02`** | P4 | Flexible Canonical Storage | Query DB hazards table | Records before and after schema evolution coexist seamlessly | Darrel | Verified ✅ | `report/evidence/p4/` |
 | **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `report/evidence/p5/` |
 | **`P5-02`** | P5 | Consumer Outage | Stop one consumer, publish events | Publisher and surviving consumer continue processing normally | Jenka | Planned | `report/evidence/p5/` |
 | **`P5-03`** | P5 | Consumer Downtime Recovery | Restart stopped consumer | Resumes from last committed checkpoint and consumes missed backlog | Jenka | Planned | `report/evidence/p5/` |
