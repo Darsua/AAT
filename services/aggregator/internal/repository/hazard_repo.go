@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -253,6 +255,22 @@ func scanHazardRow(row pgx.Row) (*domain.HazardEvent, error) {
 	return &h, nil
 }
 
+// formatOutboxEventID generates a deterministic, collision-resistant outbox event ID bounded to 64 chars.
+func formatOutboxEventID(source domain.Source, sourceRefID string) string {
+	raw := fmt.Sprintf("outbox-%s-%s", strings.ToLower(string(source)), sourceRefID)
+	if len(raw) <= 64 {
+		return raw
+	}
+	h := sha256.Sum256([]byte(raw))
+	hashHex := hex.EncodeToString(h[:])[:16]
+	prefix := fmt.Sprintf("outbox-%s-", strings.ToLower(string(source)))
+	maxRefLen := 64 - len(prefix) - len(hashHex) - 1
+	if maxRefLen > len(sourceRefID) {
+		maxRefLen = len(sourceRefID)
+	}
+	return fmt.Sprintf("%s%s-%s", prefix, sourceRefID[:maxRefLen], hashHex)
+}
+
 // SaveHazardWithOutbox persists or updates a hazard record and an outbox event within a single ACID transaction.
 func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error {
 	if h.Attributes == nil {
@@ -318,7 +336,7 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 	}
 
 	// 2. Upsert outbox event (only reset published=FALSE if payload actually changes!)
-	outboxEventID := fmt.Sprintf("outbox-%s-%s", strings.ToLower(string(h.Source)), h.SourceRefID)
+	outboxEventID := formatOutboxEventID(h.Source, h.SourceRefID)
 	outboxSQL := `
 		INSERT INTO outbox_events (event_id, event_type, payload, correlation_id, published)
 		VALUES ($1, $2, $3, $4, FALSE)
@@ -326,7 +344,8 @@ func (r *HazardRepository) SaveHazardWithOutbox(ctx context.Context, h *domain.H
 			payload = EXCLUDED.payload,
 			correlation_id = EXCLUDED.correlation_id,
 			published = FALSE,
-			published_at = NULL
+			published_at = NULL,
+			claim_expires_at = NULL
 		WHERE outbox_events.payload != EXCLUDED.payload;
 	`
 	_, err = tx.Exec(ctx, outboxSQL, outboxEventID, "hazard_event", payloadJSON, correlationID)
@@ -366,12 +385,11 @@ func (r *HazardRepository) GetLatestOccurredAt(ctx context.Context, source domai
 	return latest, nil
 }
 
-// FetchUnprocessedOutbox retrieves batch of unpublished outbox records.
-// RelayOutboxBatch claims unprocessed outbox records atomically using SELECT ... FOR UPDATE SKIP LOCKED,
-// calls relayFn to dispatch them to Kafka, and within the same transaction updates their status:
-// published records are marked published (verified against payload to prevent stale updates),
-// and quarantined records are marked with event_type = 'hazard_event_quarantined'.
-// If relayFn returns an error (e.g. broker failure), the transaction rolls back and row locks are released.
+// RelayOutboxBatch claims unprocessed outbox records atomically using a short transaction and lease with SKIP LOCKED,
+// releases database row locks immediately so ingestion updates are never blocked by broker latency,
+// invokes relayFn to publish to Kafka outside any database transaction,
+// and finally updates the published/quarantined status conditionally (checking payload equality).
+// If relayFn returns an error (e.g. broker failure), the lease is cleared so records can be retried immediately.
 func (r *HazardRepository) RelayOutboxBatch(
 	ctx context.Context,
 	limit int,
@@ -381,29 +399,37 @@ func (r *HazardRepository) RelayOutboxBatch(
 		limit = 50
 	}
 
-	tx, err := r.pool.Begin(ctx)
+	// Phase 1: Claim rows with a short transaction and lease (locks held for <2ms)
+	var events []domain.OutboxEvent
+	claimTx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin outbox relay tx: %w", err)
+		return fmt.Errorf("failed to begin outbox claim tx: %w", err)
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = claimTx.Rollback(ctx)
 	}()
 
-	sql := `
-		SELECT id, event_id, event_type, payload, correlation_id, published, created_at, published_at
-		FROM outbox_events
-		WHERE published = FALSE
-		ORDER BY id ASC
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED;
+	claimSQL := `
+		WITH claimable AS (
+			SELECT id
+			FROM outbox_events
+			WHERE published = FALSE AND (claim_expires_at IS NULL OR claim_expires_at < NOW())
+			ORDER BY id ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE outbox_events o
+		SET claim_expires_at = NOW() + INTERVAL '30 seconds'
+		FROM claimable c
+		WHERE o.id = c.id
+		RETURNING o.id, o.event_id, o.event_type, o.payload, o.correlation_id, o.published, o.created_at, o.published_at;
 	`
-	rows, err := tx.Query(ctx, sql, limit)
+	rows, err := claimTx.Query(ctx, claimSQL, limit)
 	if err != nil {
-		return fmt.Errorf("failed to query unprocessed outbox with lock: %w", err)
+		return fmt.Errorf("failed to claim unprocessed outbox records: %w", err)
 	}
 	defer rows.Close()
 
-	var events []domain.OutboxEvent
 	for rows.Next() {
 		var o domain.OutboxEvent
 		if err := rows.Scan(
@@ -421,31 +447,52 @@ func (r *HazardRepository) RelayOutboxBatch(
 		events = append(events, o)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error during outbox iteration: %w", err)
+		return fmt.Errorf("error during outbox claim iteration: %w", err)
 	}
 	rows.Close()
+
+	if err := claimTx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit outbox claim tx: %w", err)
+	}
 
 	if len(events) == 0 {
 		return nil
 	}
 
+	// Phase 2: Publish outside any database transaction (broker latency does not hold DB row locks)
+	claimedIDs := make([]int64, len(events))
+	for i, e := range events {
+		claimedIDs[i] = e.ID
+	}
+
 	published, quarantined, err := relayFn(events)
 	if err != nil {
+		// Broker failed: release lease immediately so retry happens on next tick
+		_, _ = r.pool.Exec(ctx, "UPDATE outbox_events SET claim_expires_at = NULL WHERE id = ANY($1) AND published = FALSE;", claimedIDs)
 		return err
 	}
 
-	// 1. Mark published rows inside tx, checking payload equality
+	// Phase 3: Mark published and quarantined rows in a short completion transaction
+	updateTx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin outbox update tx: %w", err)
+	}
+	defer func() {
+		_ = updateTx.Rollback(ctx)
+	}()
+
+	// 1. Mark published rows, verifying payload equality to avoid overwriting mid-flight hazard updates
 	if len(published) > 0 {
 		publishBatch := &pgx.Batch{}
 		updateSQL := `
 			UPDATE outbox_events
-			SET published = TRUE, published_at = NOW()
+			SET published = TRUE, published_at = NOW(), claim_expires_at = NULL
 			WHERE id = $1 AND payload = $2::jsonb;
 		`
 		for _, rec := range published {
 			publishBatch.Queue(updateSQL, rec.ID, rec.Payload)
 		}
-		br := tx.SendBatch(ctx, publishBatch)
+		br := updateTx.SendBatch(ctx, publishBatch)
 		for range published {
 			if _, bErr := br.Exec(); bErr != nil {
 				_ = br.Close()
@@ -455,18 +502,18 @@ func (r *HazardRepository) RelayOutboxBatch(
 		_ = br.Close()
 	}
 
-	// 2. Mark quarantined rows inside tx
+	// 2. Mark quarantined rows
 	if len(quarantined) > 0 {
 		quarantineBatch := &pgx.Batch{}
 		quarantineSQL := `
 			UPDATE outbox_events
-			SET published = TRUE, event_type = 'hazard_event_quarantined', published_at = NOW()
+			SET published = TRUE, event_type = 'hazard_event_quarantined', published_at = NOW(), claim_expires_at = NULL
 			WHERE id = $1;
 		`
 		for _, rec := range quarantined {
 			quarantineBatch.Queue(quarantineSQL, rec.ID)
 		}
-		br := tx.SendBatch(ctx, quarantineBatch)
+		br := updateTx.SendBatch(ctx, quarantineBatch)
 		for range quarantined {
 			if _, bErr := br.Exec(); bErr != nil {
 				_ = br.Close()
@@ -476,8 +523,26 @@ func (r *HazardRepository) RelayOutboxBatch(
 		_ = br.Close()
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit outbox relay transaction: %w", err)
+	// Clear claims for any events that were neither published nor quarantined
+	processedSet := make(map[int64]struct{}, len(published)+len(quarantined))
+	for _, p := range published {
+		processedSet[p.ID] = struct{}{}
+	}
+	for _, q := range quarantined {
+		processedSet[q.ID] = struct{}{}
+	}
+	var unhandledIDs []int64
+	for _, id := range claimedIDs {
+		if _, ok := processedSet[id]; !ok {
+			unhandledIDs = append(unhandledIDs, id)
+		}
+	}
+	if len(unhandledIDs) > 0 {
+		_, _ = updateTx.Exec(ctx, "UPDATE outbox_events SET claim_expires_at = NULL WHERE id = ANY($1);", unhandledIDs)
+	}
+
+	if err := updateTx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit outbox update transaction: %w", err)
 	}
 
 	return nil

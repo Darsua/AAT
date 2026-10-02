@@ -236,3 +236,21 @@ func TestPoller_GracefulCancellation(t *testing.T) {
 		t.Fatal("poller failed to stop cleanly on context cancellation")
 	}
 }
+
+func TestComputeBackoff_PreventsShiftOverflow(t *testing.T) {
+	interval := 5 * time.Second
+	maxBackoff := 30 * time.Second
+
+	// Test boundary and high retry counts that would otherwise overflow int / time.Duration shifts
+	testCases := []int{0, 1, 2, 5, 6, 7, 10, 31, 32, 62, 63, 64, 100, 1000, 10000}
+	for _, count := range testCases {
+		d := computeBackoff(interval, count, maxBackoff)
+		if d < interval {
+			t.Errorf("retryCount=%d: backoff %v is less than base interval %v", count, d, interval)
+		}
+		// Max allowed delay is maxBackoff + maxJitter (1s)
+		if d > maxBackoff+1*time.Second {
+			t.Errorf("retryCount=%d: backoff %v exceeded maximum threshold %v", count, d, maxBackoff+1*time.Second)
+		}
+	}
+}

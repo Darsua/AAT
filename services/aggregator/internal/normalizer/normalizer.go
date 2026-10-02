@@ -2,6 +2,8 @@ package normalizer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -27,9 +29,25 @@ func NewNormalizer(volcanoes VolcanoProvider) *Normalizer {
 	}
 }
 
+// formatHazardID generates a deterministic, collision-resistant canonical hazard ID bounded to 64 chars.
+func formatHazardID(prefix, sourceRefID string) string {
+	candidate := fmt.Sprintf("%s-%s", prefix, sourceRefID)
+	if len(candidate) <= 64 {
+		return candidate
+	}
+	h := sha256.Sum256([]byte(candidate))
+	hashHex := hex.EncodeToString(h[:])[:16]
+	prefixWithDash := prefix + "-"
+	maxRefLen := 64 - len(prefixWithDash) - len(hashHex) - 1
+	if maxRefLen > len(sourceRefID) {
+		maxRefLen = len(sourceRefID)
+	}
+	return fmt.Sprintf("%s%s-%s", prefixWithDash, sourceRefID[:maxRefLen], hashHex)
+}
+
 // NormalizeSeismic maps BMKG seismic sensor data and correlated tsunami advisories into a canonical HazardEvent.
 func (n *Normalizer) NormalizeSeismic(event adapter.SeismicEventDTO, warnings []adapter.TsunamiWarningDTO) domain.HazardEvent {
-	hazardID := fmt.Sprintf("haz-bmkg-%s", event.EventID)
+	hazardID := formatHazardID("haz-bmkg", event.EventID)
 	lat := event.EpicenterLat
 	lon := event.EpicenterLon
 
@@ -75,7 +93,7 @@ func (n *Normalizer) NormalizeSeismic(event adapter.SeismicEventDTO, warnings []
 
 // NormalizeVolcanic maps PVMBG volcanic observations into a canonical HazardEvent, enriching coordinates from static references.
 func (n *Normalizer) NormalizeVolcanic(ctx context.Context, report adapter.VolcanicReportDTO) (domain.HazardEvent, error) {
-	hazardID := fmt.Sprintf("haz-pvmbg-%s", report.ReportID)
+	hazardID := formatHazardID("haz-pvmbg", report.ReportID)
 
 	areaName := report.VolcanoID
 	var latPtr, lonPtr *float64

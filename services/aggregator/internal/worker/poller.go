@@ -76,11 +76,7 @@ func (p *BMKGPoller) Start(ctx context.Context) {
 	for {
 		sleepDuration := p.interval + randomJitter(0, 500*time.Millisecond)
 		if retryCount > 0 {
-			backoff := p.interval * (1 << retryCount)
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			sleepDuration = backoff + randomJitter(0, 1*time.Second)
+			sleepDuration = computeBackoff(p.interval, retryCount, maxBackoff)
 		}
 
 		select {
@@ -227,11 +223,7 @@ func (p *PVMBGPoller) Start(ctx context.Context) {
 	for {
 		sleepDuration := p.interval + randomJitter(0, 500*time.Millisecond)
 		if retryCount > 0 {
-			backoff := p.interval * (1 << retryCount)
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			sleepDuration = backoff + randomJitter(0, 1*time.Second)
+			sleepDuration = computeBackoff(p.interval, retryCount, maxBackoff)
 		}
 
 		select {
@@ -313,4 +305,17 @@ func randomJitter(base time.Duration, maxJitter time.Duration) time.Duration {
 		return base
 	}
 	return base + time.Duration(rand.Int63n(int64(maxJitter)))
+}
+
+// computeBackoff calculates exponential backoff with bounded exponent shift to prevent overflow during prolonged outages.
+func computeBackoff(baseInterval time.Duration, retryCount int, maxBackoff time.Duration) time.Duration {
+	shift := retryCount
+	if shift > 6 {
+		shift = 6
+	}
+	backoff := baseInterval * (1 << shift)
+	if backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+	return backoff + randomJitter(0, 1*time.Second)
 }

@@ -248,3 +248,56 @@ func TestApplyTsunamiWarning(t *testing.T) {
 		t.Errorf("expected downgraded severity WASPADA, got %s", downgraded.Severity)
 	}
 }
+
+func TestNormalize_LongIDBounded(t *testing.T) {
+	norm := NewNormalizer(nil)
+	occurred := time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)
+
+	// Upstream event with long ID exceeding 64 chars
+	longID := "bmkg-very-long-unique-identifier-2026-indonesia-padang-earthquake-station-subduction-zone-sensor-alpha-999"
+	event := adapter.SeismicEventDTO{
+		EventID:          longID,
+		Magnitude:        5.5,
+		DepthKM:          10.0,
+		EpicenterLat:     -0.9,
+		EpicenterLon:     100.3,
+		RegionName:       "Padang",
+		OccurredAt:       occurred,
+		PotentialTsunami: false,
+	}
+
+	canonical := norm.NormalizeSeismic(event, nil)
+	if len(canonical.HazardID) > 64 {
+		t.Errorf("HazardID exceeds 64 characters: length=%d, id=%s", len(canonical.HazardID), canonical.HazardID)
+	}
+
+	// Verify determinism
+	canonical2 := norm.NormalizeSeismic(event, nil)
+	if canonical.HazardID != canonical2.HazardID {
+		t.Errorf("HazardID is non-deterministic: %s != %s", canonical.HazardID, canonical2.HazardID)
+	}
+
+	// Verify collision resistance with different long ID
+	longID2 := "bmkg-very-long-unique-identifier-2026-indonesia-padang-earthquake-station-subduction-zone-sensor-alpha-998"
+	event2 := event
+	event2.EventID = longID2
+	canonical3 := norm.NormalizeSeismic(event2, nil)
+	if canonical.HazardID == canonical3.HazardID {
+		t.Errorf("HazardID collision for distinct long IDs: %s", canonical.HazardID)
+	}
+
+	// Test volcanic report long ID
+	vReport := adapter.VolcanicReportDTO{
+		ReportID:   "pvmbg-report-extremely-long-station-monitoring-code-volcano-catalogue-sumatra-marapi-2026-obs",
+		VolcanoID:  "VLC-001",
+		AlertLevel: "SIAGA",
+		ReportedAt: occurred,
+	}
+	vCanonical, err := norm.NormalizeVolcanic(context.Background(), vReport)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vCanonical.HazardID) > 64 {
+		t.Errorf("Volcanic HazardID exceeds 64 characters: length=%d, id=%s", len(vCanonical.HazardID), vCanonical.HazardID)
+	}
+}
