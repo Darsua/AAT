@@ -4,7 +4,7 @@
 **Target Project Completion:** **02 October 2026** (Internal target with 7-day contingency buffer)  
 **Hard Submission Deadline:** **09 October 2026, 23:59 WIB**  
 **Demonstration:** H+1 after deadline  
-**Last Updated:** **30 September 2026**
+**Last Updated:** **02 October 2026**
 
 ---
 
