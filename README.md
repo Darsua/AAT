@@ -304,9 +304,29 @@ curl -s -X POST http://localhost:8082/admin/outage \
 3. **60-Second TTL**: Tokens expire after 60 seconds; callers refresh tokens using `POST /auth/refresh`.
 
 ```bash
+# Load local credentials without committing them, then override Docker-internal
+# service URLs with their host-facing addresses.
+set -a
+source .env
+set +a
+
+AUTH_URL=http://localhost:8084 \
+CLIENT_API_URL=http://localhost:8080 \
+BMKG_URL=http://localhost:8081 \
+BMKG_KEY="${BMKG_API_KEY}" \
+PVMBG_URL=http://localhost:8082 \
 make demo-p3
-# or: ./scripts/test_cross_credential.sh && ./scripts/test_auth_scopes.sh
+
+# Quick C-04 iteration without waiting for natural access-token expiry:
+AUTH_URL=http://localhost:8084 \
+CLIENT_API_URL=http://localhost:8080 \
+SKIP_TTL_WAIT=1 \
+./scripts/test_auth_scopes.sh
 ```
+
+The P3 scripts require `curl` and `jq`. `test_auth_scopes.sh` fails immediately
+when credentials, required tools, or live service responses are missing; it does
+not substitute mock tokens or fabricated HTTP responses.
 
 **Manual Verification Flow**:
 ```bash

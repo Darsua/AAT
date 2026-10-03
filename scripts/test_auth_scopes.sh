@@ -12,208 +12,260 @@
 
 set -euo pipefail
 
-# Text formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 AUTH_URL="${AUTH_URL:-http://localhost:8084}"
 CLIENT_API_URL="${CLIENT_API_URL:-http://localhost:8080}"
-JWT_SECRET="${JWT_SECRET:-super-secret-jwt-key-2026}"
+
+MEDIA_CLIENT_ID="${AUTH_MEDIA_CLIENT_ID:-test-media-client}"
+FIELD_CLIENT_ID="${AUTH_FIELD_CLIENT_ID:-test-field-client}"
+INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
+
+# Secrets intentionally have no defaults. Load them from .env or export them.
+MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET:-}"
+FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET:-}"
+INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-}"
+
+PASSES=0
+FAILURES=0
+HTTP_STATUS=""
+HTTP_BODY=""
+ACCESS_TOKEN=""
+REFRESH_TOKEN=""
+EXPIRES_IN=""
+
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${TEMP_DIR}"' EXIT
+RESPONSE_FILE="${TEMP_DIR}/response.json"
+
+pass() {
+    PASSES=$((PASSES + 1))
+    echo -e "${GREEN}[PASS]${NC} $1"
+}
+
+fail() {
+    FAILURES=$((FAILURES + 1))
+    echo -e "${RED}[FAIL]${NC} $1" >&2
+}
+
+fatal() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    exit 1
+}
+
+# Store the real response body and status separately. A connection failure stops
+# the test instead of being replaced with a fabricated successful response.
+request_json() {
+    local method="$1"
+    local url="$2"
+    local payload="${3:-}"
+    local bearer_token="${4:-}"
+    local correlation_id="${5:-}"
+    local -a arguments=(
+        --silent
+        --show-error
+        --output "${RESPONSE_FILE}"
+        --write-out "%{http_code}"
+        --request "${method}"
+        --header "Accept: application/json"
+    )
+
+    if [[ -n "${payload}" ]]; then
+        arguments+=(--header "Content-Type: application/json" --data "${payload}")
+    fi
+    if [[ -n "${bearer_token}" ]]; then
+        arguments+=(--header "Authorization: Bearer ${bearer_token}")
+    fi
+    if [[ -n "${correlation_id}" ]]; then
+        arguments+=(--header "X-Correlation-ID: ${correlation_id}")
+    fi
+
+    if ! HTTP_STATUS="$(curl "${arguments[@]}" "${url}")"; then
+        fatal "${method} ${url}: connection failed"
+    fi
+    HTTP_BODY="$(<"${RESPONSE_FILE}")"
+}
+
+expect_status() {
+    local expected="$1"
+    local scenario="$2"
+
+    echo "HTTP Status Code: ${HTTP_STATUS}"
+    if [[ "${HTTP_STATUS}" == "${expected}" ]]; then
+        pass "${scenario}"
+    else
+        fail "${scenario}: expected HTTP ${expected}, got ${HTTP_STATUS}; body=${HTTP_BODY}"
+    fi
+}
+
+# Acquire a real token and validate the response contract. The arguments come
+# from each explicit role step below so the test flow remains easy to follow.
+get_token() {
+    local role="$1"
+    local client_id="$2"
+    local client_secret="$3"
+    local expected_scope="$4"
+    local payload
+    local actual_scope
+
+    payload="$(jq -cn \
+        --arg client_id "${client_id}" \
+        --arg client_secret "${client_secret}" \
+        --arg requested_scope "${role}" \
+        '{client_id: $client_id, client_secret: $client_secret, requested_scope: $requested_scope}')"
+
+    request_json POST "${AUTH_URL}/auth/token" "${payload}"
+    if [[ "${HTTP_STATUS}" != "200" ]]; then
+        fatal "${role} token issuance returned HTTP ${HTTP_STATUS}; body=${HTTP_BODY}"
+    fi
+
+    if ! ACCESS_TOKEN="$(jq -er '.access_token' <<<"${HTTP_BODY}")" ||
+        ! REFRESH_TOKEN="$(jq -er '.refresh_token' <<<"${HTTP_BODY}")" ||
+        ! EXPIRES_IN="$(jq -er '.expires_in | select(type == "number" and . > 0)' <<<"${HTTP_BODY}")" ||
+        ! actual_scope="$(jq -er '.scope' <<<"${HTTP_BODY}")"; then
+        fatal "${role} token response is missing a required field"
+    fi
+
+    if [[ "${actual_scope}" != "${expected_scope}" ]]; then
+        fatal "${role} token contains scope '${actual_scope}', expected '${expected_scope}'"
+    fi
+    pass "${role} token issued with scope '${expected_scope}'"
+}
+
+command -v curl >/dev/null 2>&1 || fatal "Required command 'curl' is not installed"
+command -v jq >/dev/null 2>&1 || fatal "Required command 'jq' is not installed"
+
+[[ -n "${MEDIA_CLIENT_SECRET}" ]] || fatal "AUTH_MEDIA_CLIENT_SECRET must be set"
+[[ -n "${FIELD_CLIENT_SECRET}" ]] || fatal "AUTH_FIELD_CLIENT_SECRET must be set"
+[[ -n "${INTERNAL_CLIENT_SECRET}" ]] || fatal "AUTH_INTERNAL_CLIENT_SECRET must be set"
 
 echo -e "${BLUE}========================================================================${NC}"
 echo -e "${CYAN}     Problem 3 Demo: Auth Scopes, RBAC Projections & Refresh Flow       ${NC}"
 echo -e "${BLUE}========================================================================${NC}"
 
-# Check Service Health
 echo -e "\n${BLUE}[Step 0] Checking Auth Service & Client API health...${NC}"
-if ! curl -s -f "${AUTH_URL}/health" >/dev/null; then
-    echo -e "${RED}[ERROR] Auth service is unreachable at ${AUTH_URL}.${NC}"
-    echo -e "${YELLOW}Hint: Start services with 'make up' or 'docker compose up -d'${NC}"
-    exit 1
-fi
-if ! curl -s -f "${CLIENT_API_URL}/health" >/dev/null; then
-    echo -e "${RED}[ERROR] Client API is unreachable at ${CLIENT_API_URL}.${NC}"
-    echo -e "${YELLOW}Hint: Start services with 'make up' or 'docker compose up -d'${NC}"
-    exit 1
-fi
+curl --silent --show-error --fail "${AUTH_URL}/health" >/dev/null ||
+    fatal "Auth service is unavailable at ${AUTH_URL}"
+curl --silent --show-error --fail "${CLIENT_API_URL}/health" >/dev/null ||
+    fatal "Client API is unavailable at ${CLIENT_API_URL}"
+PASSES=$((PASSES + 1))
 echo -e "${GREEN}[OK] Auth service and Client API are online.${NC}"
 
-# Helper function to acquire tokens
-get_token() {
-    local role="$1"
-    local response
-    response=$(curl -s -X POST "${AUTH_URL}/auth/token" \
-        -H "Content-Type: application/json" \
-        -d "{\"client_id\": \"test-${role}-client\", \"client_secret\": \"secret123\", \"requested_scope\": \"${role}\", \"role\": \"${role}\"}")
-    echo "${response}"
-}
-
-# 1. Media Role: Acquire Token
 echo -e "\n${BLUE}[Step 1] Requesting token for Media role (scope: media)...${NC}"
-MEDIA_AUTH_RESP=$(get_token "media")
-echo -e "Auth Response: ${MEDIA_AUTH_RESP}"
-MEDIA_TOKEN=$(echo "${MEDIA_AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
-MEDIA_REFRESH=$(echo "${MEDIA_AUTH_RESP}" | jq -r '.refresh_token // empty' 2>/dev/null || echo "")
+get_token media "${MEDIA_CLIENT_ID}" "${MEDIA_CLIENT_SECRET}" "hazards:read:summary"
+MEDIA_ACCESS_TOKEN="${ACCESS_TOKEN}"
 
-# If auth returns stub, construct test token or note stub
-if [ -z "${MEDIA_TOKEN}" ] || [ "${MEDIA_TOKEN}" = "null" ]; then
-    echo -e "${YELLOW}[NOTE] Auth service returned stub. Using signed test media token for demonstration.${NC}"
-    # Generate mock token if needed or test header
-    MEDIA_TOKEN="mock-media-token-scope-media"
-    MEDIA_REFRESH="mock-refresh-token-media"
-fi
-
-# 2. Media Role: Access Summary Fields (Expected: 200 OK)
 echo -e "\n${BLUE}[Step 2] Media client requests summary fields (fields=summary)...${NC}"
-SUMMARY_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=summary" \
-    -H "Authorization: Bearer ${MEDIA_TOKEN}" 2>/dev/null || echo -e '{"data":[]}\nHTTP_STATUS:200')
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=summary" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-summary"
+expect_status 200 "Media client successfully retrieved summary alerts (HTTP 200)."
 
-STATUS=$(echo "${SUMMARY_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
-BODY=$(echo "${SUMMARY_RESP}" | grep -v "HTTP_STATUS:")
-
-echo -e "HTTP Status Code: ${STATUS}"
-if [ "${STATUS}" -eq 200 ]; then
-    echo -e "${GREEN}[PASS] Media client successfully retrieved summary alerts (HTTP 200).${NC}"
+if [[ "${HTTP_STATUS}" == "200" ]]; then
     echo "Summary Payload Preview:"
-    echo "${BODY}" | jq . 2>/dev/null || echo "${BODY}"
-else
-    echo -e "${RED}[FAIL] Unexpected status code ${STATUS} for media summary request.${NC}"
+    jq . <<<"${HTTP_BODY}" || echo "${HTTP_BODY}"
+    if ! jq -e 'type == "object" and (.data | type == "array")' >/dev/null <<<"${HTTP_BODY}"; then
+        fail "Media summary response is not an object containing a data array"
+    elif jq -e '.data[]? | select(has("source_ref_id") or has("latitude") or has("longitude") or has("attributes"))' \
+        >/dev/null <<<"${HTTP_BODY}"; then
+        fail "Media summary response leaked raw fields"
+    else
+        pass "Media summary response does not expose raw fields."
+    fi
 fi
 
-# 3. Media Role: Attempt to Access Raw Fields (Expected: 403 Forbidden)
 echo -e "\n${BLUE}[Step 3] Media client attempts to access raw fields (fields=all)...${NC}"
-RAW_DENIED_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-    -H "Authorization: Bearer ${MEDIA_TOKEN}" 2>/dev/null || echo -e '{"error":"FORBIDDEN","message":"Insufficient permissions"}\nHTTP_STATUS:403')
-
-STATUS=$(echo "${RAW_DENIED_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
-BODY=$(echo "${RAW_DENIED_RESP}" | grep -v "HTTP_STATUS:")
-
-echo -e "HTTP Status Code: ${STATUS}"
-if [ "${STATUS}" -eq 403 ]; then
-    echo -e "${GREEN}[PASS] Scope enforced! Media client strictly prohibited from raw telemetry (HTTP 403 Forbidden).${NC}"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-all"
+expect_status 403 "Scope enforced! Media client strictly prohibited from raw telemetry (HTTP 403 Forbidden)."
+if [[ "${HTTP_STATUS}" == "403" ]]; then
     echo "Rejection Response:"
-    echo "${BODY}" | jq . 2>/dev/null || echo "${BODY}"
-else
-    echo -e "${YELLOW}[INFO] Server responded with status ${STATUS}.${NC}"
+    jq . <<<"${HTTP_BODY}" || echo "${HTTP_BODY}"
 fi
 
-# 4. Field Role: Access Raw Telemetry & Coordinates (Expected: 200 OK)
 echo -e "\n${BLUE}[Step 4] Requesting token for Field Responder role (scope: field)...${NC}"
-FIELD_AUTH_RESP=$(get_token "field")
-FIELD_TOKEN=$(echo "${FIELD_AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
-FIELD_REFRESH=$(echo "${FIELD_AUTH_RESP}" | jq -r '.refresh_token // empty' 2>/dev/null || echo "")
-if [ -z "${FIELD_TOKEN}" ] || [ "${FIELD_TOKEN}" = "null" ]; then
-    FIELD_TOKEN="mock-field-token-scope-field"
-    FIELD_REFRESH="mock-refresh-token-field"
-fi
+get_token field "${FIELD_CLIENT_ID}" "${FIELD_CLIENT_SECRET}" "hazards:read:all"
+FIELD_ACCESS_TOKEN="${ACCESS_TOKEN}"
+FIELD_REFRESH_TOKEN="${REFRESH_TOKEN}"
+FIELD_EXPIRES_IN="${EXPIRES_IN}"
+echo "Field Responder requests raw telemetry (fields=all)..."
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-all"
+expect_status 200 "Field Responder successfully accessed raw coordinates and sensor telemetry (HTTP 200)."
 
-echo -e "Field Responder requests raw telemetry (fields=all)..."
-FIELD_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-    -H "Authorization: Bearer ${FIELD_TOKEN}" 2>/dev/null || echo -e '{"data":[]}\nHTTP_STATUS:200')
-
-STATUS=$(echo "${FIELD_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
-BODY=$(echo "${FIELD_RESP}" | grep -v "HTTP_STATUS:")
-
-echo -e "HTTP Status Code: ${STATUS}"
-if [ "${STATUS}" -eq 200 ]; then
-    echo -e "${GREEN}[PASS] Field Responder successfully accessed raw coordinates and sensor telemetry (HTTP 200).${NC}"
-fi
-
-# 5. Internal Role: Access Full Records (Expected: 200 OK)
 echo -e "\n${BLUE}[Step 5] Requesting token for Internal Operations Center (scope: internal)...${NC}"
-INTERNAL_AUTH_RESP=$(get_token "internal")
-INTERNAL_TOKEN=$(echo "${INTERNAL_AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
-if [ -z "${INTERNAL_TOKEN}" ] || [ "${INTERNAL_TOKEN}" = "null" ]; then
-    INTERNAL_TOKEN="mock-internal-token-scope-internal"
-fi
+get_token internal "${INTERNAL_CLIENT_ID}" "${INTERNAL_CLIENT_SECRET}" "hazards:read:all"
+INTERNAL_ACCESS_TOKEN="${ACCESS_TOKEN}"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${INTERNAL_ACCESS_TOKEN}" "c04-internal-all"
+expect_status 200 "Internal Ops Center granted unrestricted access (HTTP 200)."
 
-INTERNAL_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-    -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo -e '{"data":[]}\nHTTP_STATUS:200')
-
-STATUS=$(echo "${INTERNAL_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
-echo -e "HTTP Status Code: ${STATUS}"
-if [ "${STATUS}" -eq 200 ]; then
-    echo -e "${GREEN}[PASS] Internal Ops Center granted unrestricted access (HTTP 200).${NC}"
-fi
-
-# 6. Natural TTL Expiration & Refresh Flow (Field Team, per official M1 spec:
-#    "Tunggu access token Tim Lapangan kedaluwarsa secara alami sesuai TTL
-#     (default 60 detik) di tengah sesi aktif...")
-JWT_TTL_SECONDS="${JWT_TTL_SECONDS:-60}"
-WAIT_SECONDS=$((JWT_TTL_SECONDS + 3))
-
-echo -e "\n${BLUE}[Step 6] Waiting ${WAIT_SECONDS}s for the Field access token to expire naturally (TTL=${JWT_TTL_SECONDS}s)...${NC}"
+WAIT_SECONDS=$((FIELD_EXPIRES_IN + 2))
+echo -e "\n${BLUE}[Step 6] Waiting ${WAIT_SECONDS}s for the Field access token to expire naturally (TTL=${FIELD_EXPIRES_IN}s)...${NC}"
 echo -e "${YELLOW}(Set SKIP_TTL_WAIT=1 to skip this real-time wait during quick iteration; the${NC}"
 echo -e "${YELLOW} full wait is required for an accurate P3 criterion-3 demo/evidence capture.)${NC}"
-if [ "${SKIP_TTL_WAIT:-0}" != "1" ]; then
+if [[ "${SKIP_TTL_WAIT:-0}" != "1" ]]; then
     sleep "${WAIT_SECONDS}"
-fi
 
-echo -e "\n${BLUE}[Step 7] Confirming the now-expired Field access token is rejected...${NC}"
-EXPIRED_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-    -H "Authorization: Bearer ${FIELD_TOKEN}")
-echo -e "HTTP Status Code: ${EXPIRED_STATUS}"
-if [ "${EXPIRED_STATUS}" -eq 401 ]; then
-    echo -e "${GREEN}[PASS] Expired Field access token correctly rejected with HTTP 401.${NC}"
+    echo -e "\n${BLUE}[Step 7] Confirming the now-expired Field access token is rejected...${NC}"
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-expired"
+    expect_status 401 "Expired Field access token correctly rejected with HTTP 401."
 else
-    echo -e "${YELLOW}[INFO] Server responded with status ${EXPIRED_STATUS} for the expired token.${NC}"
+    echo -e "${YELLOW}[SKIP] Natural access-token expiration check.${NC}"
 fi
 
 echo -e "\n${BLUE}[Step 8] Refreshing the Field session without manual re-login...${NC}"
-if [ -n "${FIELD_REFRESH}" ] && [ "${FIELD_REFRESH}" != "null" ]; then
-    REFRESH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/refresh" \
-        -H "Content-Type: application/json" \
-        -d "{\"refresh_token\": \"${FIELD_REFRESH}\"}")
-    echo -e "Refresh Response: ${REFRESH_RESP}"
-    NEW_ACCESS_TOKEN=$(echo "${REFRESH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
-    NEW_REFRESH_TOKEN=$(echo "${REFRESH_RESP}" | jq -r '.refresh_token // empty' 2>/dev/null || echo "")
+REFRESH_PAYLOAD="$(jq -cn --arg refresh_token "${FIELD_REFRESH_TOKEN}" '{refresh_token: $refresh_token}')"
+request_json POST "${AUTH_URL}/auth/refresh" "${REFRESH_PAYLOAD}"
+expect_status 200 "Successfully refreshed the Field session without manual re-login"
 
-    if [ -n "${NEW_ACCESS_TOKEN}" ] && [ "${NEW_ACCESS_TOKEN}" != "null" ]; then
-        echo -e "${GREEN}[PASS] Successfully refreshed and received a new ${JWT_TTL_SECONDS}s access token.${NC}"
-
-        # Validate the renewed token against Client API
-        VERIFY_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-            -H "Authorization: Bearer ${NEW_ACCESS_TOKEN}")
-        echo -e "API query with refreshed token HTTP status: ${VERIFY_RESP}"
-        if [ "${VERIFY_RESP}" -eq 200 ]; then
-            echo -e "${GREEN}[PASS] Refreshed token validated successfully against Client API.${NC}"
-        fi
-
-        # Confirm the OLD (now-expired) access token is STILL rejected after refresh.
-        echo -e "\n${BLUE}[Step 9] Confirming the old access token remains rejected after refresh...${NC}"
-        OLD_TOKEN_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" \
-            -H "Authorization: Bearer ${FIELD_TOKEN}")
-        echo -e "HTTP Status Code: ${OLD_TOKEN_STATUS}"
-        if [ "${OLD_TOKEN_STATUS}" -eq 401 ]; then
-            echo -e "${GREEN}[PASS] Old access token remains rejected after refresh (HTTP 401).${NC}"
-        else
-            echo -e "${YELLOW}[INFO] Server responded with status ${OLD_TOKEN_STATUS} for the old token.${NC}"
-        fi
-
-        # If refresh tokens are rotated, the OLD refresh token must also be rejected.
-        if [ -n "${NEW_REFRESH_TOKEN}" ] && [ "${NEW_REFRESH_TOKEN}" != "null" ] && [ "${NEW_REFRESH_TOKEN}" != "${FIELD_REFRESH}" ]; then
-            echo -e "\n${BLUE}[Step 10] Confirming rotated refresh token: reusing the old refresh token is rejected...${NC}"
-            REUSE_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${AUTH_URL}/auth/refresh" \
-                -H "Content-Type: application/json" \
-                -d "{\"refresh_token\": \"${FIELD_REFRESH}\"}")
-            echo -e "HTTP Status Code: ${REUSE_RESP}"
-            if [ "${REUSE_RESP}" -eq 401 ] || [ "${REUSE_RESP}" -eq 403 ]; then
-                echo -e "${GREEN}[PASS] Reused (rotated-out) refresh token correctly rejected.${NC}"
-            else
-                echo -e "${YELLOW}[INFO] Server responded with status ${REUSE_RESP}. If refresh tokens are not"
-                echo -e "       rotated per-use in your design, document that decision in the report.${NC}"
-            fi
-        fi
+NEW_ACCESS_TOKEN=""
+NEW_REFRESH_TOKEN=""
+if [[ "${HTTP_STATUS}" == "200" ]]; then
+    if ! NEW_ACCESS_TOKEN="$(jq -er '.access_token' <<<"${HTTP_BODY}")" ||
+        ! NEW_REFRESH_TOKEN="$(jq -er '.refresh_token' <<<"${HTTP_BODY}")"; then
+        fail "Refresh response is missing access_token or refresh_token"
+    elif [[ "${NEW_REFRESH_TOKEN}" == "${FIELD_REFRESH_TOKEN}" ]]; then
+        fail "Refresh token was not rotated"
     else
-        echo -e "${YELLOW}[INFO] Refresh token endpoint acknowledged rotation request.${NC}"
+        pass "Successfully refreshed and received a new ${FIELD_EXPIRES_IN}s access token and rotated refresh token."
+    fi
+fi
+
+if [[ -n "${NEW_ACCESS_TOKEN}" ]]; then
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${NEW_ACCESS_TOKEN}" "c04-field-refreshed"
+    echo "API query with refreshed token HTTP status: ${HTTP_STATUS}"
+    if [[ "${HTTP_STATUS}" == "200" ]]; then
+        pass "Refreshed token validated successfully against Client API."
+    else
+        fail "Refreshed token was rejected by Client API; body=${HTTP_BODY}"
     fi
 else
-    echo -e "${YELLOW}[INFO] Refresh flow demonstrated via /auth/refresh contract.${NC}"
+    fail "Refreshed access token is unavailable, so Client API verification cannot run"
+fi
+
+if [[ "${SKIP_TTL_WAIT:-0}" != "1" ]]; then
+    echo -e "\n${BLUE}[Step 9] Confirming the old access token remains rejected after refresh...${NC}"
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-old-access"
+    expect_status 401 "Old access token remains rejected after refresh (HTTP 401)."
+fi
+
+echo -e "\n${BLUE}[Step 10] Confirming rotated refresh token: reusing the old refresh token is rejected...${NC}"
+request_json POST "${AUTH_URL}/auth/refresh" "${REFRESH_PAYLOAD}"
+expect_status 401 "Reused (rotated-out) refresh token correctly rejected."
+
+echo -e "\n${BLUE}[Additional check] Confirming replay detection revoked the remaining Field session...${NC}"
+if [[ -n "${NEW_REFRESH_TOKEN}" ]]; then
+    NEW_REFRESH_PAYLOAD="$(jq -cn --arg refresh_token "${NEW_REFRESH_TOKEN}" '{refresh_token: $refresh_token}')"
+    request_json POST "${AUTH_URL}/auth/refresh" "${NEW_REFRESH_PAYLOAD}"
+    expect_status 401 "Refresh-token replay revokes the remaining session tokens"
+else
+    fail "Rotated refresh token is unavailable, so replay revocation cannot be verified"
+fi
+
+echo -e "\n${BLUE}Results:${NC} ${PASSES} passed, ${FAILURES} failed"
+if ((FAILURES > 0)); then
+    exit 1
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"
