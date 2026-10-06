@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p5 load-test
+.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p5 test-observability load-test
 
 ## Display available make targets
 help:
@@ -75,6 +75,11 @@ demo-p3:
 demo-p5:
 	@chmod +x ./scripts/test_consumer_recovery.sh
 	./scripts/test_consumer_recovery.sh
+
+## C-09: Audit HTTP and Kafka observability paths
+test-observability:
+	@chmod +x ./scripts/test_observability.sh
+	./scripts/test_observability.sh
 
 ## Load test using k6 (native binary or container fallback)
 load-test:
