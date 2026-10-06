@@ -54,7 +54,7 @@ The specification mandates at least **2 independent downstream consumer services
 - **Processing Characteristics:** Low latency, triggers emergency dispatches (SMS gateway, Webhooks, Push notifications) to BNPB field teams.
 
 > [!IMPORTANT]
-> Because each service uses an independent Consumer Group ID (`bnpb-dashboard-group` vs `bnpb-notifier-group`), Redpanda tracks separate offset pointers for each group. Downtime or processing slowness in one service never affects or starves the other! Once you create your consumer services, uncomment the corresponding service blocks in root `docker-compose.yml`!
+> Because each service uses an independent Consumer Group ID (`bnpb-dashboard-group` vs `bnpb-notifier-group`), Redpanda tracks separate offset pointers for each group. Downtime or processing slowness in one service does not starve the other. Root `docker-compose.yml` already registers both consumers; their group IDs can be overridden through environment variables when needed.
 
 ---
 
