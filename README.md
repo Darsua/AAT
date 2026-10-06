@@ -133,7 +133,7 @@ All foundational architectural decisions are codified in central ADRs under [`do
 * **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](docs/adr/004-internal-communication-rest.md)**  
   *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), sub-millisecond bridge network latency, and interface-driven decoupling (`HazardService`).*
 * **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
-  *Roadmap proving that Milestone 1 requires zero architectural rewrites for Milestone 2: stateless compute services, time-ordered UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), Envoy load balancing, Redis caching decorators, and circuit breakers.*
+  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.* **[Ini perubahan mendasar, so make sure again ^^]**
 
 ---
 
