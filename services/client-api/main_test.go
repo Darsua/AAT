@@ -202,12 +202,13 @@ func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 func newTestClientAPI(t *testing.T, aggregator http.Handler) (http.Handler, string) {
 	t.Helper()
 	signingSecret := testClientSecret(t)
-	handler := newAPIHandler(signingSecret, "http://aggregator.test")
-	handler.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	service := NewRemoteAggregatorClient("http://aggregator.test")
+	service.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		response := httptest.NewRecorder()
 		aggregator.ServeHTTP(response, request)
 		return response.Result(), nil
 	})}
+	handler := newAPIHandlerWithService(signingSecret, service)
 	return handler.routes(), signingSecret
 }
 
@@ -247,7 +248,7 @@ func writeAggregatorResponse(t *testing.T, w http.ResponseWriter, events []hazar
 		events = []hazardEvent{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(aggregatorResponse{
+	if err := json.NewEncoder(w).Encode(HazardResponse{
 		Data: events,
 		Meta: aggregatorMeta{Total: total},
 	}); err != nil {

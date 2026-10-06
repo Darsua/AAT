@@ -75,8 +75,8 @@ type hazardSummary struct {
 	IngestedAt string `json:"ingested_at"`
 }
 
-// aggregatorResponse matches the Aggregator API payload.
-type aggregatorResponse struct {
+// HazardResponse is the transport-independent result returned by HazardService.
+type HazardResponse struct {
 	Data []hazardEvent  `json:"data"`
 	Meta aggregatorMeta `json:"meta"`
 }
@@ -101,32 +101,43 @@ type publicListResponse struct {
 	Meta publicMeta `json:"meta"`
 }
 
-// queryOptions contains validated projection and pagination parameters.
-type queryOptions struct {
-	Fields string
-
-	// Forwarded to the Aggregator.
+// QueryFilter contains transport-independent hazard query parameters.
+type QueryFilter struct {
+	Since      string
+	HazardType string
+	Severity   string
 	Limit      int
 	Offset     int
-	Downstream url.Values
+}
+
+// queryOptions contains validated projection and downstream filter parameters.
+type queryOptions struct {
+	Fields string
+	Filter QueryFilter
 }
 
 // contextKey prevents collisions with other context values.
 type contextKey string
 
-const claimsContextKey contextKey = "access-claims"
+const (
+	claimsContextKey      contextKey = "access-claims"
+	correlationContextKey contextKey = "correlation-id"
+)
 
-// apiHandler serves authenticated public endpoints.
-type apiHandler struct {
-	jwtSecret     []byte
-	aggregatorURL string
-	httpClient    *http.Client
+// HazardService keeps HTTP handlers independent from the downstream transport.
+type HazardService interface {
+	GetHazards(context.Context, QueryFilter) (*HazardResponse, error)
 }
 
-func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
-	return &apiHandler{
-		jwtSecret:     []byte(jwtSecret),
-		aggregatorURL: strings.TrimRight(aggregatorURL, "/"),
+// RemoteAggregatorClient retrieves hazards from the Aggregator over HTTP.
+type RemoteAggregatorClient struct {
+	baseURL    string
+	httpClient *http.Client
+}
+
+func NewRemoteAggregatorClient(baseURL string) *RemoteAggregatorClient {
+	return &RemoteAggregatorClient{
+		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
@@ -135,6 +146,23 @@ func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
+	}
+}
+
+// apiHandler serves authenticated public endpoints.
+type apiHandler struct {
+	jwtSecret     []byte
+	hazardService HazardService
+}
+
+func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
+	return newAPIHandlerWithService(jwtSecret, NewRemoteAggregatorClient(aggregatorURL))
+}
+
+func newAPIHandlerWithService(jwtSecret string, hazardService HazardService) *apiHandler {
+	return &apiHandler{
+		jwtSecret:     []byte(jwtSecret),
+		hazardService: hazardService,
 	}
 }
 
@@ -201,7 +229,7 @@ func (h *apiHandler) listHazards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := h.fetchHazards(r.Context(), options.Downstream, correlationID(r))
+	response, err := h.hazardService.GetHazards(r.Context(), options.Filter)
 	if err != nil {
 		handleUpstreamError(w, r, err)
 		return
@@ -215,8 +243,8 @@ func (h *apiHandler) listHazards(w http.ResponseWriter, r *http.Request) {
 		Data: data,
 		Meta: publicMeta{
 			Total:      response.Meta.Total,
-			Limit:      options.Limit,
-			Offset:     options.Offset,
+			Limit:      options.Filter.Limit,
+			Offset:     options.Filter.Offset,
 			Degraded:   response.Meta.Degraded,
 			StaleSince: response.Meta.StaleSince,
 		},
@@ -239,7 +267,7 @@ func (h *apiHandler) getHazardByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event, found, err := h.findHazardByID(r.Context(), id, correlationID(r))
+	event, found, err := h.findHazardByID(r.Context(), id)
 	if err != nil {
 		handleUpstreamError(w, r, err)
 		return
@@ -255,14 +283,14 @@ func (h *apiHandler) getHazardByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, event)
 }
 
-func (h *apiHandler) findHazardByID(ctx context.Context, id, correlationID string) (hazardEvent, bool, error) {
+func (h *apiHandler) findHazardByID(ctx context.Context, id string) (hazardEvent, bool, error) {
 	const pageSize = 500 // Aggregator maximum page size.
 	for offset := 0; ; {
-		query := url.Values{
-			"limit":  []string{strconv.Itoa(pageSize)},
-			"offset": []string{strconv.Itoa(offset)},
+		filter := QueryFilter{
+			Limit:  pageSize,
+			Offset: offset,
 		}
-		response, err := h.fetchHazards(ctx, query, correlationID)
+		response, err := h.hazardService.GetHazards(ctx, filter)
 		if err != nil {
 			return hazardEvent{}, false, err
 		}
@@ -278,20 +306,33 @@ func (h *apiHandler) findHazardByID(ctx context.Context, id, correlationID strin
 	}
 }
 
-func (h *apiHandler) fetchHazards(ctx context.Context, query url.Values, correlationID string) (aggregatorResponse, error) {
-	endpoint := h.aggregatorURL + "/internal/hazards"
+func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error) {
+	query := make(url.Values)
+	if filter.Since != "" {
+		query.Set("since", filter.Since)
+	}
+	if filter.HazardType != "" {
+		query.Set("type", filter.HazardType)
+	}
+	if filter.Severity != "" {
+		query.Set("severity", filter.Severity)
+	}
+	query.Set("limit", strconv.Itoa(filter.Limit))
+	query.Set("offset", strconv.Itoa(filter.Offset))
+
+	endpoint := c.baseURL + "/internal/hazards"
 	if encoded := query.Encode(); encoded != "" {
 		endpoint += "?" + encoded
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return aggregatorResponse{}, err
+		return nil, err
 	}
-	req.Header.Set(correlationHead, correlationID)
+	req.Header.Set(correlationHead, correlationIDFromContext(ctx))
 
-	resp, err := h.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return aggregatorResponse{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -300,17 +341,17 @@ func (h *apiHandler) fetchHazards(ctx context.Context, query url.Values, correla
 		if err := decodeJSON(resp.Body, &payload); err != nil || payload.Error == "" {
 			payload = errorResponse{Error: "BAD_GATEWAY", Message: "Aggregator returned an invalid response"}
 		}
-		return aggregatorResponse{}, upstreamHTTPError{Status: resp.StatusCode, Payload: payload}
+		return nil, upstreamHTTPError{Status: resp.StatusCode, Payload: payload}
 	}
 
-	var response aggregatorResponse
+	var response HazardResponse
 	if err := decodeJSON(resp.Body, &response); err != nil {
-		return aggregatorResponse{}, fmt.Errorf("decode aggregator response: %w", err)
+		return nil, fmt.Errorf("decode aggregator response: %w", err)
 	}
 	if response.Data == nil {
 		response.Data = []hazardEvent{}
 	}
-	return response, nil
+	return &response, nil
 }
 
 // upstreamHTTPError preserves errors returned by the Aggregator.
@@ -341,7 +382,7 @@ func parseListQuery(query url.Values) (queryOptions, error) {
 	if err != nil {
 		return queryOptions{}, err
 	}
-	options := queryOptions{Fields: fields, Limit: 50, Offset: 0, Downstream: make(url.Values)}
+	options := queryOptions{Fields: fields, Filter: QueryFilter{Limit: 50}}
 
 	if raw := query.Get("since"); raw != "" {
 		parsed, err := time.Parse(time.RFC3339, raw)
@@ -352,18 +393,18 @@ func parseListQuery(query url.Values) (queryOptions, error) {
 		if offset != 0 {
 			return queryOptions{}, fmt.Errorf("Invalid query parameter 'since': must be ISO 8601 UTC RFC3339 format")
 		}
-		options.Downstream.Set("since", raw)
+		options.Filter.Since = raw
 	}
 	if raw := query.Get("type"); raw != "" {
 		if raw != "SEISMIC" && raw != "VOLCANIC" {
 			return queryOptions{}, fmt.Errorf("Invalid query parameter 'type': must be SEISMIC or VOLCANIC")
 		}
-		options.Downstream.Set("type", raw)
+		options.Filter.HazardType = raw
 	}
 	if raw := query.Get("severity"); raw != "" {
 		switch raw {
 		case "NORMAL", "WASPADA", "SIAGA", "AWAS":
-			options.Downstream.Set("severity", raw)
+			options.Filter.Severity = raw
 		default:
 			return queryOptions{}, fmt.Errorf("Invalid query parameter 'severity': must be NORMAL, WASPADA, SIAGA, or AWAS")
 		}
@@ -373,17 +414,15 @@ func parseListQuery(query url.Values) (queryOptions, error) {
 		if err != nil || limit < 1 || limit > 500 {
 			return queryOptions{}, fmt.Errorf("Invalid query parameter 'limit': must be an integer between 1 and 500")
 		}
-		options.Limit = limit
+		options.Filter.Limit = limit
 	}
 	if raw := query.Get("offset"); raw != "" {
 		offset, err := strconv.Atoi(raw)
 		if err != nil || offset < 0 {
 			return queryOptions{}, fmt.Errorf("Invalid query parameter 'offset': must be a non-negative integer")
 		}
-		options.Offset = offset
+		options.Filter.Offset = offset
 	}
-	options.Downstream.Set("limit", strconv.Itoa(options.Limit))
-	options.Downstream.Set("offset", strconv.Itoa(options.Offset))
 	return options, nil
 }
 
@@ -457,7 +496,8 @@ func correlationMiddleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set(correlationHead, id)
 		r.Header.Set(correlationHead, id)
-		next.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), correlationContextKey, id)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -494,7 +534,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 // Request and JSON helpers.
 func correlationID(r *http.Request) string {
-	return r.Header.Get(correlationHead)
+	return correlationIDFromContext(r.Context())
+}
+
+func correlationIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(correlationContextKey).(string)
+	return id
 }
 
 func newUUID() (string, error) {
