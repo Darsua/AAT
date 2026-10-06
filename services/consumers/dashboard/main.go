@@ -18,9 +18,10 @@ import (
 
 // Fallback to localhost:19092 if BROKERS is not set.
 const (
-	defaultBrokers = "localhost:19092"
-	defaultTopic   = "bnpb.hazard-events"
-	defaultGroupID = "bnpb-dashboard-group"
+	defaultBrokers    = "localhost:19092"
+	defaultTopic      = "bnpb.hazard-events"
+	defaultGroupID    = "bnpb-dashboard-group"
+	correlationHeader = "X-Correlation-ID"
 )
 
 type Config struct {
@@ -126,6 +127,15 @@ func decodeEvent(data []byte) (HazardEvent, error) {
 	return event, nil
 }
 
+func messageHeader(message kafka.Message, name string) string {
+	for _, header := range message.Headers {
+		if strings.EqualFold(header.Key, name) {
+			return string(header.Value)
+		}
+	}
+	return ""
+}
+
 // consume reads hazard events from the Kafka topic and processes them.
 func consume(ctx context.Context, reader *kafka.Reader, dashboard *Dashboard) error {
 	for {
@@ -139,12 +149,14 @@ func consume(ctx context.Context, reader *kafka.Reader, dashboard *Dashboard) er
 			return err
 		}
 
+		correlationID := messageHeader(message, correlationHeader)
 		result := dashboard.Process(event)
 		if result.Duplicate {
-			log.Printf("[dashboard] skipped duplicate hazard_id=%s", event.HazardID)
+			log.Printf("[dashboard] correlation_id=%q skipped duplicate hazard_id=%s", correlationID, event.HazardID)
 		} else {
 			log.Printf(
-				"[dashboard] processed hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
+				"[dashboard] correlation_id=%q processed hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
+				correlationID,
 				event.HazardID,
 				event.HazardType,
 				event.Severity,
