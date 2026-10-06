@@ -20,16 +20,14 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Note: upstream dari aggregator dan downstream dari client API
-
 const (
 	jwtIssuer       = "bnpb-auth-service"
 	scopeSummary    = "hazards:read:summary"
 	scopeAll        = "hazards:read:all"
-	correlationHead = "X-Correlation-ID" // for log
+	correlationHead = "X-Correlation-ID" // Propagated for request tracing.
 )
 
-// menentukan port dkk, biar kepisah dari func main
+// config contains runtime settings.
 type config struct {
 	Port          string
 	JWTSecret     string
@@ -52,8 +50,7 @@ type accessClaims struct {
 	jwt.RegisteredClaims
 }
 
-// data yang dipisahkan
-
+// Hazard response models.
 type hazardEvent struct {
 	HazardID    string         `json:"hazard_id"`
 	Source      string         `json:"source"`
@@ -78,8 +75,7 @@ type hazardSummary struct {
 	IngestedAt string `json:"ingested_at"`
 }
 
-// penyesuaian dengan contract/client-api.yaml
-// response dari agregator
+// aggregatorResponse matches the Aggregator API payload.
 type aggregatorResponse struct {
 	Data []hazardEvent  `json:"data"`
 	Meta aggregatorMeta `json:"meta"`
@@ -91,7 +87,7 @@ type aggregatorMeta struct {
 	StaleSince *string `json:"stale_since"`
 }
 
-// kirim balik ke client
+// publicMeta is returned to API clients.
 type publicMeta struct {
 	Total      int     `json:"total"`
 	Limit      int     `json:"limit"`
@@ -105,22 +101,22 @@ type publicListResponse struct {
 	Meta publicMeta `json:"meta"`
 }
 
-// paginasi
+// queryOptions contains validated projection and pagination parameters.
 type queryOptions struct {
 	Fields string
 
-	// diteruskan ke agregator
+	// Forwarded to the Aggregator.
 	Limit      int
 	Offset     int
 	Downstream url.Values
 }
 
-// auth verif
+// contextKey prevents collisions with other context values.
 type contextKey string
 
 const claimsContextKey contextKey = "access-claims"
 
-// handler untuk endpoint API
+// apiHandler serves authenticated public endpoints.
 type apiHandler struct {
 	jwtSecret     []byte
 	aggregatorURL string
@@ -260,7 +256,7 @@ func (h *apiHandler) getHazardByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *apiHandler) findHazardByID(ctx context.Context, id, correlationID string) (hazardEvent, bool, error) {
-	const pageSize = 500 // how large is our data?
+	const pageSize = 500 // Aggregator maximum page size.
 	for offset := 0; ; {
 		query := url.Values{
 			"limit":  []string{strconv.Itoa(pageSize)},
@@ -317,7 +313,7 @@ func (h *apiHandler) fetchHazards(ctx context.Context, query url.Values, correla
 	return response, nil
 }
 
-// ini error dari upstream (aggregator)
+// upstreamHTTPError preserves errors returned by the Aggregator.
 type upstreamHTTPError struct {
 	Status  int
 	Payload errorResponse
@@ -436,7 +432,7 @@ func summarizeHazard(event hazardEvent) hazardSummary {
 	}
 }
 
-// bearer buat di header Authorization
+// bearerToken parses an Authorization: Bearer header.
 func bearerToken(header string) (string, bool) {
 	parts := strings.Fields(header)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
@@ -502,7 +498,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// utils
+// Request and JSON helpers.
 func correlationID(r *http.Request) string {
 	return r.Header.Get(correlationHead)
 }
@@ -537,7 +533,7 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	}
 }
 
-// setup configuration
+// loadConfig reads and validates environment configuration.
 func loadConfig() (config, error) {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -558,7 +554,6 @@ func loadConfig() (config, error) {
 	return config{Port: port, JWTSecret: jwtSecret, AggregatorURL: aggregatorURL}, nil
 }
 
-// fungsi main
 func main() {
 	configuration, err := loadConfig()
 	if err != nil {
