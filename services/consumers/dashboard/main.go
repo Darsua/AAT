@@ -30,6 +30,11 @@ type Config struct {
 	GroupID string
 }
 
+type messageReader interface {
+	FetchMessage(context.Context) (kafka.Message, error)
+	CommitMessages(context.Context, ...kafka.Message) error
+}
+
 // HazardEvent mirrors the canonical event in contracts/hazard_event.json.
 type HazardEvent struct {
 	HazardID    string         `json:"hazard_id"`
@@ -137,7 +142,7 @@ func messageHeader(message kafka.Message, name string) string {
 }
 
 // consume reads hazard events from the Kafka topic and processes them.
-func consume(ctx context.Context, reader *kafka.Reader, dashboard *Dashboard) error {
+func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
@@ -146,7 +151,17 @@ func consume(ctx context.Context, reader *kafka.Reader, dashboard *Dashboard) er
 
 		event, err := decodeEvent(message.Value)
 		if err != nil {
-			return err
+			log.Printf(
+				"[dashboard] correlation_id=%q skipped invalid message partition=%d offset=%d error=%q",
+				messageHeader(message, correlationHeader),
+				message.Partition,
+				message.Offset,
+				err,
+			)
+			if err := reader.CommitMessages(ctx, message); err != nil {
+				return fmt.Errorf("commit invalid message: %w", err)
+			}
+			continue
 		}
 
 		correlationID := messageHeader(message, correlationHeader)

@@ -169,5 +169,6 @@ docker build -t bnpb/consumer-notifier:latest services/consumers/notifier/
 - [x] Implement in-memory idempotency keyed by `hazard_id`.
 - [x] Implement dashboard counters by hazard type and severity.
 - [x] Implement notifier rules for M ≥ 6.0, Tsunami SIAGA/AWAS, and Volcano AWAS.
-- [x] Commit offsets only after successful processing with `CommitMessages`.
+- [x] Commit valid messages only after successful processing with `CommitMessages`.
+- [x] Log, skip, and explicitly commit malformed messages so one poison message cannot block a consumer group.
 - [x] Add non-root Dockerfiles and root Compose wiring for both consumer groups.

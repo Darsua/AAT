@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/segmentio/kafka-go"
@@ -144,4 +146,43 @@ func TestMessageHeader(t *testing.T) {
 	if got := messageHeader(message, correlationHeader); got != "trace-notifier" {
 		t.Fatalf("messageHeader() = %q, want trace-notifier", got)
 	}
+}
+
+func TestConsumeSkipsAndCommitsInvalidMessage(t *testing.T) {
+	validEvent := []byte(`{"hazard_id":"haz-valid","hazard_type":"VOLCANIC","severity":"AWAS"}`)
+	reader := &scriptedReader{messages: []kafka.Message{
+		{Value: []byte(`{"hazard_id":`), Partition: 1, Offset: 20},
+		{Value: validEvent, Partition: 1, Offset: 21},
+	}}
+	notifier := NewNotifier()
+
+	err := consume(context.Background(), reader, notifier)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("consume() error = %v, want context.Canceled", err)
+	}
+	if len(reader.committed) != 2 {
+		t.Fatalf("committed messages = %d, want 2", len(reader.committed))
+	}
+	if result := notifier.Process(HazardEvent{HazardID: "haz-valid", HazardType: "VOLCANIC", Severity: "AWAS"}); !result.Duplicate {
+		t.Fatal("valid message after poison message was not processed")
+	}
+}
+
+type scriptedReader struct {
+	messages  []kafka.Message
+	committed []kafka.Message
+}
+
+func (r *scriptedReader) FetchMessage(context.Context) (kafka.Message, error) {
+	if len(r.messages) == 0 {
+		return kafka.Message{}, context.Canceled
+	}
+	message := r.messages[0]
+	r.messages = r.messages[1:]
+	return message, nil
+}
+
+func (r *scriptedReader) CommitMessages(_ context.Context, messages ...kafka.Message) error {
+	r.committed = append(r.committed, messages...)
+	return nil
 }
