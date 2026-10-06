@@ -16,6 +16,7 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+// Fallback to localhost:19092 if BROKERS is not set.
 const (
 	defaultBrokers = "localhost:19092"
 	defaultTopic   = "bnpb.hazard-events"
@@ -38,11 +39,12 @@ type HazardEvent struct {
 	AreaName    string         `json:"area_name"`
 	Latitude    *float64       `json:"latitude"`
 	Longitude   *float64       `json:"longitude"`
-	Attributes  map[string]any `json:"attributes"`
+	Attributes  map[string]any `json:"attributes"` // Attribute may change --> to Latitude and Longitude
 	OccurredAt  time.Time      `json:"occurred_at"`
 	IngestedAt  time.Time      `json:"ingested_at"`
 }
 
+// At least one of TypeCount, SeverityCount, or Duplicate will be non-zero.
 type ProcessResult struct {
 	Duplicate     bool
 	TypeCount     int
@@ -53,8 +55,8 @@ type ProcessResult struct {
 type Dashboard struct {
 	mu         sync.Mutex
 	processed  map[string]struct{}
-	byType     map[string]int
-	bySeverity map[string]int
+	byType     map[string]int // counts by hazard type
+	bySeverity map[string]int // counts by severity
 }
 
 func NewDashboard() *Dashboard {
@@ -92,6 +94,7 @@ func loadConfig() Config {
 	}
 }
 
+// Topic for querying hazard events.
 func getEnv(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
@@ -99,6 +102,8 @@ func getEnv(name, fallback string) string {
 	return fallback
 }
 
+// splitAndTrim splits a comma-separated string into a slice of trimmed strings, for parsing broker addresses.
+// Cause of partitioning.
 func splitAndTrim(value string) []string {
 	parts := strings.Split(value, ",")
 	brokers := make([]string, 0, len(parts))
@@ -110,6 +115,7 @@ func splitAndTrim(value string) []string {
 	return brokers
 }
 
+// decodeEvent decodes a hazard event from a byte slice, see if it is valid.
 func decodeEvent(data []byte) (HazardEvent, error) {
 	var event HazardEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -121,6 +127,7 @@ func decodeEvent(data []byte) (HazardEvent, error) {
 	return event, nil
 }
 
+// consume reads hazard events from the Kafka topic and processes them.
 func consume(ctx context.Context, reader *kafka.Reader, dashboard *Dashboard) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
