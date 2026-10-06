@@ -51,7 +51,7 @@ build:
 
 ## Run Go unit tests
 test:
-	go test -v ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+	go test -v ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
 
 ## Problem 1: Schema change demonstration
 demo-p1:

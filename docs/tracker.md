@@ -104,22 +104,16 @@
   *Deliverable:* `GET /api/v1/hazards` and `GET /api/v1/hazards/{id}` proxying to `aggregator:8083/internal/hazards`, with local JWT verification, Media summary-field protection, correlation-ID propagation, and support for `fields`, `since`, `type`, `severity`, `limit`, and `offset`.
 
   *Verification:* [`services/client-api/main_test.go`](../services/client-api/main_test.go) covers JWT rejection, Media `403`, raw/summary projection, filter forwarding, by-ID retrieval, correlation IDs, and Aggregator failure handling; `go test -race ./...` passes.
-<<<<<<< HEAD
-- [ ] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–04 Oct)  
-  *Deliverable:* Enforce Media 403 Forbidden when requesting raw fields or `fields=all`. Allow Field/Internal full access.
-- [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01–04 Oct)  
-=======
 - [x] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–01 Oct)
 
   *Deliverable:* A strict combined client verification script that enforces Media `403 Forbidden` for `fields=all`, allows Field/Internal full access, validates role-to-scope mapping, and exercises natural access-token expiration plus refresh-token rotation and replay rejection.
 
   *Verification:* [`scripts/test_auth_scopes.sh`](../scripts/test_auth_scopes.sh) completes the full 60-second TTL flow with 19 checks passed and zero failures; credentials are supplied through environment variables and no mock-token fallback is used.
-- [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01 Oct)  
->>>>>>> 071c383 (feat: complete C-04 auth scope verif)
+- [x] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01 Oct)  
   *Path:* [`services/consumers/`](../services/consumers/)  
   *Deliverable:* ≥2 independent consumers with dedicated consumer groups consuming from `bnpb.hazard-events`, deduplicating events by `hazard_id`.
-- [ ] **`C-06`** — **Complete Dockerfiles, Compose wiring, health checks, and startup order** (29 Sep–04 Oct)  
-  *Deliverable:* Full multi-service container startup order verified via health checks.
+- [x] **`C-06`** — **Complete Dockerfiles, Compose wiring, and startup order** (29 Sep–05 Oct)
+  *Deliverable:* Consumer containers start after Redpanda is healthy and topic initialization completes; consumer-group activity is verified through logs and broker offsets.
 
 ---
 

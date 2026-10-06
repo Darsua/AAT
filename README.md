@@ -116,7 +116,7 @@ flowchart TD
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
-| **`consumers`** | `services/consumers/` | — | *None* | Internal Only (`bnpb-internal`) | Downstream event consumers (≥2 independent consumer groups). See [Consumers Guide](services/consumers/README.md). |
+| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | *None* | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
 
 ---
 
@@ -171,7 +171,7 @@ cp .env.example .env
 ```
 
 ### 7.2 Boot the Full Platform
-Start the core platform (7 services; `dashboard-consumer`/`notifier-consumer` are commented out in `docker-compose.yml` until Member C wires them in — see §10) with a single command:
+Start the full platform, including the dashboard and notifier consumers, with a single command:
 ```bash
 make up
 # or: docker compose up -d --build
@@ -380,8 +380,9 @@ docker compose logs --tail=20 aggregator
 
 ### Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
 **Evidence Tracker Reference:** [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
-> [!NOTE]
-> `dashboard-consumer`/`notifier-consumer` below are example names from `services/consumers/README.md`; the actual consumer service names/groups may differ once Member C implements them (see `docker-compose.yml`). Substitute your real names, or use the `CONSUMER_1_SERVICE`/`CONSUMER_2_SERVICE` env vars accepted by `scripts/test_consumer_recovery.sh`.
+The Compose services use the fixed names `dashboard-consumer` and
+`notifier-consumer`, with independent groups `bnpb-dashboard-group` and
+`bnpb-notifier-group`.
 
 **Goal**: Demonstrate asynchronous event streaming to downstream consumers:
 1. `dashboard-consumer` and `notifier-consumer` receive events in real time.
