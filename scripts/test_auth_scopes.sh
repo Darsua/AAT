@@ -156,12 +156,20 @@ curl --silent --show-error --fail "${CLIENT_API_URL}/health" >/dev/null ||
 PASSES=$((PASSES + 1))
 echo -e "${GREEN}[OK] Auth service and Client API are online.${NC}"
 
+echo -e "\n${BLUE}[Security check] Confirming an invalid client secret is rejected...${NC}"
+INVALID_SECRET_PAYLOAD="$(jq -cn \
+    --arg client_id "${MEDIA_CLIENT_ID}" \
+    --arg client_secret "invalid-c07-secret" \
+    '{client_id: $client_id, client_secret: $client_secret, requested_scope: "media"}')"
+request_json POST "${AUTH_URL}/auth/token" "${INVALID_SECRET_PAYLOAD}"
+expect_status 401 "Auth rejected an invalid client secret (HTTP 401)."
+
 echo -e "\n${BLUE}[Step 1] Requesting token for Media role (scope: media)...${NC}"
 get_token media "${MEDIA_CLIENT_ID}" "${MEDIA_CLIENT_SECRET}" "hazards:read:summary"
 MEDIA_ACCESS_TOKEN="${ACCESS_TOKEN}"
 
 echo -e "\n${BLUE}[Step 2] Media client requests summary fields (fields=summary)...${NC}"
-request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=summary" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-summary"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=summary&limit=1" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-summary"
 expect_status 200 "Media client successfully retrieved summary alerts (HTTP 200)."
 
 if [[ "${HTTP_STATUS}" == "200" ]]; then
@@ -178,7 +186,7 @@ if [[ "${HTTP_STATUS}" == "200" ]]; then
 fi
 
 echo -e "\n${BLUE}[Step 3] Media client attempts to access raw fields (fields=all)...${NC}"
-request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-all"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${MEDIA_ACCESS_TOKEN}" "c04-media-all"
 expect_status 403 "Scope enforced! Media client strictly prohibited from raw telemetry (HTTP 403 Forbidden)."
 if [[ "${HTTP_STATUS}" == "403" ]]; then
     echo "Rejection Response:"
@@ -191,13 +199,13 @@ FIELD_ACCESS_TOKEN="${ACCESS_TOKEN}"
 FIELD_REFRESH_TOKEN="${REFRESH_TOKEN}"
 FIELD_EXPIRES_IN="${EXPIRES_IN}"
 echo "Field Responder requests raw telemetry (fields=all)..."
-request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-all"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${FIELD_ACCESS_TOKEN}" "c04-field-all"
 expect_status 200 "Field Responder successfully accessed raw coordinates and sensor telemetry (HTTP 200)."
 
 echo -e "\n${BLUE}[Step 5] Requesting token for Internal Operations Center (scope: internal)...${NC}"
 get_token internal "${INTERNAL_CLIENT_ID}" "${INTERNAL_CLIENT_SECRET}" "hazards:read:all"
 INTERNAL_ACCESS_TOKEN="${ACCESS_TOKEN}"
-request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${INTERNAL_ACCESS_TOKEN}" "c04-internal-all"
+request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${INTERNAL_ACCESS_TOKEN}" "c04-internal-all"
 expect_status 200 "Internal Ops Center granted unrestricted access (HTTP 200)."
 
 WAIT_SECONDS=$((FIELD_EXPIRES_IN + 2))
@@ -208,7 +216,7 @@ if [[ "${SKIP_TTL_WAIT:-0}" != "1" ]]; then
     sleep "${WAIT_SECONDS}"
 
     echo -e "\n${BLUE}[Step 7] Confirming the now-expired Field access token is rejected...${NC}"
-    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-expired"
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${FIELD_ACCESS_TOKEN}" "c04-field-expired"
     expect_status 401 "Expired Field access token correctly rejected with HTTP 401."
 else
     echo -e "${YELLOW}[SKIP] Natural access-token expiration check.${NC}"
@@ -233,7 +241,7 @@ if [[ "${HTTP_STATUS}" == "200" ]]; then
 fi
 
 if [[ -n "${NEW_ACCESS_TOKEN}" ]]; then
-    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${NEW_ACCESS_TOKEN}" "c04-field-refreshed"
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${NEW_ACCESS_TOKEN}" "c04-field-refreshed"
     echo "API query with refreshed token HTTP status: ${HTTP_STATUS}"
     if [[ "${HTTP_STATUS}" == "200" ]]; then
         pass "Refreshed token validated successfully against Client API."
@@ -246,7 +254,7 @@ fi
 
 if [[ "${SKIP_TTL_WAIT:-0}" != "1" ]]; then
     echo -e "\n${BLUE}[Step 9] Confirming the old access token remains rejected after refresh...${NC}"
-    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all" "" "${FIELD_ACCESS_TOKEN}" "c04-field-old-access"
+    request_json GET "${CLIENT_API_URL}/api/v1/hazards?fields=all&limit=1" "" "${FIELD_ACCESS_TOKEN}" "c04-field-old-access"
     expect_status 401 "Old access token remains rejected after refresh (HTTP 401)."
 fi
 
