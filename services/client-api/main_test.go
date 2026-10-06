@@ -180,7 +180,7 @@ func TestGetHazardByID(t *testing.T) {
 	}
 }
 
-func TestAggregatorFailureReturnsBadGateway(t *testing.T) {
+func TestAggregatorFailureReturnsInternalServerError(t *testing.T) {
 	aggregator := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "UNAVAILABLE", Message: "aggregator unavailable"})
 	})
@@ -188,8 +188,8 @@ func TestAggregatorFailureReturnsBadGateway(t *testing.T) {
 	token := signTestAccessToken(t, signingSecret, scopeAll, jwtIssuer, time.Now().Add(time.Minute))
 
 	response := performClientRequest(handler, "/api/v1/hazards?fields=all", token)
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("expected status 502, got %d: %s", response.Code, response.Body.String())
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d: %s", response.Code, response.Body.String())
 	}
 }
 

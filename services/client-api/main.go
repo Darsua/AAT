@@ -330,16 +330,10 @@ func handleUpstreamError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	status := http.StatusBadGateway
-	code := "BAD_GATEWAY"
-	message := "Unable to retrieve hazard data from aggregator"
-	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-		status = http.StatusGatewayTimeout
-		code = "GATEWAY_TIMEOUT"
-		message = "Aggregator request timed out"
-	}
 	log.Printf("[client-api] correlation_id=%q upstream_error=%q", correlationID(r), err)
-	writeJSON(w, status, errorResponse{Error: code, Message: message})
+	writeJSON(w, http.StatusInternalServerError, errorResponse{
+		Error: "INTERNAL_ERROR", Message: "An unexpected error occurred",
+	})
 }
 
 func parseListQuery(query url.Values) (queryOptions, error) {
