@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	defaultBrokers = "localhost:19092"
-	defaultTopic   = "bnpb.hazard-events"
-	defaultGroupID = "bnpb-notifier-group"
+	defaultBrokers    = "localhost:19092"
+	defaultTopic      = "bnpb.hazard-events"
+	defaultGroupID    = "bnpb-notifier-group"
+	correlationHeader = "X-Correlation-ID"
 )
 
 // Config contains the connection settings needed by this consumer.
@@ -151,6 +152,15 @@ func decodeEvent(data []byte) (HazardEvent, error) {
 	return event, nil
 }
 
+func messageHeader(message kafka.Message, name string) string {
+	for _, header := range message.Headers {
+		if strings.EqualFold(header.Key, name) {
+			return string(header.Value)
+		}
+	}
+	return ""
+}
+
 func consume(ctx context.Context, reader *kafka.Reader, notifier *Notifier) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
@@ -163,19 +173,21 @@ func consume(ctx context.Context, reader *kafka.Reader, notifier *Notifier) erro
 			return err
 		}
 
+		correlationID := messageHeader(message, correlationHeader)
 		result := notifier.Process(event)
 		switch {
 		case result.Duplicate:
-			log.Printf("[notifier] skipped duplicate hazard_id=%s", event.HazardID)
+			log.Printf("[notifier] correlation_id=%q skipped duplicate hazard_id=%s", correlationID, event.HazardID)
 		case result.Alert:
 			log.Printf(
-				"[notifier] ALERT hazard_id=%s area=%q reason=%q",
+				"[notifier] correlation_id=%q ALERT hazard_id=%s area=%q reason=%q",
+				correlationID,
 				event.HazardID,
 				event.AreaName,
 				result.Reason,
 			)
 		default:
-			log.Printf("[notifier] no alert hazard_id=%s", event.HazardID)
+			log.Printf("[notifier] correlation_id=%q no alert hazard_id=%s", correlationID, event.HazardID)
 		}
 
 		if err := reader.CommitMessages(ctx, message); err != nil {

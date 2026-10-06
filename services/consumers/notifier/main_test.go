@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/segmentio/kafka-go"
 )
 
 func TestNotifierAlertRules(t *testing.T) {
@@ -131,5 +133,15 @@ func TestDecodeEvent(t *testing.T) {
 	}
 	if event.HazardID != "haz-001" || event.Attributes["magnitude"] != 6.2 {
 		t.Fatalf("decodeEvent() returned unexpected event: %+v", event)
+	}
+}
+
+func TestMessageHeader(t *testing.T) {
+	message := kafka.Message{Headers: []kafka.Header{
+		{Key: "x-correlation-id", Value: []byte("trace-notifier")},
+	}}
+
+	if got := messageHeader(message, correlationHeader); got != "trace-notifier" {
+		t.Fatalf("messageHeader() = %q, want trace-notifier", got)
 	}
 }

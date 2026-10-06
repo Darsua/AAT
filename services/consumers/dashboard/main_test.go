@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 func TestDecodeEvent(t *testing.T) {
@@ -86,5 +88,15 @@ func TestDashboardSkipsDuplicateHazard(t *testing.T) {
 	})
 	if next.TypeCount != 2 || next.SeverityCount != 2 {
 		t.Fatalf("duplicate changed counters, next result = %+v", next)
+	}
+}
+
+func TestMessageHeader(t *testing.T) {
+	message := kafka.Message{Headers: []kafka.Header{
+		{Key: "X-Correlation-ID", Value: []byte("trace-dashboard")},
+	}}
+
+	if got := messageHeader(message, correlationHeader); got != "trace-dashboard" {
+		t.Fatalf("messageHeader() = %q, want trace-dashboard", got)
 	}
 }

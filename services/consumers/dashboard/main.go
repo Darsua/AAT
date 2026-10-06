@@ -102,8 +102,7 @@ func getEnv(name, fallback string) string {
 	return fallback
 }
 
-// splitAndTrim splits a comma-separated string into a slice of trimmed strings, for parsing broker addresses.
-// Cause of partitioning.
+// splitAndTrim splits a comma-separated string into a slice of trimmed strings, for parsing broker addresses, cause of partitioning.
 func splitAndTrim(value string) []string {
 	parts := strings.Split(value, ",")
 	brokers := make([]string, 0, len(parts))
