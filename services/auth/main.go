@@ -195,7 +195,7 @@ func (s *authService) authenticate(clientID, clientSecret, requestedScope string
 	if !exists || !secretsEqual(client.Secret, clientSecret) {
 		return tokenResponse{}, errInvalidCredentials
 	}
-	if requestedScope != client.Role && requestedScope != client.Scope {
+	if requestedScope != client.Role {
 		return tokenResponse{}, errForbiddenScope
 	}
 	return s.issueTokenPair(clientID, client.Role, client.Scope, "")
