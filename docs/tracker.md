@@ -117,11 +117,11 @@
 ### Phase 4: Validation & Scenarios (03–05 Oct)
 
 #### Member A (Aldoy) — P1 Evidence & Contract Tests
-- [ ] **`A-06`** — **Run live schema-evolution demo and capture evidence** (03–05 Oct)  
+- [x] **`A-06`** — **Run live schema-evolution demo and capture evidence** (03–05 Oct)  
   *Script:* [`scripts/test_schema_change.sh`](../scripts/test_schema_change.sh)  
-  *Deliverable:* Evidence showing `confidence_level` dynamically ingested without restart.
-- [ ] **`A-07`** — **Run mock contract tests and package P1 evidence** (03–05 Oct)  
-  *Deliverable:* P1 test logs and screenshots saved in evidence folder.
+  *Deliverable:* Verified live schema evolution where PVMBG dynamic field `confidence_level` is ingested by Aggregator into canonical `attributes JSONB` without service restart. Output captured in [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log).
+- [x] **`A-07`** — **Run mock contract tests and package P1 evidence** (03–05 Oct)  
+  *Deliverable:* P1 test logs and evidence packaged; unit and contract tests for mock-bmkg and mock-pvmbg 100% passing ([`report/evidence/p1/mock_contract_tests.log`](../report/evidence/p1/mock_contract_tests.log)).
 
 #### Member B (Darrel) — P2 & P4 Evidence & Load Testing
 - [x] **`B-06`** — **Run latency, outage, recovery, and stale-data scenarios** (30 Sep–01 Oct)  
@@ -172,9 +172,9 @@ Use this matrix to track and link evidence artifacts for the final report:
 
 | ID | Problem | Scenario | Test Script / Command | Expected Evidence | Owner | Status | Evidence Location |
 |---|---|---|---|---|---|---|---|
-| **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Planned | `report/evidence/p1/` |
-| **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Planned | `report/evidence/p1/` |
-| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Planned | `report/evidence/p1/` |
+| **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
+| **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
+| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
 | **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | `report/evidence/p2/` |
 | **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | `report/evidence/p2/` |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | `report/evidence/p2/` |
