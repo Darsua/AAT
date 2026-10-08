@@ -1,0 +1,90 @@
+\chapter{Petunjuk Menjalankan Sistem}
+\label{chap:petunjuk}
+
+Bab ini menyajikan panduan ringkas operasional untuk mengonfigurasi, menjalankan, dan memverifikasi seluruh komponen \textit{Disaster Data Aggregator Platform} pada lingkungan pengujian evaluator. Panduan lengkap dan komprehensif didokumentasikan pada berkas \texttt{README.md} di direktori utama repositori.
+
+\section{Prasyarat dan Konfigurasi Lingkungan}
+\label{sec:petunjuk_prasyarat}
+
+Sebelum menjalankan sistem, pastikan perangkat kerja penguji telah memenuhi kebutuhan piranti lunak berikut:
+\begin{enumerate}
+    \item \textbf{Docker Engine \& Docker Compose:} Docker Engine minimal versi 24.0+ dan Docker Compose Plugin minimal versi v2.20+.
+    \item \textbf{Go Toolchain (Opsional untuk kompilasi lokal):} Go v1.22+ (seluruh layanan telah memiliki kontainerisasi terisolasi sehingga instalasi Go lokal bersifat opsional).
+    \item \textbf{Utilitas Terminal:} \texttt{make}, \texttt{curl}, \texttt{jq}, dan \texttt{bash} untuk mengeksekusi skrip otomatisasi.
+    \item \textbf{Alat Pengujian Beban (Opsional):} \texttt{k6} (jika tidak terpasang di \textit{host}, target pengujian \texttt{make load-test} akan secara otomatis mengunduh dan menjalankan citra kontainer \texttt{grafana/k6}).
+\end{enumerate}
+
+\noindent\textbf{Langkah Konfigurasi Lingkungan (\textit{Environment Setup}):}
+\begin{lstlisting}[language=bash, caption={Inisialisasi Variabel Lingkungan}]
+# Salin template variabel lingkungan dari .env.example
+cp .env.example .env
+
+# (Opsional) Sesuaikan nilai rahasia atau port jika diperlukan
+\end{lstlisting}
+
+\section{Langkah Menjalankan Sistem}
+\label{sec:petunjuk_menjalankan}
+
+Seluruh orkestrasi kontainer (\textit{mock services}, basis data, broker Redpanda, layanan inti BNPB, dan konsumen hilir) dikelola melalui \texttt{Makefile} dan \texttt{docker-compose.yml}:
+
+\begin{enumerate}
+    \item \textbf{Menjalankan Seluruh Platform:}
+    Eksekusi perintah berikut untuk membangun citra kontainer dan mengaktifkan 11 kontainer layanan di latar belakang:
+    \begin{lstlisting}[language=bash]
+make up
+# Ekuivalen dengan: docker compose up -d --build
+    \end{lstlisting}
+    Tunggu sekitar 5--10 detik hingga kontainer \texttt{redpanda-init} selesai menginisialisasi partisi dan seluruh layanan berstatus \textit{healthy}.
+
+    \item \textbf{Verifikasi Status Kesehatan Layanan (\textit{Health Checks}):}
+    Pastikan seluruh titik akhir publik dan internal merespons dengan status \texttt{"UP"}:
+    \begin{lstlisting}[language=bash]
+curl -s http://localhost:8081/health | jq .   # mock-bmkg
+curl -s http://localhost:8082/health | jq .   # mock-pvmbg
+curl -s http://localhost:8084/health | jq .   # auth service
+curl -s http://localhost:8080/health | jq .   # client-api gateway
+docker compose exec client-api curl -s http://aggregator:8083/health | jq . # aggregator
+    \end{lstlisting}
+
+    \item \textbf{Melihat Log Layanan Secara Kolektif:}
+    \begin{lstlisting}[language=bash]
+make logs
+    \end{lstlisting}
+
+    \item \textbf{Menghentikan Sistem dan Membersihkan Lingkungan:}
+    \begin{lstlisting}[language=bash]
+make down
+# Ekuivalen dengan: docker compose down -v
+    \end{lstlisting}
+\end{enumerate}
+
+\section{Langkah Verifikasi dan Demonstrasi Solusi (Problem 1--5)}
+\label{sec:petunjuk_verifikasi}
+
+Repositori menyediakan target otomatisasi \texttt{make} terintegrasi untuk mereplikasi dan memvalidasi kriteria evaluasi setiap permasalahan:
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan}
+\label{tab:runbook_matrix}
+\begin{tabularx}{\textwidth}{@{}l l l X@{}}
+\toprule
+\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Utama yang Diverifikasi} \\
+\midrule
+\textbf{Problem 1} & \texttt{make demo-p1} & \texttt{scripts/test\_schema\_change.sh} & Evolusi skema aditif (\texttt{confidence\_level}) diserap dinamis tanpa migrasi database atau \textit{redeploy}. \\
+\addlinespace
+\textbf{Problem 2} & \texttt{make demo-p2} & \texttt{scripts/test\_outage.sh} & Simulasi pemadaman PVMBG; respons terdegradasi (\texttt{degraded: true}); BMKG tetap normal. \\
+& \texttt{make load-test} & \texttt{scripts/load\_test.js} & Uji beban 50 koneksi konstan selama 60 detik (k6) dengan tingkat keberhasilan 100\%. \\
+\addlinespace
+\textbf{Problem 3} & \texttt{make demo-p3} & \texttt{scripts/test\_cross\_credential.sh} & Isolasi \textit{trust domain} upstream (penolakan kredensial silang BMKG/PVMBG). \\
+& & \texttt{scripts/test\_auth\_scopes.sh} & Penolakan akses \texttt{403} bagi Media pada \textit{raw fields}; rotasi penyegaran token JWT (TTL 60 detik). \\
+\addlinespace
+\textbf{Problem 4} & \texttt{make demo-p4} & \texttt{scripts/test\_storage\_restart.sh} & \textit{Independent container rebuild} dan \textit{restart}; isolasi kegagalan tanpa efek kaskade ke basis data. \\
+\addlinespace
+\textbf{Problem 5} & \texttt{make demo-p5} & \texttt{scripts/test\_consumer\_recovery.sh} & Distribusi \textit{fan-out}; akumulasi \textit{lag} saat \textit{consumer downtime}; pemulihan \textit{offset}; penambahan konsumen ke-3. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent Setiap berkas log lengkap hasil demonstrasi pengujian otomatis ini juga diarsipkan pada direktori repositori \texttt{docs/evidence/p1/} hingga \texttt{docs/evidence/p5/}.

@@ -1,0 +1,45 @@
+\pagenumbering{roman}
+\setcounter{page}{1}
+
+% Daftar Isi
+\tableofcontents
+\newpage
+
+% Daftar Tabel & Gambar
+\listoftables
+\vspace{1cm}
+\listoffigures
+\newpage
+
+% Tabel Kontribusi
+\section*{Tabel Kontribusi}
+\addcontentsline{toc}{section}{Tabel Kontribusi}
+
+Berikut disajikan rincian pembagian tanggung jawab dan kontribusi masing-masing anggota kelompok dalam perancangan arsitektur, implementasi \textit{service}, pengujian \textit{proof-of-concept}, serta penyusunan laporan Milestone 1:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{spacing}{1.15}
+\caption{Tabel Kontribusi Anggota Kelompok}
+\label{tab:kontribusi}
+\begin{tabularx}{\textwidth}{l p{4.2cm} X}
+\toprule
+\textbf{NIM} & \textbf{Nama} & \textbf{Kontribusi} \\
+\midrule
+13523061 & Darrel Adinarya Sunanda & 
+Mengembangkan layanan agregator untuk mengambil data dari BMKG dan PVMBG. Menyeragamkan data ke dalam skema kanonis. Memperkaya data menggunakan katalog gunung api statis. Mengembangkan API internal agregator. Mengelola penyimpanan PostgreSQL dengan atribut JSONB. Menerapkan mekanisme Transactional Outbox. Menyusun analisis konkurensi (P2) dan evaluasi penyimpanan fleksibel (P4). \\
+\addlinespace
+13524110 & Jennifer Khang & 
+Mengembangkan layanan autentikasi dan penerbitan token akses (Auth Service). Menerapkan pengelolaan cakupan hak akses (RBAC scope). Menerapkan masa berlaku token akses 60 detik dan rotasi refresh token. Mengembangkan API publik (Client API) dengan pembatasan data berdasarkan hak akses. Menerapkan pelacakan permintaan menggunakan correlation ID. Mengembangkan konsumen kejadian untuk dasbor dan notifikasi dengan kelompok konsumen independen. Menyusun analisis keamanan (P3) dan pub-sub (P5). \\
+\addlinespace
+18223113 & Aldoy Fauzan Avanza & 
+Mengembangkan layanan simulasi BMKG untuk data gempa dan peringatan tsunami. Menerapkan autentikasi kunci API pada layanan simulasi BMKG. Mengembangkan layanan simulasi PVMBG untuk laporan aktivitas gunung api. Menerapkan autentikasi Bearer token pada layanan simulasi PVMBG. Menyediakan mekanisme perubahan skema dinamis saat layanan berjalan. Menyediakan mekanisme simulasi gangguan sumber data. Menyusun analisis evolusi skema (P1). \\
+\bottomrule
+\end{tabularx}
+\end{spacing}
+\end{table}
+
+\newpage
+\pagenumbering{arabic}
+\setcounter{page}{1}

@@ -1,0 +1,39 @@
+\documentclass[12pt, a4paper]{report}
+
+\input{preamble}
+
+\begin{document}
+
+% Bagian Awal (Cover, Lembar Pengesahan, Frontmatter)
+\input{chapters/00_cover}
+\input{chapters/00_frontmatter}
+
+% Bab 1: Pendahuluan
+\input{chapters/01_pendahuluan}
+
+% Bab 2: Arsitektur dan Teknologi Sistem
+\input{chapters/02_arsitektur}
+
+% Bab 3: Solusi dan Pembahasan Permasalahan (P1 - P5)
+\chapter{Solusi dan Pembahasan Permasalahan}
+\label{chap:solusi_permasalahan}
+\input{chapters/03_solusi_p1}
+\input{chapters/03_solusi_p2}
+\input{chapters/03_solusi_p3}
+\input{chapters/03_solusi_p4}
+\input{chapters/03_solusi_p5}
+
+% Bab 4: Petunjuk Menjalankan Sistem
+\input{chapters/04_petunjuk}
+
+% Daftar Pustaka
+\newpage
+\addcontentsline{toc}{chapter}{Daftar Pustaka}
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% Lampiran
+\appendix
+\input{appendix/ai_declaration}
+
+\end{document}

@@ -1,0 +1,59 @@
+\section{Problem 1: Arsitektur dan Interoperabilitas Data}
+
+\subsection{Rancangan Solusi dan Mekanisme}
+Permasalahan pertama (P1) berkaitan dengan kerapuhan sistem terhadap perubahan skema data dari instansi hulu yang terjadi secara dinamis tanpa koordinasi terlebih dahulu. Pada kasus ini, PVMBG memperkenalkan atribut baru berupa \texttt{confidence\_level} (nilai float 0.0--1.0) di tengah masa operasional sistem.
+
+Untuk mengatasi permasalahan tersebut tanpa mengharuskan \textit{redeploy} atau modifikasi kode pada Aggregator, sistem menerapkan mekanisme \textbf{Hybrid Schemaless Ingestion \& Dynamic Attribute Mapping}:
+\begin{enumerate}
+    \item \textbf{Penangkapan Skema Dinamis di Adapter:} Struktur data \texttt{VolcanicReport} pada adapter Aggregator memisahkan atribut wajib yang telah disepakati dari atribut yang tidak terpetakan dengan memanfaatkan pemetaan \texttt{DynamicFields map[string]any}. Serialisasi JSON dilakukan secara fleksibel sehingga setiap kunci yang tidak terdaftar dalam struct Go tidak dibuang atau menyebabkan galat parsing.
+    \item \textbf{Penyeragaman ke Skema Kanonis:} Data diubah ke dalam bentuk \texttt{HazardEvent}. Atribut standar yang memiliki korespondensi langsung (seperti \texttt{report\_id}, \texttt{alert\_level}, \texttt{reported\_at}) dipetakan ke kolom-kolom relasional kanonis terindeks. Atribut spesifik domain yang tidak memiliki padanan langsung (termasuk \texttt{ash\_column\_height\_m}, \texttt{eruption\_count\_24h}, dan field baru \texttt{confidence\_level}) secara otomatis dialirkan ke dalam map \texttt{attributes}.
+    \item \textbf{Persistensi Tanpa Migrasi DDL:} Nilai \texttt{attributes} disimpan ke dalam kolom PostgreSQL bertipe \texttt{JSONB}. Dengan pendekatan ini, penambahan field baru dari hulu tidak memerlukan eksekusi \texttt{ALTER TABLE} maupun penguncian tabel (\textit{table lock}).
+\end{enumerate}
+
+\subsection{Alasan Keputusan dan Trade-Off}
+Dalam menentukan mekanisme evolusi skema, kelompok mempertimbangkan beberapa alternatif:
+\begin{itemize}
+    \item \textbf{Schema Registry Terpusat (misal: Confluent Schema Registry):} Alternatif ini menjamin validasi skema yang sangat ketat, tetapi memperkenalkan ketergantungan infrastruktur tambahan serta memerlukan sinkronisasi aktif dari instansi hulu yang tidak sejalan dengan premis bahwa hulu beroperasi secara otonom dan pasif.
+    \item \textbf{Schema Evolution Berbasis Binary (Protobuf / Avro):} Mendukung evolusi berbasis nomor penanda field, namun tidak fleksibel terhadap respons REST/JSON dari mock eksternal yang heterogen.
+    \item \textbf{Dynamic JSON Mapping ke PostgreSQL JSONB (Solusi Terpilih):} Memberikan fleksibilitas maksimal terhadap penambahan atribut baru secara aditif tanpa \textit{downtime}, dengan \textit{trade-off} validasi tipe data pada atribut dinamis harus ditangani secara defensif di lapisan aplikasi.
+\end{itemize}
+
+\subsection{Batasan yang Disadari}
+Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
+\begin{itemize}
+    \item Sistem hanya mendukung \textbf{perubahan skema yang bersifat aditif} (\textit{additive-only changes}), yaitu penambahan atribut baru atau atribut opsional.
+    \item Sistem secara sadar \textbf{tidak mendukung perubahan yang merusak} (\textit{breaking changes}), seperti penghapusan atribut kunci identitas primer (\texttt{report\_id}), penggantian nama field esensial (\textit{renaming}), atau perubahan tipe data primitif pada atribut inti.
+\end{itemize}
+
+\subsection{Bukti Penyelesaian}
+Verifikasi empiris dijalankan melalui skrip pengujian otomatis \texttt{./scripts/test\_schema\_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada berkas log \texttt{docs/evidence/p1/demo\_p1.log}:
+\begin{enumerate}
+    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_confidence\_level = false}. Aggregator berhasil menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
+    \item \textbf{Pemicuan Perubahan Skema Dinamis:} Mengirimkan permintaan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_confidence\_level": true\}} ke \texttt{mock-pvmbg} (:8082). Upstream segera memancarkan field baru.
+    \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa mematikan atau me-restart container mana pun (\texttt{mock-pvmbg}, \texttt{aggregator}, \texttt{client-api}), Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke dalam \texttt{attributes JSONB}:
+\begin{lstlisting}[language=json, caption={Cuplikan Respons Client API Menampilkan Atribut Dinamis confidence\_level}]
+{
+  "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144707-000003",
+  "source": "PVMBG",
+  "hazard_type": "VOLCANIC",
+  "severity": "SIAGA",
+  "area_name": "Gunung Semeru",
+  "attributes": {
+    "ash_column_height_m": 450,
+    "confidence_level": 0.82,
+    "eruption_count_24h": 3,
+    "volcano_id": "VLC-003"
+  }
+}
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Jawaban Butir Spesifikasi (Di Laporan)}
+\textbf{Pertanyaan:} \textit{Deklarasikan kebijakan penanganan field tak dikenal di laporan (diteruskan ke attributes atau diabaikan) serta nyatakan eksplisit jenis perubahan skema yang didukung dan yang tidak didukung.}
+
+\textbf{Jawaban:}
+\begin{enumerate}
+    \item \textbf{Kebijakan Field Tak Dikenal (Unknown Field Policy):} Kelompok secara eksplisit mendeklarasikan kebijakan \textbf{Forward to Canonical Attributes (\textit{Preserve \& Ingest})}. Setiap field baru yang tidak dikenali dalam skema relasional inti tidak akan diabaikan atau dibuang, melainkan diteruskan seutuhnya ke dalam kolom \texttt{attributes JSONB} agar data domain bernilai tinggi tidak hilang.
+    \item \textbf{Perubahan yang Didukung:} Penambahan atribut baru bertipe primitif (\textit{number}, \textit{string}, \textit{boolean}) atau bersarang (\textit{nested object/array}) pada respons JSON instansi sumber.
+    \item \textbf{Perubahan yang Tidak Didukung:} Perubahan destruktif yang mencakup penghapusan field penentu identitas (\texttt{event\_id}, \texttt{report\_id}), pengubahan format serialisasi (misal: JSON menjadi XML), atau perubahan tipe data field esensial.
+\end{enumerate}

@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test
+.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
 
 ## Display available make targets
 help:
@@ -28,6 +28,7 @@ help:
 	@echo "  demo-p4      Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
 	@echo "  demo-p5      Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
 	@echo "  load-test    Run k6 load test against Client API (50 VUs, 60s)"
+	@echo "  report       Compile modular LaTeX report to PDF via tectonic"
 	@echo "========================================================================"
 
 ## Start services in background
@@ -100,3 +101,18 @@ load-test:
 		echo "[load-test] k6 binary not found locally. Running via Docker grafana/k6..."; \
 		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi
+
+## Build modular LaTeX report using tectonic
+report:
+	@if command -v tectonic >/dev/null 2>&1; then \
+		echo "[report] Compiling modular LaTeX report via tectonic..."; \
+		tectonic docs/report/main.tex; \
+		cp docs/report/main.pdf docs/report/IF4031_M1_AhhAldoyTolong.pdf; \
+		echo "[report] Successfully generated:"; \
+		echo "         - docs/report/main.pdf"; \
+		echo "         - docs/report/IF4031_M1_AhhAldoyTolong.pdf"; \
+	else \
+		echo "[report] ERROR: tectonic is not installed. Install via: sudo pacman -S tectonic" >&2; \
+		exit 1; \
+	fi
+
