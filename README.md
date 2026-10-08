@@ -116,7 +116,7 @@ flowchart TD
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
-| **`consumers`** | `services/consumers/` | — | *None* | Internal Only (`bnpb-internal`) | Downstream event consumers (≥2 independent consumer groups). See [Consumers Guide](services/consumers/README.md). |
+| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | *None* | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
 
 ---
 
@@ -133,7 +133,7 @@ All foundational architectural decisions are codified in central ADRs under [`do
 * **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](docs/adr/004-internal-communication-rest.md)**  
   *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), sub-millisecond bridge network latency, and interface-driven decoupling (`HazardService`).*
 * **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
-  *Roadmap proving that Milestone 1 requires zero architectural rewrites for Milestone 2: stateless compute services, time-ordered UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), Envoy load balancing, Redis caching decorators, and circuit breakers.*
+  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.* **[Ini perubahan mendasar, so make sure again ^^]**
 
 ---
 
@@ -171,7 +171,7 @@ cp .env.example .env
 ```
 
 ### 7.2 Boot the Full Platform
-Start the core platform (7 services; `dashboard-consumer`/`notifier-consumer` are commented out in `docker-compose.yml` until Member C wires them in — see §10) with a single command:
+Start the full platform, including the dashboard and notifier consumers, with a single command:
 ```bash
 make up
 # or: docker compose up -d --build
@@ -304,9 +304,29 @@ curl -s -X POST http://localhost:8082/admin/outage \
 3. **60-Second TTL**: Tokens expire after 60 seconds; callers refresh tokens using `POST /auth/refresh`.
 
 ```bash
+# Load local credentials without committing them, then override Docker-internal
+# service URLs with their host-facing addresses.
+set -a
+source .env
+set +a
+
+AUTH_URL=http://localhost:8084 \
+CLIENT_API_URL=http://localhost:8080 \
+BMKG_URL=http://localhost:8081 \
+BMKG_KEY="${BMKG_API_KEY}" \
+PVMBG_URL=http://localhost:8082 \
 make demo-p3
-# or: ./scripts/test_cross_credential.sh && ./scripts/test_auth_scopes.sh
+
+# Quick C-04 iteration without waiting for natural access-token expiry:
+AUTH_URL=http://localhost:8084 \
+CLIENT_API_URL=http://localhost:8080 \
+SKIP_TTL_WAIT=1 \
+./scripts/test_auth_scopes.sh
 ```
+
+The P3 scripts require `curl` and `jq`. `test_auth_scopes.sh` fails immediately
+when credentials, required tools, or live service responses are missing; it does
+not substitute mock tokens or fabricated HTTP responses.
 
 **Manual Verification Flow**:
 ```bash
@@ -360,8 +380,9 @@ docker compose logs --tail=20 aggregator
 
 ### Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
 **Evidence Tracker Reference:** [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
-> [!NOTE]
-> `dashboard-consumer`/`notifier-consumer` below are example names from `services/consumers/README.md`; the actual consumer service names/groups may differ once Member C implements them (see `docker-compose.yml`). Substitute your real names, or use the `CONSUMER_1_SERVICE`/`CONSUMER_2_SERVICE` env vars accepted by `scripts/test_consumer_recovery.sh`.
+The Compose services use the fixed names `dashboard-consumer` and
+`notifier-consumer`, with independent groups `bnpb-dashboard-group` and
+`bnpb-notifier-group`.
 
 **Goal**: Demonstrate asynchronous event streaming to downstream consumers:
 1. `dashboard-consumer` and `notifier-consumer` receive events in real time.

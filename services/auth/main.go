@@ -1,7 +1,6 @@
 package main
 
-// Sebenranya per fungsi bisa dipisah biar readable, tapi kayaknya kebanyakan file
-// I don't like this style, tapi aku ngikut saja :D
+// This service stays in one file to keep the milestone implementation self-contained.
 
 import (
 	"context"
@@ -38,7 +37,7 @@ var (
 	errInvalidGrant       = errors.New("invalid refresh token grant")
 )
 
-// ---- Models
+// Data models.
 type config struct {
 	Port      string
 	JWTSecret string
@@ -96,7 +95,7 @@ type refreshRecord struct {
 	Revoked   bool
 }
 
-// --- Refresh-token store
+// In-memory refresh-token store.
 type refreshStore struct {
 	mu              sync.Mutex
 	records         map[string]*refreshRecord
@@ -110,8 +109,7 @@ func newRefreshStore() *refreshStore {
 	}
 }
 
-// create stores only the refresh-token hash. Expired records are removed lazily
-// during token creation and consumption so the in-memory store stays bounded.
+// create stores a token hash and removes expired records lazily.
 func (s *refreshStore) create(token string, record refreshRecord, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -171,7 +169,7 @@ func (s *refreshStore) cleanupExpiredLocked(now time.Time) {
 	}
 }
 
-// --- Authentication service
+// Authentication and token issuance.
 type authService struct {
 	jwtSecret []byte
 	accessTTL time.Duration
@@ -180,7 +178,7 @@ type authService struct {
 	now       func() time.Time
 }
 
-// Yang ngebangun authService kita
+// newAuthService creates the authentication service and token store.
 func newAuthService(secret string, accessTTL time.Duration, clients map[string]clientCredential) *authService {
 	return &authService{
 		jwtSecret: []byte(secret),
@@ -191,13 +189,13 @@ func newAuthService(secret string, accessTTL time.Duration, clients map[string]c
 	}
 }
 
-// autentikasi + issuetokenpair
+// authenticate validates credentials and issues an access-refresh token pair.
 func (s *authService) authenticate(clientID, clientSecret, requestedScope string) (tokenResponse, error) {
 	client, exists := s.clients[clientID]
 	if !exists || !secretsEqual(client.Secret, clientSecret) {
 		return tokenResponse{}, errInvalidCredentials
 	}
-	if requestedScope != client.Role && requestedScope != client.Scope {
+	if requestedScope != client.Role {
 		return tokenResponse{}, errForbiddenScope
 	}
 	return s.issueTokenPair(clientID, client.Role, client.Scope, "")
@@ -257,7 +255,7 @@ func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (t
 	}, nil
 }
 
-// ---- Handlers buat api
+// HTTP handlers.
 type authHandler struct {
 	service *authService
 }
@@ -322,7 +320,7 @@ func (h *authHandler) refreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// --- Config awal auth service dan utils
+// Configuration and helpers.
 func loadConfig() (config, error) {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -369,7 +367,7 @@ func clientRegistryFromEnvironment() (map[string]clientCredential, error) {
 		{"AUTH_MEDIA_CLIENT_ID", "test-media-client", "AUTH_MEDIA_CLIENT_SECRET", "media", "hazards:read:summary"},
 		{"AUTH_FIELD_CLIENT_ID", "test-field-client", "AUTH_FIELD_CLIENT_SECRET", "field", "hazards:read:all"},
 		{"AUTH_INTERNAL_CLIENT_ID", "test-internal-client", "AUTH_INTERNAL_CLIENT_SECRET", "internal", "hazards:read:all"},
-	} // mapping hardcoded, but untuk auth bisa diatur di env memakai admin
+	} // Roles and scopes are fixed; credentials are loaded from the environment.
 
 	for _, definition := range definitions {
 		clientID := strings.TrimSpace(os.Getenv(definition.idEnvironment))

@@ -185,4 +185,4 @@ curl -i http://localhost:8080/api/v1/hazards?fields=summary \
 - [x] Middleware / Guard: Check the JWT `scope` claim. Return `403 Forbidden` if a token with `scope: hazards:read:summary` (Media) requests `fields=all` or attempts to access raw telemetry.
 - [x] Implement reverse proxy / HTTP client forwarder to `AGGREGATOR_URL + "/internal/hazards"`.
 - [x] Forward `X-Correlation-ID` to downstream `aggregator`.
-- [x] Handle aggregator network errors gracefully (return `502 Bad Gateway` or `504 Gateway Timeout`).
+- [x] Handle Aggregator failures with the contract-defined `500 Internal Server Error` response.

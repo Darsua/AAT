@@ -55,16 +55,6 @@ func TestIssueToken(t *testing.T) {
 		t.Fatalf("expected a 60-second token lifetime, got iat=%v exp=%v", claims.IssuedAt, claims.ExpiresAt)
 	}
 
-	// Verify that requesting the canonical scope name directly also succeeds
-	canonicalScopeReq := tokenRequest{
-		ClientID:       "media-test-client",
-		ClientSecret:   clientSecret,
-		RequestedScope: "hazards:read:summary",
-	}
-	canonicalResp := performJSONRequest(t, handler, http.MethodPost, "/auth/token", canonicalScopeReq)
-	if canonicalResp.Code != http.StatusOK {
-		t.Fatalf("expected status 200 for canonical scope, got %d: %s", canonicalResp.Code, canonicalResp.Body.String())
-	}
 }
 
 func TestIssueTokenRejectsInvalidRequests(t *testing.T) {
@@ -84,6 +74,17 @@ func TestIssueTokenRejectsInvalidRequests(t *testing.T) {
 			name: "role escalation",
 			body: func(clientSecret string) any {
 				return tokenRequest{ClientID: "media-test-client", ClientSecret: clientSecret, RequestedScope: "internal"}
+			},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name: "canonical scope instead of role",
+			body: func(clientSecret string) any {
+				return tokenRequest{
+					ClientID:       "media-test-client",
+					ClientSecret:   clientSecret,
+					RequestedScope: "hazards:read:summary",
+				}
 			},
 			wantStatus: http.StatusForbidden,
 		},

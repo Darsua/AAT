@@ -4,6 +4,8 @@ use (
 	./services/aggregator
 	./services/auth
 	./services/client-api
+	./services/consumers/dashboard
+	./services/consumers/notifier
 	./services/mock-bmkg
 	./services/mock-pvmbg
 )

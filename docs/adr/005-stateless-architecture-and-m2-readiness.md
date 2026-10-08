@@ -9,12 +9,12 @@ IF4031 is structured across progressive milestones. Milestone 1 establishes the 
 * **Cascading failures and network partitions** requiring circuit breaking and fallback strategies.
 * **Cache layers and distributed rate limiting**.
 
-An architecture that relies on in-memory state, non-deterministic identifiers, or tight temporal coupling in Milestone 1 will require extensive, risky rewrites in Milestone 2. We must ensure every design decision in Milestone 1 inherently supports zero-rewrite evolution into Milestone 2.
+Authoritative state should live in durable infrastructure before services are scaled horizontally. Milestone 1 may use bounded process-local state where the trade-off is explicit, but that state must be externalized before running multiple replicas.
 
 ---
 
 ## Decision
-We mandate **complete statelessness for all compute services**, delegate state exclusively to the persistent storage layer (`canonical-db`) and message broker (`redpanda`), adopt **time-ordered UUIDv7 identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**.
+We keep the synchronous read path stateless, delegate canonical data and message offsets to `canonical-db` and `redpanda`, adopt **time-ordered UUIDv7 identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**. The Milestone 1 Auth refresh-token store and consumer deduplication/counters are documented exceptions that must move to durable shared storage before those services are horizontally scaled.
 
 ```mermaid
 flowchart TD
@@ -26,7 +26,7 @@ flowchart TD
         CG1["consumers (1 replica)"]
     end
 
-    subgraph M2Evolution["Milestone 2: Horizontal Scale-Out (Zero Rewrite)"]
+    subgraph M2Evolution["Milestone 2: Horizontal Scale-Out"]
         LB["Nginx / Envoy Load Balancer"]
         C_N1["client-api (Replica 1)"]
         C_N2["client-api (Replica 2)"]
@@ -46,11 +46,12 @@ flowchart TD
 
 ---
 
-## Architectural Principles for Statelessness
+## Stateless Request Paths and Explicit Milestone 1 Exceptions
 
-### 1. Zero In-Memory Session State in Compute Services
+### 1. Request and Session State
 * **`client-api`**: Holds no local state. Authentication is verified statelessly via cryptographic signature verification on self-contained JWT tokens (HMAC-SHA256 with 60-second expiration). Any incoming request can be served by any `client-api` container replica.
-* **`auth`**: Issues signed JWTs containing user identities and a `scope` claim (`hazards:read:summary` or `hazards:read:all`; see `contracts/auth_api.yaml`). Token verification requires only the shared verification key, eliminating central session lookup bottlenecks during high-throughput queries.
+* **`auth`**: Issues signed JWTs containing user identities and a `scope` claim (`hazards:read:summary` or `hazards:read:all`; see `contracts/auth_api.yaml`). Access-token verification requires only the shared verification key. Refresh-token rotation is process-local in Milestone 1, so an Auth restart invalidates outstanding refresh tokens and multiple Auth replicas would require a shared Redis or database store.
+* **Consumers**: Redpanda durably stores committed offsets, but the current deduplication sets and dashboard counters are process-local. They are sufficient for the single-replica Milestone 1 baseline; durable idempotency and counters must be externalized before multi-replica deployment.
 * **`aggregator`**: Polling cursors and ingestion timestamps are committed transactionally to `canonical-db`. Restarting or replicating the aggregator does not lose cursor progress.
 
 ### 2. Time-Ordered Identifiers (UUIDv7)
@@ -73,13 +74,13 @@ Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) D
 
 ---
 
-## Milestone 2 Evolution Path (Zero-Rewrite Roadmap)
+## Milestone 2 Evolution Path
 
 ### 1. Multi-Instance Horizontal Scaling
 * **`client-api` Scaling**:
   * Because `client-api` is 100% stateless, scaling from 1 to N instances requires only setting `deploy.replicas: N` in Docker Compose or Kubernetes, fronted by an Nginx or Envoy reverse proxy with round-robin routing.
 * **Consumer Group Auto-Rebalancing**:
-  * In Kafka/Redpanda, scaling downstream consumers is completely native. When multiple container instances share the same `group_id` (`group.dashboard`), Redpanda automatically rebalances topic partitions across all active consumer instances without code modifications.
+  * Kafka/Redpanda automatically rebalances partitions when multiple instances share a consumer group. Before scaling the current consumers, their process-local deduplication and side-effect state must move to shared durable storage so a rebalance or restart cannot repeat a non-idempotent action.
 
 ### 2. Traffic Spikes and Read-Through Caching
 * During major disaster events, read queries on `GET /hazards` spike exponentially.
@@ -142,6 +143,7 @@ In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the on
 | **Identity Generation** | UUIDv7 (time-ordered) | Distributed UUIDv7 | None |
 | **Data Idempotency** | PostgreSQL Unique Constraints | Distributed Deduplication Table | None |
 | **Client Gateway** | Single stateless `client-api` | N instances behind Envoy | Compose configuration only |
-| **Consumer Scaling** | Single worker per group | Multi-worker Consumer Group | Compose configuration only |
+| **Auth Refresh State** | Process-local rotation store | Shared Redis or database store | Replace refresh-token store |
+| **Consumer Scaling** | Single worker per group with process-local deduplication | Multi-worker consumer group with shared idempotency state | Externalize deduplication and side effects |
 | **Query Acceleration** | Direct DB indexing | Redis decorator on `HazardService` | Add 1 decorator struct |
 | **Provider Outages** | Polling retry + Degraded flag | Dynamic Circuit Breaker | Add wrapper in polling client |

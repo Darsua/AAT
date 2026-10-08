@@ -54,7 +54,7 @@ The specification mandates at least **2 independent downstream consumer services
 - **Processing Characteristics:** Low latency, triggers emergency dispatches (SMS gateway, Webhooks, Push notifications) to BNPB field teams.
 
 > [!IMPORTANT]
-> Because each service uses an independent Consumer Group ID (`bnpb-dashboard-group` vs `bnpb-notifier-group`), Redpanda tracks separate offset pointers for each group. Downtime or processing slowness in one service never affects or starves the other! Once you create your consumer services, uncomment the corresponding service blocks in root `docker-compose.yml`!
+> Because each service uses an independent Consumer Group ID (`bnpb-dashboard-group` vs `bnpb-notifier-group`), Redpanda tracks separate offset pointers for each group. Downtime or processing slowness in one service does not starve the other. Root `docker-compose.yml` already registers both consumers; their group IDs can be overridden through environment variables when needed.
 
 ---
 
@@ -73,8 +73,9 @@ Consumers must guarantee **Idempotent Processing**:
 
 ## 4. Downtime Recovery Testing Procedure
 
-> [!NOTE]
-> The commands below use the suggested reference names (`dashboard-consumer`, `notifier-consumer`, `bnpb-dashboard-group`, `bnpb-notifier-group`) purely as illustrative examples of the procedure. Substitute whatever service names, container names, and consumer group IDs you actually choose — the important thing is proving the *behavior* described below (independent offsets, no cross-consumer starvation, zero data loss on recovery), not matching these exact names.
+The implementation uses the Compose services `dashboard-consumer` and
+`notifier-consumer`, with the independent groups `bnpb-dashboard-group` and
+`bnpb-notifier-group`.
 
 To prove fault tolerance and message durability, execute a verification runbook equivalent to this:
 
@@ -136,24 +137,21 @@ rpk group describe <your-consumer-group-1> --brokers localhost:19092
 | `TOPIC` | `bnpb.hazard-events` | Target topic — must match whatever `KAFKA_TOPIC_HAZARDS` resolves to for the aggregator (see root `.env.example`); not independently configurable per-consumer |
 | `CONSUMER_GROUP` | e.g. `bnpb-dashboard-group` / `bnpb-notifier-group` | Unique consumer group identifier — pick any distinct IDs per consumer |
 
-> [!NOTE]
-> The directory names (`dashboard/`, `notifier/`), image names, and group IDs below are examples only. Structure `services/consumers/` however makes sense for your implementation — just make sure each consumer has its own distinct `CONSUMER_GROUP`, and update the commented-out service blocks in the root `docker-compose.yml` to match whatever you land on.
-
-### Running Locally (example layout)
+### Running Locally
 ```bash
 # Run first consumer (e.g. dashboard)
 cd services/consumers/dashboard
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-dashboard-group"
-go run main.go
+go run .
 
 # In a separate terminal, run second consumer (e.g. notifier)
 cd services/consumers/notifier
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-notifier-group"
-go run main.go
+go run .
 ```
 
 ### Build Docker Images (example layout)
@@ -166,9 +164,11 @@ docker build -t bnpb/consumer-notifier:latest services/consumers/notifier/
 
 ## 6. Implementation Checklist for Jenka
 
-- [ ] Decide on final structure/naming for the ≥2 consumers under `services/consumers/` and update the commented-out blocks in root `docker-compose.yml` + `go.work` to match.
-- [ ] Implement JSON unmarshaling into canonical `HazardEvent` model (matching `contracts/hazard_event.json`).
-- [ ] Implement an in-memory or Redis-backed idempotency cache (keyed by `hazard_id`).
-- [ ] First consumer (e.g. `dashboard`): Implement aggregation logic (e.g. count of active events by type and severity).
-- [ ] Second consumer (e.g. `notifier`): Implement alert filter rule engine (thresholds: M ≥ 6.0, Tsunami SIAGA/AWAS, Volcano AWAS).
-- [ ] Ensure offsets are committed only after successful processing (`CommitMessages`).
+- [x] Create independent `dashboard` and `notifier` Go modules and register them in `go.work`.
+- [x] Implement JSON unmarshaling into canonical `HazardEvent` models matching `contracts/hazard_event.json`.
+- [x] Implement in-memory idempotency keyed by `hazard_id`.
+- [x] Implement dashboard counters by hazard type and severity.
+- [x] Implement notifier rules for M ≥ 6.0, Tsunami SIAGA/AWAS, and Volcano AWAS.
+- [x] Commit valid messages only after successful processing with `CommitMessages`.
+- [x] Log, skip, and explicitly commit malformed messages so one poison message cannot block a consumer group.
+- [x] Add non-root Dockerfiles and root Compose wiring for both consumer groups.

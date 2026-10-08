@@ -47,7 +47,7 @@ The service is self-contained in one Go module. Other microservices communicate 
 
 ### 2.2 JWT Signing Key & Algorithm
 - **Algorithm:** HMAC-SHA256 (`HS256`).
-- **Secret Key:** Provided via environment variable `JWT_SECRET` (default: `super-secret-jwt-key-2026`).
+- **Secret Key:** `JWT_SECRET` is required by the Auth process, which exits at startup when it is missing. Root Docker Compose provides `super-secret-jwt-key-2026` only as a local-development fallback; production deployments must override it.
 
 ### 2.3 Access Token Lifetime
 - **TTL:** Defaults to **60 seconds** and can be configured with `JWT_TTL_SECONDS`, as defined by `contracts/auth_api.yaml`.

@@ -104,13 +104,16 @@
   *Deliverable:* `GET /api/v1/hazards` and `GET /api/v1/hazards/{id}` proxying to `aggregator:8083/internal/hazards`, with local JWT verification, Media summary-field protection, correlation-ID propagation, and support for `fields`, `since`, `type`, `severity`, `limit`, and `offset`.
 
   *Verification:* [`services/client-api/main_test.go`](../services/client-api/main_test.go) covers JWT rejection, Media `403`, raw/summary projection, filter forwarding, by-ID retrieval, correlation IDs, and Aggregator failure handling; `go test -race ./...` passes.
-- [ ] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–04 Oct)  
-  *Deliverable:* Enforce Media 403 Forbidden when requesting raw fields or `fields=all`. Allow Field/Internal full access.
-- [ ] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01–04 Oct)  
+- [x] **`C-04`** — **Build Media, Field, and Internal client scripts** (29 Sep–01 Oct)
+
+  *Deliverable:* A strict combined client verification script that enforces Media `403 Forbidden` for `fields=all`, allows Field/Internal full access, validates role-to-scope mapping, and exercises natural access-token expiration plus refresh-token rotation and replay rejection.
+
+  *Verification:* [`scripts/test_auth_scopes.sh`](../scripts/test_auth_scopes.sh) completes the full 60-second TTL flow with zero failures; credentials are supplied through environment variables and no mock-token fallback is used.
+- [x] **`C-05`** — **Implement dashboard and notification consumers with idempotency** (01 Oct)  
   *Path:* [`services/consumers/`](../services/consumers/)  
   *Deliverable:* ≥2 independent consumers with dedicated consumer groups consuming from `bnpb.hazard-events`, deduplicating events by `hazard_id`.
-- [ ] **`C-06`** — **Complete Dockerfiles, Compose wiring, health checks, and startup order** (29 Sep–04 Oct)  
-  *Deliverable:* Full multi-service container startup order verified via health checks.
+- [x] **`C-06`** — **Complete Dockerfiles, Compose wiring, and startup order** (29 Sep–05 Oct)
+  *Deliverable:* Consumer containers start after Redpanda is healthy and topic initialization completes; consumer-group activity is verified through logs and broker offsets.
 
 ---
 
@@ -134,14 +137,15 @@
   *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,532 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 4.18ms, error rate = 0.20% (threshold < 1%).
 
 #### Member C (Jenka) — P3 & P5 Evidence & Observability
-- [ ] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (03–05 Oct)  
+- [x] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (03–05 Oct)
   *Scripts:* [`scripts/test_cross_credential.sh`](../scripts/test_cross_credential.sh) and [`scripts/test_auth_scopes.sh`](../scripts/test_auth_scopes.sh)  
-  *Deliverable:* Evidence of BMKG/PVMBG cross-credential 401/403 rejection, Media 403 raw field blocking, 60s natural TTL expiration, and refresh token rotation.
-- [ ] **`C-08`** — **Run fan-out, consumer-stop, recovery, and new-consumer scenarios** (03–05 Oct)  
+  *Deliverable:* Verified BMKG/PVMBG cross-credential `401` rejection, Media raw-field `403`, natural 60s access-token expiration, refresh rotation, and replay rejection.
+- [x] **`C-08`** — **Run fan-out, consumer-stop, recovery, and new-consumer scenarios** (03–05 Oct)
   *Script:* [`scripts/test_consumer_recovery.sh`](../scripts/test_consumer_recovery.sh)  
-  *Deliverable:* Evidence of identical fan-out, consumer downtime offset recovery, and dynamic 3rd consumer joining without publisher modification.
-- [ ] **`C-09`** — **Audit correlation IDs, latency logs, health checks, and metrics** (03–05 Oct)  
-  *Deliverable:* Full log trail proving end-to-end `X-Correlation-ID` propagation.
+  *Deliverable:* Verified identical fan-out, lag accumulation during downtime, committed-offset recovery to zero lag, and a dynamic 3rd consumer without publisher modification.
+- [x] **`C-09`** — **Audit correlation IDs, latency logs, health checks, and metrics** (03–05 Oct)
+  *Script:* [`scripts/test_observability.sh`](../scripts/test_observability.sh)
+  *Deliverable:* Verified Client API → Aggregator correlation propagation and HTTP latency logs; a directly produced Kafka test event verifies correlation headers at both consumers. Also verifies dependency health and consumer-group lag metrics. This script does not claim to test the Aggregator outbox path.
 
 #### Joint Validation (All)
 - [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (06 Oct, In-person on campus)  

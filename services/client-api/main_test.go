@@ -180,7 +180,7 @@ func TestGetHazardByID(t *testing.T) {
 	}
 }
 
-func TestAggregatorFailureReturnsBadGateway(t *testing.T) {
+func TestAggregatorFailureReturnsInternalServerError(t *testing.T) {
 	aggregator := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "UNAVAILABLE", Message: "aggregator unavailable"})
 	})
@@ -188,8 +188,8 @@ func TestAggregatorFailureReturnsBadGateway(t *testing.T) {
 	token := signTestAccessToken(t, signingSecret, scopeAll, jwtIssuer, time.Now().Add(time.Minute))
 
 	response := performClientRequest(handler, "/api/v1/hazards?fields=all", token)
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("expected status 502, got %d: %s", response.Code, response.Body.String())
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d: %s", response.Code, response.Body.String())
 	}
 }
 
@@ -202,12 +202,13 @@ func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 func newTestClientAPI(t *testing.T, aggregator http.Handler) (http.Handler, string) {
 	t.Helper()
 	signingSecret := testClientSecret(t)
-	handler := newAPIHandler(signingSecret, "http://aggregator.test")
-	handler.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	service := NewRemoteAggregatorClient("http://aggregator.test")
+	service.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		response := httptest.NewRecorder()
 		aggregator.ServeHTTP(response, request)
 		return response.Result(), nil
 	})}
+	handler := newAPIHandlerWithService(signingSecret, service)
 	return handler.routes(), signingSecret
 }
 
@@ -247,7 +248,7 @@ func writeAggregatorResponse(t *testing.T, w http.ResponseWriter, events []hazar
 		events = []hazardEvent{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(aggregatorResponse{
+	if err := json.NewEncoder(w).Encode(HazardResponse{
 		Data: events,
 		Meta: aggregatorMeta{Total: total},
 	}); err != nil {

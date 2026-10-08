@@ -21,11 +21,25 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 BMKG_URL="${BMKG_URL:-http://localhost:8081}"
-BMKG_KEY="${BMKG_KEY:-bmkg-secret-key-2026}"
 PVMBG_URL="${PVMBG_URL:-http://localhost:8082}"
+BMKG_KEY="${BMKG_KEY:-${BMKG_API_KEY:-bmkg-secret-key-2026}}"
 PVMBG_TOKEN="${PVMBG_TOKEN:-pvmbg-bearer-token-2026}"
 
 FAILURES=0
+
+fatal() {
+    echo -e "${RED}[ERROR]${NC} $1" >&2
+    exit 1
+}
+
+command -v curl >/dev/null 2>&1 ||
+    fatal "Required command 'curl' is not installed"
+
+[[ -n "${BMKG_KEY}" ]] ||
+    fatal "BMKG_KEY must be set"
+
+[[ -n "${PVMBG_TOKEN}" ]] ||
+    fatal "PVMBG_TOKEN must be set"
 
 echo -e "${BLUE}========================================================================${NC}"
 echo -e "${CYAN}   Problem 3 Demo: Cross-Domain Credential Rejection (BMKG <-> PVMBG)   ${NC}"
