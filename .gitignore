@@ -35,7 +35,7 @@ Thumbs.db
 coverage.out
 *.log
 *.out
-!report/evidence/**/*.log
+!docs/evidence/**/*.log
 
 # IDE & editor settings
 .idea/

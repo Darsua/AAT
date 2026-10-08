@@ -122,20 +122,20 @@
 #### Member A (Aldoy) — P1 Evidence & Contract Tests
 - [x] **`A-06`** — **Run live schema-evolution demo and capture evidence** (03–05 Oct)  
   *Script:* [`scripts/test_schema_change.sh`](../scripts/test_schema_change.sh)  
-  *Deliverable:* Verified live schema evolution where PVMBG dynamic field `confidence_level` is ingested by Aggregator into canonical `attributes JSONB` without service restart. Output captured in [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log).
+  *Deliverable:* Verified live schema evolution where PVMBG dynamic field `confidence_level` is ingested by Aggregator into canonical `attributes JSONB` without service restart. Output captured in [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log).
 - [x] **`A-07`** — **Run mock contract tests and package P1 evidence** (03–05 Oct)  
-  *Deliverable:* P1 test logs and evidence packaged; unit and contract tests for mock-bmkg and mock-pvmbg 100% passing ([`report/evidence/p1/mock_contract_tests.log`](../report/evidence/p1/mock_contract_tests.log)).
+  *Deliverable:* P1 test logs and evidence packaged; unit and contract tests for mock-bmkg and mock-pvmbg 100% passing ([`docs/evidence/p1/mock_contract_tests.log`](evidence/p1/mock_contract_tests.log)).
 
 #### Member B (Darrel) — P2 & P4 Evidence & Load Testing
 - [x] **`B-06`** — **Run latency, outage, recovery, and stale-data scenarios** (30 Sep–01 Oct)  
   *Script:* [`scripts/test_outage.sh`](../scripts/test_outage.sh)  
-  *Deliverable:* Verified degraded state (`meta.degraded = true`, `meta.stale_since`) during PVMBG outage while BMKG remains 100% operational; automatic recovery to healthy state. Output captured in [`report/evidence/p2/demo_p2.log`](../report/evidence/p2/demo_p2.log).
+  *Deliverable:* Verified degraded state (`meta.degraded = true`, `meta.stale_since`) during PVMBG outage while BMKG remains 100% operational; automatic recovery to healthy state. Output captured in [`docs/evidence/p2/demo_p2.log`](evidence/p2/demo_p2.log).
 - [x] **`B-07`** — **Test independent restart and storage ownership** (30 Sep–01 Oct)  
   *Script:* [`scripts/test_storage_restart.sh`](../scripts/test_storage_restart.sh)  
-  *Deliverable:* Verified zero cascading failure when `aggregator` or `canonical-db` restarts; automatic connection pool recovery and self-healing. Output captured in [`report/evidence/p4/storage_restart.log`](../report/evidence/p4/storage_restart.log).
+  *Deliverable:* Verified zero cascading failure when `aggregator` or `canonical-db` restarts; automatic connection pool recovery and self-healing. Output captured in [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log).
 - [x] **`B-08`** — **Run sustained load test with ≥50 parallel connections for 60 seconds** (01 Oct)  
   *Script:* [`scripts/load_test.js`](../scripts/load_test.js)  
-  *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,514 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 3.07ms, error rate = 0.43% (threshold < 1%). Output captured in [`report/evidence/p2/load_test.log`](../report/evidence/p2/load_test.log).
+  *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,514 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 3.07ms, error rate = 0.43% (threshold < 1%). Output captured in [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log).
 
 #### Member C (Jenka) — P3 & P5 Evidence & Observability
 - [x] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (03–05 Oct)
@@ -177,21 +177,21 @@ Use this matrix to track and link evidence artifacts for the final report:
 
 | ID | Problem | Scenario | Test Script / Command | Expected Evidence | Owner | Status | Evidence Location |
 |---|---|---|---|---|---|---|---|
-| **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
-| **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
-| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Verified ✅ | [`report/evidence/p1/demo_p1.log`](../report/evidence/p1/demo_p1.log) |
-| **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | [`report/evidence/p2/`](../report/evidence/p2/) |
-| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | [`report/evidence/p2/load_test.log`](../report/evidence/p2/load_test.log) |
-| **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | [`report/evidence/p2/demo_p2.log`](../report/evidence/p2/demo_p2.log) |
-| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `report/evidence/p3/` |
-| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `report/evidence/p3/` |
-| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `report/evidence/p3/` |
-| **`P4-01`** | P4 | Independent Container Restart | `make demo-p4` | Unrelated services remain functional; clean reconnect to database | Darrel | Verified ✅ | [`report/evidence/p4/storage_restart.log`](../report/evidence/p4/storage_restart.log) |
-| **`P4-02`** | P4 | Flexible Canonical Storage | `make demo-p4` | Records before and after schema evolution coexist seamlessly | Darrel | Verified ✅ | [`report/evidence/p4/storage_restart.log`](../report/evidence/p4/storage_restart.log) |
-| **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `report/evidence/p5/` |
-| **`P5-02`** | P5 | Consumer Outage | Stop one consumer, publish events | Publisher and surviving consumer continue processing normally | Jenka | Planned | `report/evidence/p5/` |
-| **`P5-03`** | P5 | Consumer Downtime Recovery | Restart stopped consumer | Resumes from last committed checkpoint and consumes missed backlog | Jenka | Planned | `report/evidence/p5/` |
-| **`P5-04`** | P5 | Dynamic 3rd Consumer Addition | Spin up new consumer group | New consumer replays stream without publisher reconfiguration or restart | Jenka | Planned | `report/evidence/p5/` |
+| **`P1-01`** | P1 | Baseline PVMBG Schema | `curl :8082/volcanic-reports` | Schema without `confidence_level` produces canonical `HazardEvent` | Aldoy | Verified ✅ | [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log) |
+| **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Verified ✅ | [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log) |
+| **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Verified ✅ | [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log) |
+| **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | [`docs/evidence/p2/`](evidence/p2/) |
+| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log) |
+| **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | [`docs/evidence/p2/demo_p2.log`](evidence/p2/demo_p2.log) |
+| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `docs/evidence/p3/` |
+| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `docs/evidence/p3/` |
+| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `docs/evidence/p3/` |
+| **`P4-01`** | P4 | Independent Container Restart | `make demo-p4` | Unrelated services remain functional; clean reconnect to database | Darrel | Verified ✅ | [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log) |
+| **`P4-02`** | P4 | Flexible Canonical Storage | `make demo-p4` | Records before and after schema evolution coexist seamlessly | Darrel | Verified ✅ | [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log) |
+| **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `docs/evidence/p5/` |
+| **`P5-02`** | P5 | Consumer Outage | Stop one consumer, publish events | Publisher and surviving consumer continue processing normally | Jenka | Planned | `docs/evidence/p5/` |
+| **`P5-03`** | P5 | Consumer Downtime Recovery | Restart stopped consumer | Resumes from last committed checkpoint and consumes missed backlog | Jenka | Planned | `docs/evidence/p5/` |
+| **`P5-04`** | P5 | Dynamic 3rd Consumer Addition | Spin up new consumer group | New consumer replays stream without publisher reconfiguration or restart | Jenka | Planned | `docs/evidence/p5/` |
 
 ---
 
