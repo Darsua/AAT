@@ -98,38 +98,25 @@ Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
 \clearpage
 \subsection{Jawaban Butir ``Di Laporan''}
 \label{subsec:p5_jawaban}
-Sesuai dengan butir penugasan pada dokumen spesifikasi resmi (\textit{Problem 5: Fan-out Event Distribution/Pub-sub}), berikut adalah jawaban dan penjelasan komprehensif atas aspek yang diwajibkan:
+Jawaban komprehensif atas aspek evaluasi Problem 5:
 
 \begin{enumerate}
     \item \textbf{Broker dan Pola yang Dipilih:}
     \begin{itemize}
-        \item \textit{Broker:} Dipilih \textbf{Redpanda} (kompatibel API Kafka v3). Keunggulannya adalah arsitektur \textit{single binary} C++ (tanpa Java JVM dan Apache ZooKeeper), konsumsi memori rendah, latensi I/O disk sangat stabil melalui penyimpanan berbasis seastar engine, serta dukungan bawaan utilitas CLI \texttt{rpk}.
-        \item \textit{Pola:} Menggunakan pola \textbf{Publish--Subscribe berbasis Log Terdistribusi} dengan konsep \textbf{Consumer Groups}. \textit{Topic} dibagi ke dalam 3 partisi. Masing-masing aplikasi konsumen membentuk \textit{consumer group} tersendiri, sehingga Redpanda mendistribusikan salinan pesan (\textit{fan-out}) ke setiap grup secara independen.
+        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), konsumsi memori rendah, latensi I/O stabil berbasis seastar engine, serta dukungan utilitas CLI \texttt{rpk}.
+        \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \path{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
     \end{itemize}
 
-    \item \textbf{Semantik Pengiriman yang Berlaku (\textit{Delivery Semantics}):}
-    Sistem menerapkan semantik \textbf{\textit{At-Least-Once Delivery}}. Mekanisme ini diwujudkan melalui alur kerja berikut:
+    \item \textbf{Semantik Pengiriman yang Berlaku (\textit{At-Least-Once Delivery}):}
     \begin{itemize}
-        \item Produser mengirimkan pesan dengan tingkat pengakuan (\textit{acknowledgement}) \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan telah tercatat pada \textit{commit log} broker sebelum dianggap sukses.
-        \item Konsumen mematikan \textit{auto-commit} (\texttt{CommitInterval: 0}). Konsumen memanggil \texttt{reader.FetchMessage(ctx)}, mendekode isi pesan JSON, menjalankan pemrosesan bisnis dan deduplikasi, dan hanya memanggil \texttt{reader.CommitMessages(ctx, msg)} apabila seluruh tahapan tersebut tidak menghasilkan kesalahan.
-        \item Apabila terjadi gangguan jaringan atau proses konsumen mati secara tiba-tiba di tengah eksekusi, \textit{offset} belum berpindah pada broker. Saat proses hidup kembali, broker akan mengirimkan ulang (\textit{redeliver}) pesan tersebut. Dengan demikian, tidak ada pesan yang hilang (\textit{no message loss}), meskipun ada konsekuensi potensi pemrosesan ganda.
+        \item Produser mengirimkan pesan dengan tingkat pengakuan \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan tercatat pada \textit{commit log} broker sebelum dianggap sukses.
+        \item Konsumen menonaktifkan \textit{auto-commit} (\texttt{CommitInterval: 0}), membaca pesan via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
+        \item Jika terjadi kegagalan jaringan atau proses mati tiba-tiba, \textit{offset} belum terkomit sehingga pesan dikirim ulang (\textit{redeliver}) saat pulih, menjamin \textit{zero message loss}.
     \end{itemize}
 
-    \clearpage
     \item \textbf{Konsekuensi bagi Consumer dan Perlunya Sifat Idempoten:}
     \begin{itemize}
-        \item \textbf{Mengapa Consumer Perlu Idempoten?}
-        Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) adalah keniscayaan akibat \textit{network timeout}, kegagalan commit offset, atau rebalancing antar partisi. Jika konsumen tidak idempoten:
-        \begin{itemize}
-            \item Pada layanan \textit{Dashboard}: Metrik jumlah bencana akan terhitung ganda (\textit{double count}), menghasilkan statistik tingkat bahaya yang tidak akurat bagi pengambil kebijakan.
-            \item Pada layanan \textit{Notifier}: Petugas lapangan dan masyarakat akan menerima notifikasi darurat yang sama secara berulang-ulang (\textit{alert fatigue} atau kepanikan publik).
-        \end{itemize}
-        \item \textbf{Bagaimana Kelompok Menyikapinya?}
-        Kelompok menerapkan strategi \textbf{Idempotent Processing with Event Identity}:
-        \begin{itemize}
-            \item Setiap entitas kejadian bencana memiliki identitas global unik yang deterministik (\texttt{hazard\_id}).
-            \item Pada level prototipe saat ini, konsumen menyimpan set \texttt{processed[hazard\_id]} yang dilindungi kunci sinkronisasi (\texttt{sync.Mutex}). Sebelum memproses atau meneruskan notifikasi, konsumen memeriksa keberadaan ID tersebut. Jika ID telah tercatat, pesan ditandai sebagai \texttt{Duplicate}, diabaikan dari penambahan metrik atau pengiriman peringatan, dan \textit{offset}-nya langsung dikomit ke broker.
-            \item Untuk lingkungan produksi skala penuh dengan replika ganda (\textit{multi-replica consumers}), disikapi dengan memanfaatkan penyimpanan terdistribusi berkecepatan tinggi dengan operasi atomik (misalnya Redis dengan perintah \texttt{SETNX hazard\_id "processed" EX 86400}) atau tabel basis data relasional dengan indeks unik (\texttt{INSERT ... ON CONFLICT DO NOTHING}).
-        \end{itemize}
+        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) niscaya terjadi saat \textit{timeout} atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana terhitung ganda (\textit{double count}) pada Dashboard dan memicu banjir notifikasi berulang (\textit{alert fatigue}) pada Notifier.
+        \item \textbf{Strategi Mitigasi (\textit{Event Identity}):} Setiap bencana membawa identitas global deterministik (\texttt{hazard\_id}). Pada prototipe saat ini, konsumen mengelola set \texttt{processed[hazard\_id]} dalam memori dengan perlindungan \texttt{sync.Mutex} untuk mengabaikan duplikasi sebelum komit. Pada skala multi-replika produksi, hal ini disikapi via operasi atomik (Redis \texttt{SETNX}) atau integritas basis data relasional (\texttt{ON CONFLICT DO NOTHING}).
     \end{itemize}
 \end{enumerate}

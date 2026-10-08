@@ -7,8 +7,6 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
     \item \textbf{Lapisan Inti Koordinasi BNPB (Core Aggregation \& Persistence):} Terdiri atas \path{aggregator} (port 8083 internal) yang memegang kepemilikan eksklusif atas basis data kanonis \path{canonical-db} (PostgreSQL 16, port 5432) serta mempublikasikan event kanonis ke broker Redpanda (port 9092 / 19092).
     \item \textbf{Lapisan Hilir Klien \& Konsumen (Downstream Client API \& Event Consumers):} Terdiri atas \path{auth} (port 8084), \path{client-api} (port 8080), serta dua \textit{consumer} independen \path{dashboard-consumer} dan \path{notifier-consumer}.
 \end{enumerate}
-
-\clearpage
 \begin{figure}[H]
 \centering
 \resizebox{0.60\textwidth}{!}{%
@@ -124,6 +122,7 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
 \label{fig:arsitektur}
 \end{figure}
 
+\clearpage
 \section{Tanggung Jawab Setiap Service}
 Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang didefinisikan secara tegas:
 \begin{itemize}
@@ -136,7 +135,6 @@ Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang did
     \item \textbf{\path{notifier-consumer}:} Berlangganan topik event kanonis dengan grup \path{bnpb-notifier-group}, mengevaluasi ambang darurat (gempa $\ge 6.0$, tsunami SIAGA/AWAS, vulkanik AWAS), dan menerbitkan sinyal peringatan darurat.
 \end{itemize}
 
-\clearpage
 \section{Protokol Komunikasi Antarservice}
 Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
 \begin{itemize}
@@ -144,6 +142,7 @@ Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
     \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{pub-sub}). Aggregator menerbitkan event kanonis ke topik \path{bnpb.hazard-events} berpartisi dengan \texttt{hazard\_id} sebagai \textit{message key}.
 \end{itemize}
 
+\clearpage
 \section{Kepemilikan Penyimpanan dan Isolasi \mbox{Kontainer}}
 Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi Tugas Besar:
 \begin{itemize}
