@@ -45,3 +45,12 @@ coverage.out
 
 # Local spreadsheets & tracking documents
 *.xlsx
+
+# LaTeX intermediate build artifacts
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv

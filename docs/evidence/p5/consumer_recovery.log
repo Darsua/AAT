@@ -1,0 +1,293 @@
+========================================================================
+   Problem 5 Demo: Event Streaming, Downtime Recovery & 3rd Consumer    
+========================================================================
+
+[Step 0] Checking Redpanda and the configured topic...
+[PASS] Redpanda is responsive.
+PARTITION  LEADER  EPOCH  REPLICAS  LOG-START-OFFSET  HIGH-WATERMARK
+0          0       3      [0]       1407              4191
+1          0       3      [0]       1294              4221
+2          0       3      [0]       1479              4423
+[PASS] Topic 'bnpb.hazard-events' has 3 partitions.
+
+[Step 1] Starting the Dashboard and Notifier consumers...
+[+] up 2/3
+ ✔ Container bnpb-aat-dashboard-consumer-1 Running                          0.0s
+ ⠋ Container bnpb-aat-redpanda-1           Waiting                          0.1s
+ ✔ Container bnpb-aat-notifier-consumer-1  Running                          0.0s
+
+
+ ⠙ Container bnpb-aat-redpanda-1           Waiting                          0.2s
+
+
+
+ ⠹ Container bnpb-aat-redpanda-1           Waiting                          0.3s
+
+
+
+ ⠸ Container bnpb-aat-redpanda-1           Waiting                          0.4s
+
+
+
+ ⠼ Container bnpb-aat-redpanda-1           Waiting                          0.5s
+
+[+] up 3/4
+
+ ✔ Container bnpb-aat-redpanda-1           Healthy                          0.5s
+
+ ⠋ Container bnpb-aat-redpanda-init-1      Starting                         0.1s
+[+] up 2/4
+
+ ⠦ Container bnpb-aat-redpanda-1           Waiting                          0.7s
+
+ ⠙ Container bnpb-aat-redpanda-init-1      Waiting                          0.2s
+
+
+ ⠧ Container bnpb-aat-redpanda-1           Waiting                          0.8s
+
+ ⠹ Container bnpb-aat-redpanda-init-1      Waiting                          0.3s
+
+
+ ⠇ Container bnpb-aat-redpanda-1           Waiting                          0.9s
+
+ ⠸ Container bnpb-aat-redpanda-init-1      Waiting                          0.4s
+
+
+ ⠏ Container bnpb-aat-redpanda-1           Waiting                          1.0s
+
+ ⠼ Container bnpb-aat-redpanda-init-1      Waiting                          0.5s
+
+
+ ⠋ Container bnpb-aat-redpanda-1           Waiting                          1.1s
+
+ ⠴ Container bnpb-aat-redpanda-init-1      Waiting                          0.6s
+[+] up 4/4
+
+ ✔ Container bnpb-aat-redpanda-1           Healthy                          1.1s
+
+ ✔ Container bnpb-aat-redpanda-init-1      Exited                           0.6s
+[PASS] Dashboard and Notifier containers are running.
+
+[Step 2] Publishing one event for both independent consumer groups...
+[PASS] Dashboard received event 'c08-fanout-1791471484-674156'.
+[PASS] Notifier received the same event 'c08-fanout-1791471484-674156'.
+
+[Step 3] Stopping Dashboard and publishing an event during downtime...
+[+] stop 0/1
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         0.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         1.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         2.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         3.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         4.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         5.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.7s
+
+ ⠧ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.8s
+
+ ⠇ Container bnpb-aat-dashboard-consumer-1 Stopping                         6.9s
+
+ ⠏ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.0s
+
+ ⠋ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.1s
+
+ ⠙ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.2s
+
+ ⠹ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.3s
+
+ ⠸ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.4s
+
+ ⠼ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.5s
+
+ ⠴ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.6s
+
+ ⠦ Container bnpb-aat-dashboard-consumer-1 Stopping                         7.7s
+[+] stop 1/1
+ ✔ Container bnpb-aat-dashboard-consumer-1 Stopped                          7.7s
+[PASS] Notifier continued processing while Dashboard was stopped.
+[PASS] The recovery event remained pending for the stopped Dashboard group.
+GROUP        bnpb-dashboard-group
+COORDINATOR  0
+STATE        Empty
+BALANCER     
+MEMBERS      0
+TOTAL-LAG    5
+[PASS] Dashboard group accumulated lag while offline.
+
+[Step 4] Restarting Dashboard and verifying backlog recovery...
+[+] start 0/1
+ ⠋ Container bnpb-aat-redpanda-1 Waiting                                    0.1s
+
+ ⠙ Container bnpb-aat-redpanda-1 Waiting                                    0.2s
+
+ ⠹ Container bnpb-aat-redpanda-1 Waiting                                    0.3s
+
+ ⠸ Container bnpb-aat-redpanda-1 Waiting                                    0.4s
+
+ ⠼ Container bnpb-aat-redpanda-1 Waiting                                    0.5s
+[+] start 1/2
+ ✔ Container bnpb-aat-redpanda-1      Healthy                               0.5s
+ ⠋ Container bnpb-aat-redpanda-init-1 Starting                              0.1s
+[+] start 0/2
+ ⠦ Container bnpb-aat-redpanda-1      Waiting                               0.7s
+ ⠙ Container bnpb-aat-redpanda-init-1 Waiting                               0.2s
+
+ ⠧ Container bnpb-aat-redpanda-1      Waiting                               0.8s
+ ⠹ Container bnpb-aat-redpanda-init-1 Waiting                               0.3s
+
+ ⠇ Container bnpb-aat-redpanda-1      Waiting                               0.9s
+ ⠸ Container bnpb-aat-redpanda-init-1 Waiting                               0.4s
+
+ ⠏ Container bnpb-aat-redpanda-1      Waiting                               1.0s
+ ⠼ Container bnpb-aat-redpanda-init-1 Waiting                               0.5s
+
+ ⠋ Container bnpb-aat-redpanda-1      Waiting                               1.1s
+ ⠴ Container bnpb-aat-redpanda-init-1 Waiting                               0.6s
+[+] start 3/3
+ ✔ Container bnpb-aat-redpanda-1           Healthy                          1.1s
+ ✔ Container bnpb-aat-redpanda-init-1      Exited                           0.6s
+ ✔ Container bnpb-aat-dashboard-consumer-1 Started                          0.1s
+[PASS] Dashboard resumed from its committed offset and processed the missed event.
+GROUP        bnpb-dashboard-group
+COORDINATOR  0
+STATE        Stable
+BALANCER     range
+MEMBERS      1
+TOTAL-LAG    0
+[PASS] Dashboard consumer-group lag returned to zero.
+
+[Step 5] Adding a dynamic 3rd consumer group...
+Container bnpb-c08-audit-1791471484-674156 Creating 
+Container bnpb-c08-audit-1791471484-674156 Created 
+[PASS] A new 3rd consumer group received events without publisher changes.
+
+Results: 11 passed, 0 failed
+
+========================================================================
+   Problem 5 Verification Complete: Fan-Out & Recovery Verified!        
+========================================================================

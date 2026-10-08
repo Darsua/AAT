@@ -1,0 +1,85 @@
+[0;34m========================================================================[0m
+[0;36m     Problem 3 Demo: Auth Scopes, RBAC Projections & Refresh Flow       [0m
+[0;34m========================================================================[0m
+
+[0;34m[Step 0] Checking Auth Service & Client API health...[0m
+[0;32m[OK] Auth service and Client API are online.[0m
+
+[0;34m[Security check] Confirming an invalid client secret is rejected...[0m
+HTTP Status Code: 401
+[0;32m[PASS][0m Auth rejected an invalid client secret (HTTP 401).
+
+[0;34m[Step 1] Requesting token for Media role (scope: media)...[0m
+[0;32m[PASS][0m media token issued with scope 'hazards:read:summary'
+
+[0;34m[Step 2] Media client requests summary fields (fields=summary)...[0m
+HTTP Status Code: 200
+[0;32m[PASS][0m Media client successfully retrieved summary alerts (HTTP 200).
+Summary Payload Preview:
+{
+  "data": [
+    {
+      "hazard_id": "haz-bmkg-bmkg-seis-live-20261008-145935-001744",
+      "source": "BMKG",
+      "hazard_type": "SEISMIC",
+      "severity": "NORMAL",
+      "area_name": "Selatan Bali",
+      "occurred_at": "2026-10-08T14:59:35.906397Z",
+      "ingested_at": "2026-10-08T14:59:37.597186Z"
+    }
+  ],
+  "meta": {
+    "total": 4504,
+    "limit": 1,
+    "offset": 0,
+    "degraded": false,
+    "stale_since": null
+  }
+}
+[0;32m[PASS][0m Media summary response does not expose raw fields.
+
+[0;34m[Step 3] Media client attempts to access raw fields (fields=all)...[0m
+HTTP Status Code: 403
+[0;32m[PASS][0m Scope enforced! Media client strictly prohibited from raw telemetry (HTTP 403 Forbidden).
+Rejection Response:
+{
+  "error": "FORBIDDEN",
+  "message": "Scope 'hazards:read:all' required to access raw fields or fields=all"
+}
+
+[0;34m[Step 4] Requesting token for Field Responder role (scope: field)...[0m
+[0;32m[PASS][0m field token issued with scope 'hazards:read:all'
+Field Responder requests raw telemetry (fields=all)...
+HTTP Status Code: 200
+[0;32m[PASS][0m Field Responder successfully accessed raw coordinates and sensor telemetry (HTTP 200).
+
+[0;34m[Step 5] Requesting token for Internal Operations Center (scope: internal)...[0m
+[0;32m[PASS][0m internal token issued with scope 'hazards:read:all'
+HTTP Status Code: 200
+[0;32m[PASS][0m Internal Ops Center granted unrestricted access (HTTP 200).
+
+[0;34m[Step 6] Waiting 62s for the Field access token to expire naturally (TTL=60s)...[0m
+[1;33m(Set SKIP_TTL_WAIT=1 to skip this real-time wait during quick iteration; the[0m
+[1;33m full wait is required for an accurate P3 criterion-3 demo/evidence capture.)[0m
+[1;33m[SKIP] Natural access-token expiration check.[0m
+
+[0;34m[Step 8] Refreshing the Field session without manual re-login...[0m
+HTTP Status Code: 200
+[0;32m[PASS][0m Successfully refreshed the Field session without manual re-login
+[0;32m[PASS][0m Successfully refreshed and received a new 60s access token and rotated refresh token.
+API query with refreshed token HTTP status: 200
+[0;32m[PASS][0m Refreshed token validated successfully against Client API.
+
+[0;34m[Step 10] Confirming rotated refresh token: reusing the old refresh token is rejected...[0m
+HTTP Status Code: 401
+[0;32m[PASS][0m Reused (rotated-out) refresh token correctly rejected.
+
+[0;34m[Additional check] Confirming replay detection revoked the remaining Field session...[0m
+HTTP Status Code: 401
+[0;32m[PASS][0m Refresh-token replay revokes the remaining session tokens
+
+[0;34mResults:[0m 15 passed, 0 failed
+
+[0;32m========================================================================[0m
+[0;32m   Problem 3 Verification Complete: RBAC & Scope Enforcement Verified!   [0m
+[0;32m========================================================================[0m

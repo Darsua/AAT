@@ -1,0 +1,50 @@
+\section{Problem 3: Pengendalian Hak Akses dan Isolasi Kredensial}
+
+\subsection{Rancangan Solusi dan Mekanisme}
+Permasalahan ketiga (P3) berkaitan dengan pemisahan domain kepercayaan (\textit{domain of trust}). Jika satu kredensial bocor (misalnya kunci yang dipegang oleh pihak Media), penyerang tidak boleh dapat menggunakannya untuk menembus batasan akses data mentah pada API BNPB maupun menggunakannya langsung ke API sumber BMKG atau PVMBG.
+
+Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berlapis:
+\begin{enumerate}
+    \item \textbf{Isolasi Kredensial Hulu:} Layanan BMKG mewajibkan header \texttt{X-BMKG-Key: bmkg-secret-key-2026}, sedangkan PVMBG mewajibkan header \texttt{Authorization: Bearer <pvmbg-bearer-token-2026>}. Format dan tanda tangan yang berbeda ini memaksa penolakan instan (HTTP 401/403) jika kredensial dipertukarkan (\textit{cross-credential reuse}).
+    \item \textbf{Layanan Autentikasi Terpusat (Auth Service):} Menerbitkan token akses JWT bertanda tangan HS256 (\texttt{POST /auth/token}) dengan masa berlaku (\textit{TTL}) pendek, yaitu 60 detik secara default. Klien memohon token berdasarkan peran yang sah (\texttt{media}, \texttt{field}, \texttt{internal}) yang dipetakan ke klaim \texttt{scope}:
+    \begin{itemize}
+        \item Klien \texttt{media} $\rightarrow$ klaim scope \texttt{hazards:read:summary}.
+        \item Klien \texttt{field} dan \texttt{internal} $\rightarrow$ klaim scope \texttt{hazards:read:all}.
+    \end{itemize}
+    \item \textbf{Penegakan Hak Akses di Sisi Server (Client API):} Client API memvalidasi tanda tangan kriptografi JWT, masa kedaluwarsa, dan klaim \texttt{scope}. Klien Media hanya menerima field ringkasan. Jika klien Media secara eksplisit meminta field mentah (\texttt{?fields=all}), server menolak dengan HTTP 403 Forbidden.
+    \item \textbf{Rotasi Refresh Token Sekali Pakai (Single-Use Token Rotation):} Klien Tim Lapangan memperoleh \textit{refresh token} kriptografis acak 32-byte. Saat token akses kedaluwarsa setelah 60 detik, klien memanggil \texttt{POST /auth/refresh}. Auth Service memvalidasi refresh token, mencabut (\textit{burn}) token lama, dan menerbitkan pasangan token baru. Jika token lama digunakan kembali (\textit{replay attack}), sistem secara otomatis membatalkan seluruh sesi refresh terkait.
+\end{enumerate}
+
+\subsection{Alasan Keputusan dan Trade-Off}
+\begin{itemize}
+    \item \textbf{JWT Terdesentralisasi vs Token Referensi Terpusat:} Verifikasi JWT secara lokal di Client API mengeliminasi latensi jaringan panggilan balik (\textit{network hop}) ke Auth Service pada setiap permintaan data, dengan \textit{trade-off} token akses yang telah terbit tidak dapat dicabut seketika sebelum masa berlakunya habis (dimitigasi dengan TTL pendek 60 detik).
+    \item \textbf{Kredensial Otonom Antar-Instansi:} Meniadakan penggunaan kunci master tunggal, menjamin prinsip otonomi dan batas keamanan antar-lembaga.
+\end{itemize}
+
+\subsection{Batasan yang Disadari}
+\begin{itemize}
+    \item Hak akses pada Milestone 1 dibatasi pada tiga kategori klien dengan hak baca (\textit{read-only}).
+    \item Sesi \textit{refresh token} pada Auth Service disimpan dalam memori lokal proses (\textit{in-memory map}), sehingga sesi klien akan tereset apabila container Auth di-restart.
+\end{itemize}
+
+\subsection{Bukti Penyelesaian}
+Verifikasi diotomasi melalui \texttt{make demo-p3} yang mengeksekusi \texttt{scripts/test\_cross\_credential.sh} dan \texttt{scripts/test\_auth\_scopes.sh}:
+\begin{enumerate}
+    \item \textbf{Uji Penolakan Lintas Kredensial:}
+    Kunci BMKG yang dikirimkan ke PVMBG menghasilkan HTTP 401 Unauthorized. Sebaliknya, token PVMBG yang dikirimkan ke BMKG menghasilkan HTTP 401 Unauthorized.
+    \item \textbf{Uji Penegakan RBAC Media:}
+    Klien Media berhasil mengakses data ringkasan (\texttt{200 OK}), namun saat mengirimkan \texttt{GET /api/v1/hazards?fields=all}, Client API secara konsisten mengembalikan \texttt{403 Forbidden}.
+    \item \textbf{Uji Kedaluwarsa Alami 60 Detik \& Rotasi Refresh:}
+    Token akses diverifikasi berhasil pada detik ke-0. Setelah menunggu 62 detik tanpa memanipulasi jam sistem, token lama ditolak (\texttt{401 Unauthorized}). Pemanggilan \texttt{/auth/refresh} berhasil menerbitkan token baru. Replay token lama langsung ditolak. Seluruh 15 skenario pengujian berhasil 100\%.
+\end{enumerate}
+
+\subsection{Jawaban Butir Spesifikasi (Di Laporan)}
+\textbf{Pertanyaan:} \textit{Jelaskan mekanisme yang dipakai beserta alasan mengapa mekanisme tersebut tidak membuka celah baru.}
+
+\textbf{Jawaban:}
+Mekanisme yang diterapkan menjamin keamanan tanpa memperkenalkan celah baru karena:
+\begin{enumerate}
+    \item \textbf{Imunitas Terhadap Kebocoran Klien Media:} Klien Media tidak pernah menerima kredensial upstream (BMKG/PVMBG) maupun kunci rahasia HMAC. Klien hanya memegang JWT dengan klaim \texttt{scope: hazards:read:summary}. Jika token media bocor, penyerang tetap tidak dapat mengakses endpoint mentah karena Client API memvalidasi scope secara ketat di server, dan token tersebut ditolak mentah-mentah jika diarahkan ke API BMKG atau PVMBG.
+    \item \textbf{Pencegahan Pemalsuan Token (Signature Verification):} JWT ditandatangani menggunakan algoritma HS256 dengan \texttt{JWT\_SECRET} yang hanya diketahui oleh Auth Service dan Client API via environment variable. Klien tidak dapat merekayasa scope dari \texttt{summary} menjadi \texttt{all} tanpa merusak signature.
+    \item \textbf{Perlindungan Terhadap Pencurian Refresh Token:} Setiap refresh token hanya valid untuk satu kali pemakaian (\textit{single-use}). Upaya penyerang menggunakan refresh token yang telah terpakai memicu deteksi \textit{replay revocation} yang seketika menghanguskan seluruh silsilah sesi refresh tersebut.
+\end{enumerate}

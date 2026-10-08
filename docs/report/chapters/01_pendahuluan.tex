@@ -1,0 +1,41 @@
+\chapter{Pendahuluan}
+
+\section{Deskripsi Umum Sistem}
+Platform Koordinasi Kebencanaan BNPB merupakan prototipe aplikasi terdistribusi yang dirancang untuk mengintegrasikan informasi kebencanaan dari beberapa sumber serta menyediakan akses data sesuai kebutuhan pengguna. Sistem mengolah data gempa bumi dan peringatan tsunami dari layanan simulasi BMKG serta laporan aktivitas gunung api dari layanan simulasi PVMBG. Data yang memiliki format berbeda tersebut dikumpulkan oleh layanan agregator, diseragamkan ke dalam skema kanonik, dan disimpan agar dapat diakses melalui antarmuka yang konsisten.
+
+Fungsi utama sistem meliputi pengambilan data secara berkala, penyeragaman struktur data, pengayaan laporan aktivitas gunung api menggunakan katalog referensi statis, serta penyediaan API publik dengan pembatasan akses. Sistem membedakan pengguna menjadi tiga kelompok, yaitu:
+\begin{enumerate}
+    \item \textbf{Kelompok Media:} Memperoleh akses terbatas hanya terhadap informasi ringkasan (\textit{summary}). Akses terhadap atribut mentah atau koordinat presisi dibatasi secara ketat di sisi server.
+    \item \textbf{Petugas Lapangan (BASARNAS / Pemda):} Memperoleh cakupan akses penuh (\textit{raw/all}) menggunakan token akses berumur pendek (default 60 detik) yang dilengkapi mekanisme rotasi \textit{refresh token}.
+    \item \textbf{Pengguna Internal Ops BNPB:} Memperoleh hak akses tertinggi untuk membaca seluruh data kanonik dan atribut spesifik.
+\end{enumerate}
+
+Selain menyediakan jalur akses berbasis permintaan melalui HTTP/REST, sistem menggunakan mekanisme \textit{publish--subscribe} berbasis message broker Redpanda untuk mendistribusikan kejadian kebencanaan kepada \textit{consumer} hilir secara asinkron.
+
+Untuk Milestone 1, lingkup mencakup pengembangan layanan simulasi sumber data (\textit{mock-bmkg} dan \textit{mock-pvmbg}), agregator, penyimpanan kanonis, autentikasi (\textit{auth}), API publik (\textit{client-api}), serta dua konsumen kejadian (\textit{dashboard-consumer} dan \textit{notifier-consumer}). Perancangan dan demonstrasi sistem berfokus pada lima permasalahan utama:
+\begin{itemize}
+    \item \textbf{Problem 1 (P1):} Perubahan skema data dinamis saat sistem berjalan (\textit{live schema evolution}).
+    \item \textbf{Problem 2 (P2):} Penanganan gangguan sumber data dan permintaan konkuren (\textit{concurrency, availability, graceful degradation}).
+    \item \textbf{Problem 3 (P3):} Pengendalian hak akses dan isolasi domain kepercayaan (\textit{cross-credential trust isolation \& RBAC}).
+    \item \textbf{Problem 4 (P4):} Isolasi kegagalan container dan penyimpanan kanonis fleksibel (\textit{independent container rebuilds \& flexible storage}).
+    \item \textbf{Problem 5 (P5):} Distribusi kejadian \textit{publish--subscribe} dan pemulihan konsumen (\textit{event fan-out \& downtime recovery}).
+\end{itemize}
+
+Setiap layanan dijalankan dalam container Docker mandiri dan berkomunikasi secara eksklusif melalui panggilan jaringan (HTTP/REST atau message broker).
+
+\section{Tujuan Sistem}
+Sistem dikembangkan dengan tujuan:
+\begin{enumerate}
+    \item Memahami perancangan arsitektur aplikasi terdistribusi melalui penentuan batas tanggung jawab \textit{service}, komunikasi jaringan antarlayanan, kepemilikan penyimpanan independen, dan pengoperasian container secara terisolasi.
+    \item Menganalisis keputusan arsitektur beserta alternatif dan \textit{trade-off}-nya dalam menangani interoperabilitas data, evolusi skema, konkurensi, ketersediaan tinggi, autentikasi terdesentralisasi, dan distribusi \textit{event}.
+    \item Memvalidasi rancangan arsitektur melalui implementasi \textit{proof-of-concept} dan verifikasi empiris terhadap perubahan skema dinamis, latensi, kegagalan layanan hulu, pembatasan akses berbasis peran, serta pemulihan konsumen setelah \textit{downtime}.
+\end{enumerate}
+
+\section{Asumsi Perancangan dan Implementasi}
+Dalam perancangan dan implementasi Milestone 1, kelompok menetapkan sejumlah asumsi batasan:
+\begin{enumerate}
+    \item \textbf{Sifat Akses Klien Hilir:} Seluruh klien hilir (Media, Petugas Lapangan, Internal) pada Milestone 1 bersifat \textit{read-only}. Jalur pelaporan balik atau pembaruan status dari lapangan ke BNPB tidak termasuk dalam cakupan Milestone 1.
+    \item \textbf{Otonomi Sumber Data Hulu:} Layanan BMKG dan PVMBG beroperasi sebagai entitas independen yang bersifat pasif. Keduanya tidak melakukan \textit{push notification} ke BNPB, melainkan diakses secara berkala melalui \textit{polling} dengan jendela \textit{overlap} 10 detik guna mencegah kehilangan data.
+    \item \textbf{Infrastruktur Redpanda:} Pada Milestone 1, broker Redpanda dijalankan dalam konfigurasi \textit{single-broker} ter-kontainerisasi dengan satu partisi per topik atau 3 partisi replikasi lokal, yang mencukupi untuk simulasi \textit{fan-out} dan akumulasi \textit{lag}.
+    \item \textbf{Penyimpanan State Sesi Klien:} Penyimpanan sesi \textit{refresh token} pada layanan Auth serta status deduplikasi pada \textit{consumer} diimplementasikan secara \textit{in-memory} lokal proses, yang disadari akan diekspansi ke penyimpanan terdistribusi (\textit{distributed cache}) pada Milestone 2 saat replikasi horizontal diterapkan.
+\end{enumerate}
