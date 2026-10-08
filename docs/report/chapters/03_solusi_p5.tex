@@ -1,3 +1,4 @@
+\clearpage
 \section{Problem 5: Fan-out Event Distribution atau Publish--Subscribe}
 \label{sec:solusi_p5}
 
@@ -14,7 +15,7 @@ Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsite
     \item \textbf{Independent Consumer Groups:}
     Setiap layanan konsumen hilir beroperasi di bawah \textit{consumer group} yang terisolasi secara independen:
     \begin{itemize}
-        \item \texttt{bnpb-dashboard-group}: Dikelola oleh \textit{Dashboard Consumer} untuk mengagregasi statistik frekuensi jenis bencana dan tingkat keparahan.
+        \item \texttt{bnpb-dashboard-group}: Dikelola oleh \textit{Dashboard Consumer} untuk agregasi metrik frekuensi dan keparahan bencana.
         \item \texttt{bnpb-notifier-group}: Dikelola oleh \textit{Notifier Consumer} untuk mengirimkan notifikasi simulasi peringatan tingkat \textit{Waspada}, \textit{Siaga}, dan \textit{Awas}.
         \item \texttt{bnpb-evaluator-audit-group} / Konsumen Eksternal: Konsumen ketiga (misalnya audit atau portal pemda) yang dapat mendaftar dan membaca aliran data secara independen.
     \end{itemize}
@@ -25,6 +26,7 @@ Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsite
     Konsumen mengimplementasikan pustaka \texttt{kafka-go} dengan pembacaan berbasis \texttt{FetchMessage}. \textit{Offset} pesan tidak dikomit secara otomatis, melainkan secara manual melalui \texttt{CommitMessages} tepat setelah pemrosesan data internal dan deduplikasi lokal berhasil diselesaikan. Hal ini menjamin semantik pengiriman \textit{at-least-once}.
 \end{enumerate}
 
+\clearpage
 \subsection{Alasan Keputusan dan Trade-Off}
 \label{subsec:p5_alasan}
 Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandingan arsitektur berikut:
@@ -32,7 +34,7 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
 \begin{enumerate}
     \item \textbf{Pola Publish--Subscribe vs. Pola Polling Sinkron / Webhook:}
     \begin{itemize}
-        \item \textit{Polling Terjadwal:} Jika konsumen secara berkala melakukan HTTP GET ke \textit{Aggregator}, timbul beban kueri basis data berulang (\textit{database thrashing}) dan latensi deteksi bencana menjadi tinggi tergantung interval \textit{polling}.
+        \item \textit{Polling Terjadwal:} Jika konsumen secara berkala melakukan \mbox{HTTP} GET ke \textit{Aggregator}, timbul beban kueri basis data berulang (\textit{database thrashing}) dan latensi deteksi bencana menjadi tinggi tergantung interval \textit{polling}.
         \item \textit{Direct Webhook/HTTP Calls:} Membebani \textit{Aggregator} dengan tanggung jawab \textit{retry}, manajemen kegagalan koneksi, \textit{timeout handling}, dan registrasi dinamis URL konsumen.
         \item \textit{Keputusan:} Pola \textit{Publish--Subscribe} dipilih karena memisahkan tanggung jawab secara bersih (\textit{separation of concerns}). Produser berfokus pada validasi dan penerbitan \textit{event}, sedangkan broker menangani retensi, \textit{buffering}, partisi, dan distribusi data.
     \end{itemize}
@@ -43,6 +45,7 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
     \end{itemize}
 \end{enumerate}
 
+\clearpage
 \noindent\textbf{Trade-Off Arsitektural:}
 \begin{itemize}
     \item \textbf{Kelebihan:} \textit{Zero coupling} antara produser dan konsumen; latensi \textit{end-to-end} sub-milidetik untuk \textit{fan-out}; ketahanan data tinggi terhadap kegagalan komponen hilir (\textit{fault isolation}); penambahan konsumen baru sepenuhnya bersifat non-intrusif.
@@ -61,57 +64,38 @@ Batasan teknis yang disadari dan sengaja dibatasi pada lingkup implementasi saat
     Penyimpanan pesan pada Redpanda dibatasi oleh kebijakan retensi waktu dan ukuran log. Jika konsumen mengalami \textit{downtime} melebihi durasi retensi log yang dikonfigurasi, pesan-pesan terlama yang belum terbaca akan terhapus secara otomatis oleh broker sehingga konsumen tidak dapat lagi memulihkan data tersebut secara utuh.
 \end{enumerate}
 
+\clearpage
 \subsection{Bukti Penyelesaian}
 \label{subsec:p5_bukti}
 Pengujian dan validasi solusi Problem 5 dilakukan secara otomatis melalui skrip \path{scripts/test_consumer_recovery.sh} (dapat dijalankan melalui \texttt{make demo-p5}). Seluruh pengujian mencakup verifikasi partisi, penerbitan paralel, pemulihan \textit{downtime}, dan penambahan konsumen dinamis.
 
+\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=bash, caption={Keluaran Eksekusi Pengujian Otomatis Problem 5 (Fan-Out \& Downtime Recovery)}]
-========================================================================
-   Problem 5 Demo: Event Streaming, Downtime Recovery & 3rd Consumer    
-========================================================================
-
-[Step 0] Checking Redpanda and the configured topic...
-[PASS] Redpanda is responsive.
-PARTITIONS: 3
-[PASS] Topic 'bnpb.hazard-events' has 3 partitions.
-
-[Step 1] Starting the Dashboard and Notifier consumers...
-[PASS] Dashboard and Notifier containers are running.
-
-[Step 2] Publishing one event for both independent consumer groups...
-[PASS] Dashboard received event 'c08-fanout-1760021884-21948'.
-[PASS] Notifier received the same event 'c08-fanout-1760021884-21948'.
-
-[Step 3] Stopping Dashboard and publishing an event during downtime...
-[PASS] Notifier continued processing while Dashboard was stopped.
-[PASS] The recovery event remained pending for the stopped Dashboard group.
+[Step 0] Checking Redpanda topic: 'bnpb.hazard-events' (3 partitions) -> [PASS]
+[Step 1] Starting Dashboard and Notifier containers -> [PASS]
+[Step 2] Publishing event 'c08-fanout-...' -> Fan-out received by both -> [PASS]
+[Step 3] Stopping Dashboard and publishing recovery event during downtime:
 GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Empty     1
-[PASS] Dashboard group accumulated lag while offline.
-
-[Step 4] Restarting Dashboard and verifying backlog recovery...
-[PASS] Dashboard resumed from its committed offset and processed the missed event.
+[PASS] Notifier processed; Dashboard offline and accumulated TOTAL-LAG = 1
+[Step 4] Restarting Dashboard and verifying backlog recovery:
 GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Stable    0
-[PASS] Dashboard consumer-group lag returned to zero.
-
-[Step 5] Adding a dynamic 3rd consumer group...
-[PASS] A new 3rd consumer group received events without publisher changes.
-
-Results: 9 passed, 0 failed
-========================================================================
-   Problem 5 Verification Complete: Fan-Out & Recovery Verified!        
-========================================================================
+[PASS] Dashboard resumed committed offset; TOTAL-LAG returned to zero
+[Step 5] Dynamic 3rd consumer joined -> Events received -> [PASS]
+Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
 \end{lstlisting}
+\end{minipage}
 
 \noindent\textbf{Analisis Bukti Log:}
 \begin{enumerate}
-    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\texttt{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\texttt{bnpb-dashboard-group} dan \texttt{bnpb-notifier-group}).
-    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman \textit{event} baru (\texttt{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda melalui perintah \texttt{rpk group describe} menunjukkan \texttt{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
-    \item \textbf{Backlog Catch-Up (Langkah 4):} Begitu kontainer \textit{Dashboard} dinyalakan kembali, konsumen segera menyerap pesan yang tertinggal dan melakukan \textit{manual commit}, ditandai dengan \texttt{TOTAL-LAG} yang kembali menjadi 0.
-    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\texttt{bnpb-evaluator-audit-...}) dijalankan pada \textit{topic} \texttt{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
+    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\path{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\path{bnpb-dashboard-group} dan \path{bnpb-notifier-group}).
+    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman event baru (\path{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda via \path{rpk group describe} menunjukkan \path{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
+    \item \textbf{Backlog Catch-Up (Langkah 4):} Begitu kontainer \textit{Dashboard} dinyalakan kembali, konsumen segera menyerap pesan yang tertinggal dan melakukan \textit{manual commit}, ditandai dengan \path{TOTAL-LAG} yang kembali menjadi 0.
+    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\path{bnpb-evaluator-audit-...}) dijalankan pada topik \path{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
 \end{enumerate}
 
+\clearpage
 \subsection{Jawaban Butir ``Di Laporan''}
 \label{subsec:p5_jawaban}
 Sesuai dengan butir penugasan pada dokumen spesifikasi resmi (\textit{Problem 5: Fan-out Event Distribution/Pub-sub}), berikut adalah jawaban dan penjelasan komprehensif atas aspek yang diwajibkan:
@@ -131,6 +115,7 @@ Sesuai dengan butir penugasan pada dokumen spesifikasi resmi (\textit{Problem 5:
         \item Apabila terjadi gangguan jaringan atau proses konsumen mati secara tiba-tiba di tengah eksekusi, \textit{offset} belum berpindah pada broker. Saat proses hidup kembali, broker akan mengirimkan ulang (\textit{redeliver}) pesan tersebut. Dengan demikian, tidak ada pesan yang hilang (\textit{no message loss}), meskipun ada konsekuensi potensi pemrosesan ganda.
     \end{itemize}
 
+    \clearpage
     \item \textbf{Konsekuensi bagi Consumer dan Perlunya Sifat Idempoten:}
     \begin{itemize}
         \item \textbf{Mengapa Consumer Perlu Idempoten?}

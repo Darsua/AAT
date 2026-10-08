@@ -10,6 +10,20 @@
 \usepackage{microtype}
 \usepackage{xurl}
 
+% Typography penalties & spacing hygiene
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+\emergencystretch=2.5em
+\raggedbottom
+
+% Prevent hyphenation in headings
+\usepackage{titlesec}
+\titleformat{\chapter}[display]{\normalfont\huge\bfseries\raggedright}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titleformat{\section}{\Large\bfseries\raggedright}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\raggedright}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\raggedright}{\thesubsubsection}{1em}{}
+
 % Math & Symbols
 \usepackage{amsmath, amssymb, amsfonts}
 

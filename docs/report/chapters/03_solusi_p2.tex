@@ -1,23 +1,25 @@
+\clearpage
 \section{Problem 2: Concurrency, Availability, dan Graceful Degradation}
 
 \subsection{Rancangan Solusi dan Mekanisme}
-Permasalahan kedua (P2) berfokus pada pencegahan tiga titik kegagalan utama dalam sistem terdistribusi ketika berhadapan dengan beban tinggi dan gangguan penyedia data eksternal:
+Permasalahan kedua (P2) berfokus pada pencegahan tiga titik kegagalan utama dalam sistem terdistribusi saat berhadapan dengan beban tinggi dan gangguan penyedia data eksternal:
 \begin{enumerate}
-    \item \textbf{Pencegahan Head-of-Line Blocking:} Aggregator mengisolasi jalur pemanggilan BMKG dan PVMBG ke dalam \textit{goroutines worker} yang beroperasi secara independen dan asinkron. Poller BMKG dan PVMBG menggunakan klien HTTP dengan batas waktu (\textit{timeout}) mandiri (2 detik untuk BMKG, 5 detik untuk PVMBG). Kelambatan ekstrem atau penundaan sintetis (3 detik) pada PVMBG sama sekali tidak menahan proses penarikan atau penyajian data seismik BMKG.
-    \item \textbf{Pencegahan Resource Exhaustion (Kelelahan Sumber Daya):} Pada lapisan HTTP publik (\texttt{client-api}), batas konkurensi dikendalikan melalui penyangga koneksi HTTP Go dan konfigurasi \texttt{pgxpool} pada Aggregator (\texttt{MaxConns = 50}, \texttt{MinConns = 10}, \texttt{MaxConnLifetime = 1h}). Dengan pembatasan ini, lonjakan permintaan konkuren tidak mengakibatkan kebocoran soket atau kehabisan memori.
-    \item \textbf{Penerapan Graceful Degradation (Degradasi Terkendali):} Aggregator mengimplementasikan pelacak keandalan (\textit{Health \& Degradation Tracker}) berbasis pola \textit{Circuit Breaker}. Jika PVMBG mengalami kegagalan beruntun (\textit{consecutive failures} $\ge 3$) atau mengembalikan HTTP 503, Aggregator secara otomatis mengaktifkan status degradasi (\texttt{is\_degraded = true}) dan mencatat stempel waktu \texttt{stale\_since}. Saat klien hilir meminta data gabungan, sistem tetap mengembalikan respons HTTP 200 berisi data BMKG terbaru dan data historis terakhir PVMBG dari penyimpanan kanonis, disertai metadata penanda eksplisit.
+    \item \textbf{Pencegahan Head-of-Line Blocking:} Aggregator mengisolasi pemanggilan BMKG dan PVMBG ke \textit{goroutine} asinkron mandiri (\textit{timeout} 2 detik BMKG, 5 detik PVMBG). Kelambatan ekstrem atau penundaan (3 detik) PVMBG tidak menghambat penarikan data seismik BMKG.
+    \item \textbf{Pencegahan Resource Exhaustion:} Pada lapisan HTTP publik (\path{client-api}), konkurensi dibatasi oleh penyangga HTTP Go dan koneksi basis data \path{pgxpool} (\texttt{MaxConns = 50}), mencegah kehabisan soket dan memori saat lonjakan beban.
+    \item \textbf{Penerapan Graceful Degradation:} Aggregator menerapkan pelacak keandalan berbasis \textit{Circuit Breaker}. Jika PVMBG gagal beruntun ($\ge 3$) atau menghasilkan HTTP 503, sistem mengaktifkan status degradasi (\texttt{is\_degraded = true}). Respons klien tetap HTTP 200 berisi data BMKG terbaru dipadu \textit{snapshot} historis PVMBG beserta metadata penanda status.
 \end{enumerate}
 
 \subsection{Alasan Keputusan dan Trade-Off}
 Dalam menangani konkurensi dan degradasi, kelompok mengevaluasi trade-off berikut:
 \begin{itemize}
-    \item \textbf{Pola Fail-Fast (HTTP 503 Langsung ke Klien):} Menolak permintaan klien secara instan saat salah satu sumber mati. Pilihan ini ditolak karena menghilangkan kegunaan data bencana bagi tim lapangan saat mereka sangat membutuhkan data seismik BMKG meskipun data vulkanik terganggu.
-    \item \textbf{Stale-Data Fallback dengan Penanda Kebaruan (Solusi Terpilih):} Sistem mengutamakan ketersediaan (\textit{Availability} di atas konsistensi mutlak per teorema CAP). Klien menerima data yang ada dengan transparansi status melalui field \texttt{meta.degraded = true} dan \texttt{meta.stale\_since}.
+    \item \textbf{Pola Fail-Fast (HTTP 503 Langsung ke Klien):} Menolak permintaan klien secara instan saat salah satu sumber mati. Ditolak karena menghilangkan kegunaan data seismik bagi tim lapangan saat hanya sumber vulkanik yang terganggu.
+    \item \textbf{Stale-Data Fallback dengan Penanda Kebaruan (Solusi Terpilih):} Sistem mengutamakan ketersediaan (\textit{Availability} per teorema CAP). Klien menerima data yang ada disertai transparansi status melalui field \path{meta.degraded = true} dan stempel waktu \path{meta.stale_since}.
 \end{itemize}
 
+\clearpage
 \subsection{Batasan yang Disadari}
 \begin{itemize}
-    \item Pada kondisi degradasi berkepanjangan, data vulkanik yang disajikan semakin usang (\textit{stale}). Sistem Milestone 1 mengandalkan pemahaman klien terhadap atribut \texttt{meta.stale\_since} dan belum mengimplementasikan estimasi interpolasi bencana sintetis.
+    \item Pada kondisi degradasi berkepanjangan, data vulkanik yang disajikan semakin usang (\textit{stale}). Sistem Milestone 1 mengandalkan pemahaman klien terhadap atribut \path{meta.stale_since} dan belum mengimplementasikan estimasi interpolasi bencana sintetis.
     \item Pembatasan laju permintaan (\textit{rate limiting}) pada Milestone 1 ditangani pada level kapasitas koneksi server (\textit{connection backlog}), belum menggunakan token bucket terdistribusi Redis.
 \end{itemize}
 
@@ -25,31 +27,31 @@ Dalam menangani konkurensi dan degradasi, kelompok mengevaluasi trade-off beriku
 Verifikasi empiris dilakukan melalui dua skrip utama:
 \begin{enumerate}
     \item \textbf{Uji Isolasi Latensi \& Simulasi Outage (\texttt{make demo-p2}):}
-    PVMBG dimatikan melalui \texttt{POST /admin/outage} (\texttt{is\_outage = true}). Klien API tetap melayani permintaan dengan status HTTP 200 dan menghasilkan payload terdegradasi:
+    PVMBG dimatikan melalui \path{POST /admin/outage} (\texttt{is\_outage = true}). Klien API tetap melayani permintaan dengan status HTTP 200 dan menghasilkan payload terdegradasi:
+
+\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=json, caption={Respons Klien API dalam Keadaan Terdegradasi (meta.degraded = true)}]
 {
   "data": [ ... ],
   "meta": {
-    "total": 1562,
-    "limit": 5,
-    "offset": 0,
+    "total": 1562, "limit": 5, "offset": 0,
     "degraded": true,
     "stale_since": "2026-10-08T09:45:21.5830728Z"
   }
 }
 \end{lstlisting}
-    Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms. Log eksekusi tersimpan pada \path{docs/evidence/p2/demo_p2.log}.
+\end{minipage}
+    Sementara itu, pemanggilan langsung ke \path{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms (\path{docs/evidence/p2/demo_p2.log}).
 
     \item \textbf{Uji Beban Konkurensi Berkelanjutan (\texttt{make load-test}):}
-    Pengujian beban menggunakan k6 dijalankan dengan parameter 50 Virtual Users (VUs) secara simultan selama 60 detik penuh terhadap titik akhir \texttt{GET http://localhost:8080/api/v1/hazards}. Hasil eksekusi tercatat pada \path{docs/evidence/p2/load_test.log}:
+    Pengujian beban menggunakan k6 dijalankan dengan parameter 50 Virtual Users (VUs) secara simultan selama 60 detik penuh terhadap titik akhir \texttt{GET http://localhost:8080/api/v1/hazards} (\path{docs/evidence/p2/load_test.log}):
     \begin{itemize}
         \item \textbf{Total Permintaan Terlayani:} 29.514 permintaan ($\approx 491$ req/s).
-        \item \textbf{Latensi p95:} 1,75 ms (Ambang batas spesifikasi: $< 300$ ms) --- \textbf{MEMENUHI}.
-        \item \textbf{Latensi p99:} 3,07 ms (Ambang batas spesifikasi: $< 500$ ms) --- \textbf{MEMENUHI}.
-        \item \textbf{Error Rate:} 0,43\% (Ambang batas spesifikasi: $< 1,0\%$) --- \textbf{MEMENUHI}.
+        \item \textbf{Ambang Batas Latensi \& Error Rate:} Latensi p95: 1,75 ms ($< 300$ ms); Latensi p99: 3,07 ms ($< 500$ ms); Error Rate: 0,43\% ($< 1,0\%$) --- seluruh kriteria evaluasi beban terbukti \mbox{\textbf{MEMENUHI}}.
     \end{itemize}
 \end{enumerate}
 
+\clearpage
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
 \textbf{Pertanyaan:} \textit{Jelaskan model konkurensi yang dipilih dan bagaimana model tersebut mencegah ketiga kegagalan di atas. Sertakan konfigurasi load testing beserta tooling yang dipakai.}
 
@@ -63,7 +65,7 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
     \end{itemize}
     \item \textbf{Konfigurasi Load Testing:}
     \begin{itemize}
-        \item \textbf{Tooling:} Grafana k6 v0.50+ dieksekusi secara otomatis melalui Docker atau biner lokal (\texttt{scripts/load\_test.js}).
+        \item \textbf{Tooling:} Grafana k6 v0.50+ dieksekusi secara otomatis melalui Docker atau biner lokal (\path{scripts/load_test.js}).
         \item \textbf{Beban \& Durasi:} 50 Virtual Users (VUs) selama 60 detik konstan (\textit{sustained load}).
         \item \textbf{Autentikasi:} Setiap VU melakukan autentikasi otomatis ke Auth Service dan menyertakan header \texttt{Authorization: Bearer <token>} pada setiap iterasi.
     \end{itemize}

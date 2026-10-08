@@ -1,7 +1,7 @@
 \chapter{Petunjuk Menjalankan Sistem}
 \label{chap:petunjuk}
 
-Bab ini menyajikan panduan ringkas operasional untuk mengonfigurasi, menjalankan, dan memverifikasi seluruh komponen \textit{Disaster Data Aggregator Platform} pada lingkungan pengujian evaluator. Panduan lengkap dan komprehensif didokumentasikan pada berkas \texttt{README.md} di direktori utama repositori.
+Bab ini menyajikan panduan ringkas operasional untuk mengonfigurasi, menjalankan, dan memverifikasi seluruh komponen \textit{Disaster Data Aggregator \mbox{Platform}} pada lingkungan pengujian evaluator. Panduan lengkap dan komprehensif didokumentasikan pada berkas \texttt{README.md} di direktori utama repositori.
 
 \section{Prasyarat dan Konfigurasi Lingkungan}
 \label{sec:petunjuk_prasyarat}
@@ -58,37 +58,38 @@ make down
     \end{lstlisting}
 \end{enumerate}
 
-\section{Langkah Verifikasi dan Demonstrasi Solusi (Problem 1--5)}
+\clearpage
+\section{Langkah Verifikasi dan Demonstrasi \mbox{Solusi (Problem 1--5)}}
 \label{sec:petunjuk_verifikasi}
 
 Repositori menyediakan target otomatisasi \texttt{make} terintegrasi untuk mereplikasi dan memvalidasi kriteria evaluasi setiap permasalahan:
 
 \begin{singlespacing}
 \begin{footnotesize}
-\begin{xltabular}{\textwidth}{p{1.8cm} p{2.5cm} p{4.2cm} X}
+\begin{xltabular}{\textwidth}{p{1.5cm} p{2.2cm} p{5.0cm} X}
 \caption{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan} \label{tab:runbook_matrix} \\
 \toprule
-\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Verifikasi} \\
+\textbf{Problem} & \mbox{\textbf{Target Make}} & \textbf{Skrip Pengujian} \newline \scriptsize{(\path{scripts/})} & \mbox{\textbf{Kriteria Verifikasi}} \\
 \midrule
 \endfirsthead
 \caption[]{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan (Lanjutan)} \\
 \toprule
-\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Verifikasi} \\
+\textbf{Problem} & \mbox{\textbf{Target Make}} & \textbf{Skrip Pengujian} \newline \scriptsize{(\path{scripts/})} & \mbox{\textbf{Kriteria Verifikasi}} \\
 \midrule
 \endhead
 \bottomrule
 \endfoot
-\textbf{Problem 1} & \texttt{make demo-p1} & \path{scripts/test_schema_change.sh} & Evolusi skema aditif (\texttt{confidence\_level}) diserap dinamis tanpa migrasi database atau \textit{redeploy}. \\
+\textbf{Problem 1} & \texttt{make demo-p1} & \path{test_schema_change.sh} & Evolusi skema aditif (\texttt{confidence\_level}) diserap dinamis tanpa migrasi database atau \textit{redeploy}. \\
 \addlinespace
-\textbf{Problem 2} & \texttt{make demo-p2} \newline \texttt{make load-test} & \path{scripts/test_outage.sh} \newline \path{scripts/load_test.js} & Simulasi pemadaman PVMBG; respons terdegradasi (\texttt{degraded: true}); BMKG tetap normal. Uji beban 50 koneksi konstan selama 60 detik (k6) dengan tingkat keberhasilan 100\%. \\
+\textbf{Problem 2} & \texttt{make demo-p2} \newline \texttt{make load-test} & \path{test_outage.sh} \newline \path{load_test.js} & Simulasi pemadaman PVMBG; respons terdegradasi (\texttt{degraded: true}); BMKG normal. Uji beban 50 koneksi selama 60 detik (k6) lulus 100\%. \\
 \addlinespace
-\textbf{Problem 3} & \texttt{make demo-p3} & \path{scripts/test_cross_credential.sh} \newline \path{scripts/test_auth_scopes.sh} & Isolasi \textit{trust domain} upstream (penolakan kredensial silang); penolakan akses \texttt{403} bagi Media pada \textit{raw fields}; rotasi token JWT (TTL 60 detik). \\
+\textbf{Problem 3} & \texttt{make demo-p3} & \path{test_cross_credential.sh} \newline \path{test_auth_scopes.sh} & Isolasi \textit{trust domain} upstream (tolak kredensial silang); tolak akses \texttt{403} bagi Media pada \textit{raw fields}; rotasi token JWT (TTL 60 detik). \\
 \addlinespace
-\textbf{Problem 4} & \texttt{make demo-p4} & \path{scripts/test_storage_restart.sh} & \textit{Independent container rebuild} dan \textit{restart}; isolasi kegagalan tanpa efek kaskade ke basis data. \\
+\textbf{Problem 4} & \texttt{make demo-p4} & \path{test_storage_restart.sh} & \textit{Independent container rebuild} dan \textit{restart}; isolasi kegagalan tanpa efek kaskade ke basis data. \\
 \addlinespace
-\textbf{Problem 5} & \texttt{make demo-p5} & \path{scripts/test_consumer_recovery.sh} & Distribusi \textit{fan-out}; akumulasi \textit{lag} saat \textit{downtime}; pemulihan \textit{offset}; penambahan konsumen ke-3 secara dinamis. \\
+\textbf{Problem 5} & \texttt{make demo-p5} & \path{test_consumer_recovery.sh} & Distribusi \textit{fan-out}; akumulasi \textit{lag} saat \textit{downtime}; pemulihan \textit{offset}; penambahan konsumen baru dinamis. \\
 \end{xltabular}
 \end{footnotesize}
 \end{singlespacing}
 
-\noindent Setiap berkas log lengkap hasil demonstrasi pengujian otomatis ini diarsipkan pada repositori di direktori \path{docs/evidence/p1/} hingga \path{docs/evidence/p5/}.
+\noindent Seluruh skrip pengujian di atas terletak pada direktori \path{scripts/}, dan berkas log lengkap hasil demonstrasi diarsipkan pada direktori \path{docs/evidence/p1/} hingga \path{docs/evidence/p5/}.

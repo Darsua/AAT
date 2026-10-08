@@ -1,16 +1,16 @@
 \chapter{Pendahuluan}
 
 \section{Deskripsi Umum Sistem}
-Platform Koordinasi Kebencanaan BNPB merupakan prototipe aplikasi terdistribusi yang dirancang untuk mengintegrasikan informasi kebencanaan dari beberapa sumber serta menyediakan akses data sesuai kebutuhan pengguna. Sistem mengolah data gempa bumi dan peringatan tsunami dari layanan simulasi BMKG serta laporan aktivitas gunung api dari layanan simulasi PVMBG. Data yang memiliki format berbeda tersebut dikumpulkan oleh layanan agregator, diseragamkan ke dalam skema kanonik, dan disimpan agar dapat diakses melalui antarmuka yang konsisten.
+Platform Koordinasi Kebencanaan BNPB merupakan prototipe aplikasi terdistribusi untuk mengintegrasikan informasi kebencanaan multisumber serta menyediakan akses data terkonsolidasi. Sistem mengolah data gempa bumi dan tsunami dari simulasi BMKG serta laporan aktivitas vulkanik dari simulasi PVMBG. Data heterogen tersebut dihimpun oleh agregator, diseragamkan ke skema kanonik, dan disimpan agar dapat diakses melalui antarmuka konsisten.
 
-Fungsi utama sistem meliputi pengambilan data secara berkala, penyeragaman struktur data, pengayaan laporan aktivitas gunung api menggunakan katalog referensi statis, serta penyediaan API publik dengan pembatasan akses. Sistem membedakan pengguna menjadi tiga kelompok, yaitu:
+Fungsi utama sistem mencakup pengambilan data berkala, penyeragaman struktur data, pengayaan koordinat gunung api via katalog referensi statis, serta penyediaan API publik dengan kontrol akses ketat. Pengguna diklasifikasikan ke dalam tiga kelompok:
 \begin{enumerate}
     \item \textbf{Kelompok Media:} Memperoleh akses terbatas hanya terhadap informasi ringkasan (\textit{summary}). Akses terhadap atribut mentah atau koordinat presisi dibatasi secara ketat di sisi server.
     \item \textbf{Petugas Lapangan (BASARNAS / Pemda):} Memperoleh cakupan akses penuh (\textit{raw/all}) menggunakan token akses berumur pendek (default 60 detik) yang dilengkapi mekanisme rotasi \textit{refresh token}.
     \item \textbf{Pengguna Internal Ops BNPB:} Memperoleh hak akses tertinggi untuk membaca seluruh data kanonik dan atribut spesifik.
 \end{enumerate}
 
-Selain menyediakan jalur akses berbasis permintaan melalui HTTP/REST, sistem menggunakan mekanisme \textit{publish--subscribe} berbasis message broker Redpanda untuk mendistribusikan kejadian kebencanaan kepada \textit{consumer} hilir secara asinkron.
+Selain menyediakan jalur akses berbasis permintaan melalui HTTP/REST, sistem menerapkan mekanisme \textit{publish--subscribe} berbasis message broker Redpanda untuk mendistribusikan kejadian kebencanaan ke \textit{consumer} hilir secara asinkron.
 
 Untuk Milestone 1, lingkup mencakup pengembangan layanan simulasi sumber data (\textit{mock-bmkg} dan \textit{mock-pvmbg}), agregator, penyimpanan kanonis, autentikasi (\textit{auth}), API publik (\textit{client-api}), serta dua konsumen kejadian (\textit{dashboard-consumer} dan \textit{notifier-consumer}). Perancangan dan demonstrasi sistem berfokus pada lima permasalahan utama:
 \begin{itemize}
