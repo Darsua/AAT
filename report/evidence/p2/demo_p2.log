@@ -1,0 +1,94 @@
+[0;34m========================================================================[0m
+[0;36m     Problem 2 Demo: Upstream Outage Simulation & Degraded Handling     [0m
+[0;34m========================================================================[0m
+
+[0;34m[Step 0] Checking upstream mock services health...[0m
+[0;32m[OK] mock-pvmbg is online.[0m
+
+[0;34m[Step 1] Ensuring PVMBG is operational (is_outage = false)...[0m
+Response: {"is_outage":false,"message":"Outage mode updated successfully","status":"updated"}
+PVMBG reports HTTP status: 200
+[0;32m[OK] PVMBG reports are accessible under normal operation.[0m
+
+[0;34m[Step 2] Simulating PVMBG outage (is_outage = true)...[0m
+Outage toggle response: {"is_outage":true,"message":"Outage mode updated successfully","status":"updated"}
+
+[0;34m[Step 3] Verifying PVMBG reports failure during outage...[0m
+PVMBG reports HTTP status during outage: 503
+[0;32m[OK] PVMBG correctly simulated upstream outage (HTTP 503).[0m
+
+[0;34m[Step 4] Verifying system resilience & graceful degradation...[0m
+[1;33mWaiting 4 seconds for circuit breaker / fallback to engage...[0m
+Client API status during PVMBG outage: 200
+[0;32m[OK] Client API continues serving traffic without crashing (HTTP 200).[0m
+Sample payload:
+{
+  "data": [
+    {
+      "hazard_id": "haz-bmkg-bmkg-seis-live-20261008-094517-000273",
+      "source": "BMKG",
+      "hazard_type": "SEISMIC",
+      "severity": "NORMAL",
+      "area_name": "Mamuju-Sulawesi Barat",
+      "occurred_at": "2026-10-08T09:45:17.172364Z",
+      "ingested_at": "2026-10-08T09:45:19.808061Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261008-094517-000273",
+      "source": "PVMBG",
+      "hazard_type": "VOLCANIC",
+      "severity": "SIAGA",
+      "area_name": "Gunung Semeru",
+      "occurred_at": "2026-10-08T09:45:17.05768Z",
+      "ingested_at": "2026-10-08T09:45:18.480526Z"
+    },
+    {
+      "hazard_id": "haz-bmkg-bmkg-seis-live-20261008-094507-000272",
+      "source": "BMKG",
+      "hazard_type": "SEISMIC",
+      "severity": "NORMAL",
+      "area_name": "Pesisir Padang-Sumatera Barat",
+      "occurred_at": "2026-10-08T09:45:07.172265Z",
+      "ingested_at": "2026-10-08T09:45:09.500118Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261008-094507-000272",
+      "source": "PVMBG",
+      "hazard_type": "VOLCANIC",
+      "severity": "WASPADA",
+      "area_name": "Gunung Anak Krakatau",
+      "occurred_at": "2026-10-08T09:45:07.058316Z",
+      "ingested_at": "2026-10-08T09:45:09.034847Z"
+    },
+    {
+      "hazard_id": "haz-bmkg-bmkg-seis-live-20261008-094457-000271",
+      "source": "BMKG",
+      "hazard_type": "SEISMIC",
+      "severity": "WASPADA",
+      "area_name": "Pesisir Makassar-Sulawesi Selatan",
+      "occurred_at": "2026-10-08T09:44:57.172416Z",
+      "ingested_at": "2026-10-08T09:44:58.892365Z"
+    }
+  ],
+  "meta": {
+    "total": 1562,
+    "limit": 5,
+    "offset": 0,
+    "degraded": true,
+    "stale_since": "2026-10-08T09:45:21.5830728Z"
+  }
+}
+[0;32m[OK] Verified: System reports degraded status (meta.degraded=true) with stale data fallback![0m
+
+[0;34m[Step 5] Verifying BMKG service isolation...[0m
+BMKG seismic reports status: 200
+[0;32m[OK] BMKG provider pipeline is fully isolated and operational.[0m
+
+[0;34m[Step 6] Restoring PVMBG service (is_outage = false)...[0m
+Restore response: {"is_outage":false,"message":"Outage mode updated successfully","status":"updated"}
+PVMBG reports HTTP status after recovery: 200
+[0;32m[OK] PVMBG successfully recovered to operational state.[0m
+
+[0;32m========================================================================[0m
+[0;32m   Problem 2 Verification Complete: Graceful Outage Handling Verified!   [0m
+[0;32m========================================================================[0m
