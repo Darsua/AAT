@@ -1,0 +1,73 @@
+./scripts/test_storage_restart.sh
+[0;34m========================================================================[0m
+[0;36m   Problem 4 Demo: Independent Rebuilds & Flexible Storage (P4-01, P4-02)[0m
+[0;34m========================================================================[0m
+
+[0;34m========================================================================[0m
+[0;34m[Step 0][0m [1;33mChecking initial stack health...[0m
+[0;34m========================================================================[0m
+[0;32m[PASS][0m All core HTTP endpoints (:8080, :8081, :8082, :8084) are healthy.
+
+[0;34m========================================================================[0m
+[0;34m[Step 1][0m [1;33mVerifying Flexible Canonical Storage & Attributes JSONB (P4-02)...[0m
+[0;34m========================================================================[0m
+[0;36m[INFO][0m Querying PostgreSQL 'hazards' table directly via docker compose exec...
+                    hazard_id                    | source | hazard_type | severity |              attributes_jsonb               |          occurred_at          
+-------------------------------------------------+--------+-------------+----------+---------------------------------------------+-------------------------------
+ haz-bmkg-bmkg-seis-live-20261008-095117-000309  | BMKG   | SEISMIC     | WASPADA  | {                                          +| 2026-10-08 09:51:17.173324+00
+                                                 |        |             |          |     "depth_km": 37,                        +| 
+                                                 |        |             |          |     "magnitude": 5,                        +| 
+                                                 |        |             |          |     "potential_tsunami": false             +| 
+                                                 |        |             |          | }                                           | 
+ haz-bmkg-bmkg-seis-live-20261008-095107-000308  | BMKG   | SEISMIC     | NORMAL   | {                                          +| 2026-10-08 09:51:07.173267+00
+                                                 |        |             |          |     "depth_km": 36,                        +| 
+                                                 |        |             |          |     "magnitude": 4.9,                      +| 
+                                                 |        |             |          |     "potential_tsunami": true              +| 
+                                                 |        |             |          | }                                           | 
+ haz-pvmbg-pvmbg-rpt-live-20261008-095107-000308 | PVMBG  | VOLCANIC    | WASPADA  | {                                          +| 2026-10-08 09:51:07.058258+00
+                                                 |        |             |          |     "volcano_id": "VLC-002",               +| 
+                                                 |        |             |          |     "confidence_level": 0.8200000000000001,+| 
+                                                 |        |             |          |     "eruption_count_24h": 8,               +| 
+                                                 |        |             |          |     "ash_column_height_m": 350             +| 
+                                                 |        |             |          | }                                           | 
+(3 rows)
+
+[0;36m[INFO][0m Verifying coexistence of distinct attribute structures in canonical storage...
+[0;36m[INFO][0m Total stored hazard records: 1633
+[0;36m[INFO][0m Records with dynamic evolved field (confidence_level): 771
+[0;36m[INFO][0m Records with baseline volcanic fields without dynamic confidence_level: 45
+[0;32m[PASS][0m P4-02 Verified: Canonical storage supports heterogeneous payloads seamlessly via JSONB with zero schema mutations.
+
+[0;34m========================================================================[0m
+[0;34m[Step 2][0m [1;33mTesting Independent Aggregator Container Restart (P4-01)...[0m
+[0;34m========================================================================[0m
+[0;36m[INFO][0m Restarting aggregator container...
+[0;36m[INFO][0m Verifying other services remain completely operational during aggregator lifecycle...
+[0;32m[PASS][0m Client API (:8080) remained online during aggregator restart.
+[0;32m[PASS][0m Mock BMKG (:8081) remained online.
+[0;32m[PASS][0m Mock PVMBG (:8082) remained online.
+
+[0;34m========================================================================[0m
+[0;34m[Step 3][0m [1;33mVerifying Aggregator Reconnection & Ingestion Resumption...[0m
+[0;34m========================================================================[0m
+[0;36m[INFO][0m Waiting for aggregator health check to report OK...
+[0;32m[PASS][0m Aggregator reconnected to PostgreSQL connection pool and resumed ingestion workers.
+
+[0;34m========================================================================[0m
+[0;34m[Step 4][0m [1;33mTesting Independent Canonical DB Restart & Self-Healing Connection Pool...[0m
+[0;34m========================================================================[0m
+[0;36m[INFO][0m Restarting canonical-db container...
+[0;36m[INFO][0m Waiting for PostgreSQL to complete warm-up and accept TCP connections...
+/var/run/postgresql:5432 - accepting connections
+[0;36m[INFO][0m Testing Client API query to verify system end-to-end self-healing...
+[0;32m[PASS][0m Client API successfully returned HTTP 200 after canonical-db restart.
+{
+  "hazard_id": "haz-bmkg-bmkg-seis-live-20261008-095117-000309",
+  "source": "BMKG",
+  "hazard_type": "SEISMIC",
+  "severity": "WASPADA"
+}
+
+[0;34m========================================================================[0m
+[0;32m   Problem 4 Verification Complete: All Independent Lifecycle Checks Passed!   [0m
+[0;34m========================================================================[0m

@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p5 test-observability load-test
+.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test
 
 ## Display available make targets
 help:
@@ -25,6 +25,7 @@ help:
 	@echo "  demo-p1      Execute Problem 1 demo (PVMBG schema evolution & confidence level)"
 	@echo "  demo-p2      Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
 	@echo "  demo-p3      Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
+	@echo "  demo-p4      Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
 	@echo "  demo-p5      Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
 	@echo "  load-test    Run k6 load test against Client API (50 VUs, 60s)"
 	@echo "========================================================================"
@@ -70,6 +71,11 @@ demo-p3:
 	@chmod +x ./scripts/test_cross_credential.sh ./scripts/test_auth_scopes.sh
 	./scripts/test_cross_credential.sh
 	./scripts/test_auth_scopes.sh
+
+## Problem 4: Independent restart & flexible storage demonstration
+demo-p4:
+	@chmod +x ./scripts/test_storage_restart.sh
+	./scripts/test_storage_restart.sh
 
 ## Problem 5: Pub-Sub event fan-out & consumer recovery demonstration
 demo-p5:
