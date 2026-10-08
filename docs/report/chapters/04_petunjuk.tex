@@ -63,28 +63,32 @@ make down
 
 Repositori menyediakan target otomatisasi \texttt{make} terintegrasi untuk mereplikasi dan memvalidasi kriteria evaluasi setiap permasalahan:
 
-\begin{table}[htbp]
-\centering
-\small
-\caption{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan}
-\label{tab:runbook_matrix}
-\begin{tabularx}{\textwidth}{@{}l l l X@{}}
+\begin{singlespacing}
+\begin{footnotesize}
+\begin{xltabular}{\textwidth}{p{1.8cm} p{2.5cm} p{4.2cm} X}
+\caption{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan} \label{tab:runbook_matrix} \\
 \toprule
-\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Utama yang Diverifikasi} \\
+\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Verifikasi} \\
 \midrule
-\textbf{Problem 1} & \texttt{make demo-p1} & \texttt{scripts/test\_schema\_change.sh} & Evolusi skema aditif (\texttt{confidence\_level}) diserap dinamis tanpa migrasi database atau \textit{redeploy}. \\
-\addlinespace
-\textbf{Problem 2} & \texttt{make demo-p2} & \texttt{scripts/test\_outage.sh} & Simulasi pemadaman PVMBG; respons terdegradasi (\texttt{degraded: true}); BMKG tetap normal. \\
-& \texttt{make load-test} & \texttt{scripts/load\_test.js} & Uji beban 50 koneksi konstan selama 60 detik (k6) dengan tingkat keberhasilan 100\%. \\
-\addlinespace
-\textbf{Problem 3} & \texttt{make demo-p3} & \texttt{scripts/test\_cross\_credential.sh} & Isolasi \textit{trust domain} upstream (penolakan kredensial silang BMKG/PVMBG). \\
-& & \texttt{scripts/test\_auth\_scopes.sh} & Penolakan akses \texttt{403} bagi Media pada \textit{raw fields}; rotasi penyegaran token JWT (TTL 60 detik). \\
-\addlinespace
-\textbf{Problem 4} & \texttt{make demo-p4} & \texttt{scripts/test\_storage\_restart.sh} & \textit{Independent container rebuild} dan \textit{restart}; isolasi kegagalan tanpa efek kaskade ke basis data. \\
-\addlinespace
-\textbf{Problem 5} & \texttt{make demo-p5} & \texttt{scripts/test\_consumer\_recovery.sh} & Distribusi \textit{fan-out}; akumulasi \textit{lag} saat \textit{consumer downtime}; pemulihan \textit{offset}; penambahan konsumen ke-3. \\
+\endfirsthead
+\caption[]{Matriks Verifikasi dan Target Eksekusi Demonstrasi Permasalahan (Lanjutan)} \\
+\toprule
+\textbf{Problem} & \textbf{Target Make} & \textbf{Skrip Pengujian} & \textbf{Kriteria Verifikasi} \\
+\midrule
+\endhead
 \bottomrule
-\end{tabularx}
-\end{table}
+\endfoot
+\textbf{Problem 1} & \texttt{make demo-p1} & \path{scripts/test_schema_change.sh} & Evolusi skema aditif (\texttt{confidence\_level}) diserap dinamis tanpa migrasi database atau \textit{redeploy}. \\
+\addlinespace
+\textbf{Problem 2} & \texttt{make demo-p2} \newline \texttt{make load-test} & \path{scripts/test_outage.sh} \newline \path{scripts/load_test.js} & Simulasi pemadaman PVMBG; respons terdegradasi (\texttt{degraded: true}); BMKG tetap normal. Uji beban 50 koneksi konstan selama 60 detik (k6) dengan tingkat keberhasilan 100\%. \\
+\addlinespace
+\textbf{Problem 3} & \texttt{make demo-p3} & \path{scripts/test_cross_credential.sh} \newline \path{scripts/test_auth_scopes.sh} & Isolasi \textit{trust domain} upstream (penolakan kredensial silang); penolakan akses \texttt{403} bagi Media pada \textit{raw fields}; rotasi token JWT (TTL 60 detik). \\
+\addlinespace
+\textbf{Problem 4} & \texttt{make demo-p4} & \path{scripts/test_storage_restart.sh} & \textit{Independent container rebuild} dan \textit{restart}; isolasi kegagalan tanpa efek kaskade ke basis data. \\
+\addlinespace
+\textbf{Problem 5} & \texttt{make demo-p5} & \path{scripts/test_consumer_recovery.sh} & Distribusi \textit{fan-out}; akumulasi \textit{lag} saat \textit{downtime}; pemulihan \textit{offset}; penambahan konsumen ke-3 secara dinamis. \\
+\end{xltabular}
+\end{footnotesize}
+\end{singlespacing}
 
-\noindent Setiap berkas log lengkap hasil demonstrasi pengujian otomatis ini juga diarsipkan pada direktori repositori \texttt{docs/evidence/p1/} hingga \texttt{docs/evidence/p5/}.
+\noindent Setiap berkas log lengkap hasil demonstrasi pengujian otomatis ini diarsipkan pada repositori di direktori \path{docs/evidence/p1/} hingga \path{docs/evidence/p5/}.

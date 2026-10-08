@@ -7,6 +7,8 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage[indonesian]{babel}
+\usepackage{microtype}
+\usepackage{xurl}
 
 % Math & Symbols
 \usepackage{amsmath, amssymb, amsfonts}
@@ -15,18 +17,27 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{xltabular}
 \usepackage{multirow}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{float}
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt, parsep=1pt, partopsep=0pt}
+
+% TikZ for crisp diagrams
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
 
 % Colors & Code Listings
 \usepackage{xcolor}
 \definecolor{codegreen}{rgb}{0,0.6,0}
-\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codegray}{rgb}{0.45,0.45,0.45}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
-\definecolor{backcolour}{rgb}{0.96,0.96,0.96}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
 \definecolor{itbblue}{rgb}{0.0,0.2,0.5}
+\definecolor{boxbg}{rgb}{0.93,0.95,0.99}
+\definecolor{boxborder}{rgb}{0.2,0.4,0.7}
 
 \usepackage{listings}
 \lstdefinestyle{mystyle}{
@@ -35,13 +46,13 @@
     keywordstyle=\color{itbblue}\bfseries,
     numberstyle=\tiny\color{codegray},
     stringstyle=\color{codepurple},
-    basicstyle=\ttfamily\footnotesize,
+    basicstyle=\ttfamily\scriptsize\singlespacing,
     breakatwhitespace=false,         
     breaklines=true,                 
     captionpos=b,                    
     keepspaces=true,                 
     numbers=left,                    
-    numbersep=5pt,                  
+    numbersep=6pt,                  
     showspaces=false,                
     showstringspaces=false,
     showtabs=false,                  
@@ -50,7 +61,7 @@
     rulecolor=\color{codegray}
 }
 \lstdefinelanguage{json}{
-    basicstyle=\ttfamily\footnotesize,
+    basicstyle=\ttfamily\scriptsize\singlespacing,
     string=[s]{"}{"},
     stringstyle=\color{codepurple},
     comment=[l]{:},

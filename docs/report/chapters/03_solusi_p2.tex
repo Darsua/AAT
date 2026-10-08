@@ -38,10 +38,10 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
   }
 }
 \end{lstlisting}
-    Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms. Log eksekusi tersimpan pada \texttt{docs/evidence/p2/demo\_p2.log}.
+    Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms. Log eksekusi tersimpan pada \path{docs/evidence/p2/demo_p2.log}.
 
     \item \textbf{Uji Beban Konkurensi Berkelanjutan (\texttt{make load-test}):}
-    Pengujian beban menggunakan k6 dijalankan dengan parameter 50 Virtual Users (VUs) secara simultan selama 60 detik penuh terhadap \texttt{GET http://localhost:8080/api/v1/hazards}. Hasil eksekusi pada \texttt{docs/evidence/p2/load\_test.log}:
+    Pengujian beban menggunakan k6 dijalankan dengan parameter 50 Virtual Users (VUs) secara simultan selama 60 detik penuh terhadap titik akhir \texttt{GET http://localhost:8080/api/v1/hazards}. Hasil eksekusi tercatat pada \path{docs/evidence/p2/load_test.log}:
     \begin{itemize}
         \item \textbf{Total Permintaan Terlayani:} 29.514 permintaan ($\approx 491$ req/s).
         \item \textbf{Latensi p95:} 1,75 ms (Ambang batas spesifikasi: $< 300$ ms) --- \textbf{MEMENUHI}.

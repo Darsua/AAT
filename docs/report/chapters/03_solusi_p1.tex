@@ -26,7 +26,7 @@ Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi empiris dijalankan melalui skrip pengujian otomatis \texttt{./scripts/test\_schema\_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada berkas log \texttt{docs/evidence/p1/demo\_p1.log}:
+Verifikasi empiris dijalankan melalui skrip pengujian otomatis \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada berkas log \path{docs/evidence/p1/demo_p1.log}:
 \begin{enumerate}
     \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_confidence\_level = false}. Aggregator berhasil menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
     \item \textbf{Pemicuan Perubahan Skema Dinamis:} Mengirimkan permintaan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_confidence\_level": true\}} ke \texttt{mock-pvmbg} (:8082). Upstream segera memancarkan field baru.

@@ -13,11 +13,13 @@ Solusi dirancang melalui integrasi dua pilar arsitektur:
 \subsection{Alasan Keputusan dan Trade-Off}
 Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsitektur penyimpanan:
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
+\footnotesize
+\begin{spacing}{1.05}
 \caption{Evaluasi Komparatif Alternatif Arsitektur Penyimpanan}
 \label{tab:storage_eval}
-\begin{tabularx}{\textwidth}{p{3.2cm} X X X}
+\begin{tabularx}{\textwidth}{p{2.8cm} X X X}
 \toprule
 \textbf{Kriteria} & \textbf{PostgreSQL + JSONB (Terpilih)} & \textbf{MongoDB (Document Store)} & \textbf{Strict SQL (EAV / Migrasi DDL)} \\
 \midrule
@@ -30,6 +32,7 @@ Performa Query \& Indexing & \textbf{Tinggi:} Kolom relasional diindeks B-Tree s
 Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebutuhan relasional dan dokumen fleksibel. & \textbf{Sedang:} Menambah beban pemeliharaan infrastruktur klaster terpisah. & \textbf{Rendah:} Mesin relasional tunggal namun beban migrasi skema tinggi. \\
 \bottomrule
 \end{tabularx}
+\end{spacing}
 \end{table}
 
 \subsection{Batasan yang Disadari}
@@ -39,7 +42,7 @@ Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebut
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi diotomasi melalui \texttt{make demo-p4} (\texttt{scripts/test\_storage\_restart.sh}) dengan rekaman log tersimpan di \texttt{docs/evidence/p4/storage\_restart.log}:
+Verifikasi diotomasi melalui \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan di \path{docs/evidence/p4/storage_restart.log}:
 \begin{enumerate}
     \item \textbf{Koeksistensi Skema Heterogen pada PostgreSQL (P4-02):}
     Kueri langsung ke basis data \texttt{canonical-db} membuktikan record sebelum evolusi skema dan record setelah evolusi skema hidup berdampingan secara harmonis:

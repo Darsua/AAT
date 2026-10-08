@@ -28,7 +28,7 @@ Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berla
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi diotomasi melalui \texttt{make demo-p3} yang mengeksekusi \texttt{scripts/test\_cross\_credential.sh} dan \texttt{scripts/test\_auth\_scopes.sh}:
+Verifikasi diotomasi melalui \texttt{make demo-p3} yang mengeksekusi \path{scripts/test_cross_credential.sh} dan \path{scripts/test_auth_scopes.sh}:
 \begin{enumerate}
     \item \textbf{Uji Penolakan Lintas Kredensial:}
     Kunci BMKG yang dikirimkan ke PVMBG menghasilkan HTTP 401 Unauthorized. Sebaliknya, token PVMBG yang dikirimkan ke BMKG menghasilkan HTTP 401 Unauthorized.

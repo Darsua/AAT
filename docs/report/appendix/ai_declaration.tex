@@ -1,32 +1,60 @@
-\chapter{Pernyataan Penggunaan Kecerdasan Buatan (AI)}
+\clearpage
+\refstepcounter{chapter}
 \label{chap:ai_declaration}
+\addcontentsline{toc}{chapter}{Lampiran \thechapter\quad Pernyataan Penggunaan Kecerdasan Buatan (AI)}
 
+\begin{center}
+    {\Large\bfseries Lampiran \thechapter}\\[0.3cm]
+    {\LARGE\bfseries Pernyataan Penggunaan Kecerdasan Buatan (AI)}
+\end{center}
+\vspace{0.4cm}
+
+\begin{small}
+\begin{singlespacing}
 Sesuai dengan ketentuan penulisan pada dokumen spesifikasi tugas besar IF4031 Arsitektur Aplikasi Terdistribusi (Milestone 1), tim pengembang mendeklarasikan secara terbuka dan jujur penggunaan model bahasa besar (\textit{Large Language Model} / AI) selama proses perancangan, implementasi, dan penyusunan laporan.
 
-\section*{Deklarasi Penggunaan}
+\vspace{0.3cm}
+\noindent\textbf{\large Deklarasi Penggunaan}\par
+\vspace{0.1cm}
 Tim pengembang memanfaatkan alat bantu AI (\textit{Antigravity CLI}, \textit{Anthropic Claude}, dan \textit{OpenAI ChatGPT}) untuk keperluan:
-\begin{enumerate}
-    \item \textbf{Eksplorasi Sintaksis dan \textit{Boilerplate}:} Pembuatan kerangka awal sintaks Go (seperti struktur pengurai JSON dan konfigurasi pustaka \texttt{kafka-go}) serta template skrip pengujian Bash dan k6.
+\begin{enumerate}[noitemsep, topsep=1pt, parsep=0pt]
+    \item \textbf{Eksplorasi Sintaksis dan \textit{Boilerplate}:} Pembuatan kerangka awal sintaks Go (pengurai JSON dan pustaka \texttt{kafka-go}) serta template skrip pengujian Bash dan k6.
     \item \textbf{\textit{Proofreading} dan Penyempurnaan Tata Bahasa:} Pemeriksaan konsistensi istilah teknis, keterbacaan kalimat, dan format penataan dokumen LaTeX.
     \item \textbf{Perumusan Alternatif Arsitektural:} Diskusi mengenai perbandingan kelebihan dan kelemahan pola \textit{Transactional Outbox} serta pertimbangan trade-off antara PostgreSQL JSONB dan MongoDB.
 \end{enumerate}
 
-\section*{Pernyataan Tanggung Jawab dan Pemahaman}
+\vspace{0.3cm}
+\noindent\textbf{\large Pernyataan Tanggung Jawab dan Pemahaman}\par
+\vspace{0.1cm}
 Seluruh anggota kelompok menyatakan dengan sesungguhnya bahwa:
-\begin{enumerate}
+\begin{enumerate}[noitemsep, topsep=1pt, parsep=0pt]
     \item Seluruh keputusan arsitektur, pemilihan teknologi, pembagian batas layanan (\textit{bounded context}), dan logika bisnis inti dirumuskan, didiskusikan, dan diputuskan secara mandiri oleh tim pengembang.
-    \item Seluruh kode yang dihasilkan atau disempurnakan oleh alat bantu AI telah dibaca, ditelaah, dipahami sepenuhnya, serta diuji validitas dan fungsionalitasnya oleh anggota kelompok penanggung jawab komponen terkait.
+    \item Seluruh kode yang dihasilkan atau disempurnakan oleh alat bantu AI telah ditelaah, dipahami sepenuhnya, serta diverifikasi fungsionalitasnya oleh anggota kelompok penanggung jawab komponen.
     \item Seluruh isi laporan ini merepresentasikan pekerjaan orisinal kelompok. Tim pengembang bertanggung jawab penuh atas kebenaran, integritas akademik, dan keandalan sistem yang diajukan.
 \end{enumerate}
 
-\vspace{1.5cm}
+\vspace{0.3cm}
 
-\begin{table}[htbp]
+\begin{center}
+Bandung, 8 Oktober 2026
+\end{center}
+\vspace{0.8cm}
+
+\noindent
+\begin{minipage}[t]{0.32\textwidth}
 \centering
-\begin{tabularx}{\textwidth}{X X X}
-Bandung, 8 Oktober 2026 & Bandung, 8 Oktober 2026 & Bandung, 8 Oktober 2026 \\
-\vspace{1.5cm} & \vspace{1.5cm} & \vspace{1.5cm} \\
-\textbf{Aldoy Fauzan Avanza} & \textbf{Darrel Adinarya Sunanda} & \textbf{Jennifer Khang} \\
-NIM: 18223113 & NIM: 13523061 & NIM: 13524110 \\
-\end{tabularx}
-\end{table}
+\textbf{Aldoy Fauzan Avanza}\\
+NIM: 18223113
+\end{minipage}\hfill
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\textbf{Darrel Adinarya Sunanda}\\
+NIM: 13523061
+\end{minipage}\hfill
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\textbf{Jennifer Khang}\\
+NIM: 13524110
+\end{minipage}
+\end{singlespacing}
+\end{small}
