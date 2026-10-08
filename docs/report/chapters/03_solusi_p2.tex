@@ -29,7 +29,7 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
     \item \textbf{Uji Isolasi Latensi \& Simulasi Outage (\texttt{make demo-p2}):}
     PVMBG dimatikan melalui \path{POST /admin/outage} (\texttt{is\_outage = true}). Klien API tetap melayani permintaan dengan status HTTP 200 dan menghasilkan payload terdegradasi:
 
-\begin{minipage}{\linewidth}
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=json, caption={Respons Klien API dalam Keadaan Terdegradasi (meta.degraded = true)}]
 {
   "data": [ ... ],

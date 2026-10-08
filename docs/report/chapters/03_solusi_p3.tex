@@ -6,7 +6,7 @@ Permasalahan ketiga (P3) berkaitan dengan pemisahan domain kepercayaan (\textit{
 
 Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berlapis:
 \begin{enumerate}
-    \item \textbf{Isolasi Kredensial Hulu:} Layanan BMKG mewajibkan header \texttt{X-BMKG-Key: bmkg-secret-key-2026}, sedangkan PVMBG mewajibkan header \texttt{Authorization: Bearer <pvmbg-bearer-token-2026>}. Format dan tanda tangan yang berbeda ini memaksa penolakan instan (HTTP 401/403) jika kredensial dipertukarkan (\textit{cross-credential reuse}).
+    \item \textbf{Isolasi Kredensial Hulu:} Layanan BMKG mewajibkan header \texttt{X-BMKG-Key:} \texttt{bmkg-}\allowbreak\texttt{secret-}\allowbreak\texttt{key-}\allowbreak\texttt{2026}, sedangkan PVMBG mewajibkan header \texttt{Authorization:} \texttt{Bearer} \texttt{<pvmbg-}\allowbreak\texttt{bearer-}\allowbreak\texttt{token-}\allowbreak\texttt{2026>}. Format dan tanda tangan yang berbeda ini memaksa penolakan instan (HTTP 401/403) jika kredensial dipertukarkan (\textit{cross-credential reuse}).
     \item \textbf{Layanan Autentikasi Terpusat (Auth Service):} Menerbitkan token akses JWT bertanda tangan HS256 (\path{POST /auth/token}) dengan masa berlaku (\textit{TTL}) pendek, yaitu 60 detik secara default. Klien memohon token berdasarkan peran yang sah (\texttt{media}, \texttt{field}, \texttt{internal}) yang dipetakan ke klaim \texttt{scope}:
     \begin{itemize}
         \item Klien \texttt{media} $\rightarrow$ klaim scope \texttt{hazards:read:summary}.
@@ -39,7 +39,6 @@ Verifikasi diotomasi via target \texttt{make demo-p3} yang mengeksekusi skrip \p
     Token akses diverifikasi berhasil pada detik ke-0. Setelah menunggu 62 detik tanpa memanipulasi jam sistem, token lama ditolak (\texttt{401 Unauthorized}). Pemanggilan \path{/auth/refresh} berhasil menerbitkan token baru. Replay token lama langsung ditolak. Seluruh 15 skenario pengujian berhasil 100\%.
 \end{enumerate}
 
-\clearpage
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
 \textbf{Pertanyaan:} \textit{Jelaskan mekanisme yang dipakai beserta alasan mengapa mekanisme tersebut tidak membuka celah baru.}
 

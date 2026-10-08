@@ -50,7 +50,7 @@ Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/tes
     \item \textbf{Koeksistensi Skema Heterogen pada PostgreSQL (P4-02):}
     Kueri langsung ke basis data \path{canonical-db} membuktikan koeksistensi record sebelum dan setelah evolusi skema:
 
-\begin{minipage}{\linewidth}
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=SQL, caption={Hasil Kueri PostgreSQL Menunjukkan Koeksistensi Atribut Heterogen}]
 SELECT hazard_id, source, hazard_type, severity, attributes 
 FROM hazards ORDER BY occurred_at DESC LIMIT 2;

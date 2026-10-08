@@ -4,9 +4,9 @@
 
 \subsection{Rancangan Solusi dan Mekanisme}
 \label{subsec:p5_rancangan}
-Pada sistem agregasi bencana multi-lembaga, volume dan ragam pemangku kepentingan hilir terus bertambah seiring waktu. Kebutuhan tim operasional internal mencakup pembaruan metrik visual secara instan pada \textit{dashboard}, tim kesiapsiagaan darurat membutuhkan pengiriman notifikasi peringatan dini (\textit{early warning}) secara langsung ke regu penanggulangan bencana di lapangan, dan instansi eksternal (seperti portal pemerintah daerah/Pemda) berencana menyerap aliran data bencana yang sama.
+Pada sistem agregasi bencana multi-lembaga, ragam pemangku kepentingan hilir terus bertambah seiring waktu (pembaruan metrik visual pada \textit{dashboard}, pengiriman notifikasi darurat ke tim lapangan, serta portal pemda eksternal).
 
-Apabila \textit{Aggregator Service} memanggil seluruh sistem hilir secara sinkron melalui HTTP/REST langsung (\textit{point-to-point synchronous chaining}), muncul permasalahan \textit{cascading latency} dan \textit{tight coupling}: keterlambatan pada satu sistem hilir (misalnya koneksi notifikasi seluler yang lambat) akan menahan siklus eksekusi \textit{Aggregator} dan menunda pengiriman data ke sistem lain yang lebih mendesak. Selain itu, setiap penambahan konsumen baru akan mewajibkan modifikasi kode dan \textit{redeploy} pada \textit{Aggregator}.
+Apabila \textit{Aggregator Service} memanggil seluruh sistem hilir secara sinkron melalui HTTP/REST langsung (\textit{point-to-point synchronous chaining}), muncul permasalahan \textit{cascading latency} dan \textit{tight coupling}: keterlambatan pada satu konsumen akan menahan siklus eksekusi \textit{Aggregator} dan menunda pengiriman data ke konsumen lain yang mendesak, serta penambahan konsumen baru mewajibkan modifikasi kode dan \textit{redeploy}.
 
 Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsitektur \textbf{\textit{Publish--Subscribe}} berbasis \textit{log-based message broker} menggunakan Redpanda (kompatibel penuh dengan protokol Apache Kafka). Rancangan dan mekanisme solusi adalah sebagai berikut:
 \begin{enumerate}
@@ -20,13 +20,13 @@ Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsite
         \item \texttt{bnpb-evaluator-audit-group} / Konsumen Eksternal: Konsumen ketiga (misalnya audit atau portal pemda) yang dapat mendaftar dan membaca aliran data secara independen.
     \end{itemize}
     Masing-masing kelompok konsumen mengelola posisi penunjuk pembacaan (\textit{committed offset}) secara terpisah pada metadata Redpanda (\texttt{\_\_consumer\_offsets}). Kecepatan konsumsi maupun gangguan pada satu grup tidak berdampak sama sekali terhadap grup lainnya.
+    \pagebreak
     \item \textbf{Consumer Downtime Resilience dan Backlog Recovery:}
     Apabila suatu layanan konsumen (misalnya \textit{Dashboard}) mengalami kegagalan proses atau dihentikan (\textit{downtime}), Redpanda tetap menyimpan pesan-pesan baru yang diterbitkan produser ke dalam \textit{append-only log} pada disk broker. Nilai \textit{consumer lag} untuk grup tersebut akan bertambah secara proporsional. Sementara itu, konsumen lain (\textit{Notifier}) tetap memproses pesan baru secara \textit{real-time} tanpa terganggu. Ketika layanan yang mati dihidupkan kembali, konsumen membaca ulang konfigurasi \textit{committed offset} terakhirnya dan segera mengejar ketertinggalan (\textit{catch-up backlog}) hingga nilai \textit{lag} kembali ke nol.
     \item \textbf{Manual Offset Commit Discipline:}
     Konsumen mengimplementasikan pustaka \texttt{kafka-go} dengan pembacaan berbasis \texttt{FetchMessage}. \textit{Offset} pesan tidak dikomit secara otomatis, melainkan secara manual melalui \texttt{CommitMessages} tepat setelah pemrosesan data internal dan deduplikasi lokal berhasil diselesaikan. Hal ini menjamin semantik pengiriman \textit{at-least-once}.
 \end{enumerate}
 
-\clearpage
 \subsection{Alasan Keputusan dan Trade-Off}
 \label{subsec:p5_alasan}
 Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandingan arsitektur berikut:
@@ -69,7 +69,7 @@ Batasan teknis yang disadari dan sengaja dibatasi pada lingkup implementasi saat
 \label{subsec:p5_bukti}
 Pengujian dan validasi solusi Problem 5 dilakukan secara otomatis melalui skrip \path{scripts/test_consumer_recovery.sh} (dapat dijalankan melalui \texttt{make demo-p5}). Seluruh pengujian mencakup verifikasi partisi, penerbitan paralel, pemulihan \textit{downtime}, dan penambahan konsumen dinamis.
 
-\begin{minipage}{\linewidth}
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=bash, caption={Keluaran Eksekusi Pengujian Otomatis Problem 5 (Fan-Out \& Downtime Recovery)}]
 [Step 0] Checking Redpanda topic: 'bnpb.hazard-events' (3 partitions) -> [PASS]
 [Step 1] Starting Dashboard and Notifier containers -> [PASS]

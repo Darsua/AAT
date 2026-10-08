@@ -28,11 +28,11 @@ Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
 \subsection{Bukti Penyelesaian}
 Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada log \path{docs/evidence/p1/demo_p1.log}:
 \begin{enumerate}
-    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_confidence\_level = false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
-    \item \textbf{Pemicuan Skema Dinamis:} Mengirimkan \path{POST /admin/schema-version} dengan payload \path{{"include_confidence_level": true}} ke \path{mock-pvmbg} (:8082). Upstream langsung memancarkan field baru.
+    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
+    \item \textbf{Pemicuan Skema Dinamis:} Mengirimkan \path{POST /admin/schema-version} dengan payload \texttt{\{"include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level":} \texttt{true\}} ke \path{mock-pvmbg} (:8082). Upstream langsung memancarkan field baru.
     \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa \textit{restart} container apa pun, Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke \texttt{attributes JSONB}:
 
-\begin{minipage}{\linewidth}
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=json, caption={Cuplikan Respons Client API Menampilkan Atribut Dinamis confidence\_level}]
 {
   "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144707-000003",

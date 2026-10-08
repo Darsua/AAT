@@ -152,7 +152,6 @@ Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi T
     \item \textbf{Zero Shared Libraries:} Seluruh service Go beroperasi mandiri tanpa modul pustaka bersama (\texttt{pkg/} atau \texttt{common/}) dengan berkas \texttt{go.mod} mandiri via \texttt{go.work}.
 \end{itemize}
 
-\clearpage
 \section{Alur Permintaan, Data, dan Event}
 Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 \begin{enumerate}
@@ -162,6 +161,7 @@ Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
     \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.
 \end{enumerate}
 
+\clearpage
 \section{Teknologi Terpilih dan Alasan Pemilihan}
 Tabel~\ref{tab:teknologi} merangkum tumpukan teknologi yang dipilih beserta justifikasi teknisnya:
 
