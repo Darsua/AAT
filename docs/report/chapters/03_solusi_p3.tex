@@ -7,7 +7,7 @@ Permasalahan ketiga (P3) berkaitan dengan pemisahan domain kepercayaan (\textit{
 Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berlapis:
 \begin{enumerate}
     \item \textbf{Isolasi Kredensial Hulu:} Layanan BMKG mewajibkan header \texttt{X-BMKG-Key:} \texttt{bmkg-}\allowbreak\texttt{secret-}\allowbreak\texttt{key-}\allowbreak\texttt{2026}, sedangkan PVMBG mewajibkan header \texttt{Authorization:} \texttt{Bearer} \texttt{<pvmbg-}\allowbreak\texttt{bearer-}\allowbreak\texttt{token-}\allowbreak\texttt{2026>}. Format dan tanda tangan yang berbeda ini memaksa penolakan instan (HTTP 401/403) jika kredensial dipertukarkan (\textit{cross-credential reuse}).
-    \item \textbf{Layanan Autentikasi Terpusat (Auth Service):} Menerbitkan token akses JWT bertanda tangan HS256 (\path{POST /auth/token}) dengan masa berlaku (\textit{TTL}) pendek, yaitu 60 detik secara default. Klien memohon token berdasarkan peran yang sah (\texttt{media}, \texttt{field}, \texttt{internal}) yang dipetakan ke klaim \texttt{scope}:
+    \item \textbf{Layanan Autentikasi Terpusat (Auth Service):} Menerbitkan token akses JWT bertanda tangan HS256 (\texttt{POST /auth/token}) dengan masa berlaku (\textit{TTL}) pendek, yaitu 60 detik secara default. Klien memohon token berdasarkan peran yang sah (\texttt{media}, \texttt{field}, \texttt{internal}) yang dipetakan ke klaim \texttt{scope}:
     \begin{itemize}
         \item Klien \texttt{media} $\rightarrow$ klaim scope \texttt{hazards:read:summary}.
         \item Klien \texttt{field} dan \texttt{internal} $\rightarrow$ klaim scope \texttt{hazards:read:all}.
@@ -29,14 +29,14 @@ Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berla
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi diotomasi via target \texttt{make demo-p3} yang mengeksekusi skrip \path{scripts/test_cross_credential.sh} serta \path{scripts/test_auth_scopes.sh}:
+Verifikasi diotomasi via target \texttt{make demo-p3} yang mengeksekusi skrip \texttt{test\_}\allowbreak\texttt{cross\_}\allowbreak\texttt{credential.sh} serta \texttt{test\_}\allowbreak\texttt{auth\_}\allowbreak\texttt{scopes.sh} pada direktori \path{scripts/}:
 \begin{enumerate}
     \item \textbf{Uji Penolakan Lintas Kredensial:}
     Kunci BMKG yang dikirimkan ke PVMBG menghasilkan HTTP 401 Unauthorized. Sebaliknya, token PVMBG yang dikirimkan ke BMKG menghasilkan HTTP 401 Unauthorized.
     \item \textbf{Uji Penegakan RBAC Media:}
-    Klien Media berhasil mengakses data ringkasan (\texttt{200 OK}), namun saat mengirimkan \path{GET /api/v1/hazards?fields=all}, Client API secara konsisten mengembalikan \texttt{403 Forbidden}.
+    Klien Media berhasil mengakses data ringkasan (\texttt{200 OK}), namun saat mengirimkan \texttt{GET /api/v1/hazards?fields=all}, Client API secara konsisten mengembalikan \texttt{403 Forbidden}.
     \item \textbf{Uji Kedaluwarsa Alami 60 Detik \& Rotasi Refresh:}
-    Token akses diverifikasi berhasil pada detik ke-0. Setelah menunggu 62 detik tanpa memanipulasi jam sistem, token lama ditolak (\texttt{401 Unauthorized}). Pemanggilan \path{/auth/refresh} berhasil menerbitkan token baru. Replay token lama langsung ditolak. Seluruh 15 skenario pengujian berhasil 100\%.
+    Token akses diverifikasi berhasil pada detik ke-0. Setelah menunggu 62 detik tanpa memanipulasi jam sistem, token lama ditolak (\texttt{401 Unauthorized}). Pemanggilan \texttt{/auth/refresh} berhasil menerbitkan token baru. Replay token lama langsung ditolak. Seluruh 15 skenario pengujian berhasil 100\%.
 \end{enumerate}
 
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}

@@ -89,10 +89,10 @@ Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
 
 \noindent\textbf{Analisis Bukti Log:}
 \begin{enumerate}
-    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\path{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\path{bnpb-dashboard-group} dan \path{bnpb-notifier-group}).
-    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman event baru (\path{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda via \path{rpk group describe} menunjukkan \path{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
-    \item \textbf{Backlog Catch-Up (Langkah 4):} Begitu kontainer \textit{Dashboard} dinyalakan kembali, konsumen segera menyerap pesan yang tertinggal dan melakukan \textit{manual commit}, ditandai dengan \path{TOTAL-LAG} yang kembali menjadi 0.
-    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\path{bnpb-evaluator-audit-...}) dijalankan pada topik \path{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
+    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\texttt{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\texttt{bnpb-}\allowbreak\texttt{dashboard-}\allowbreak\texttt{group} dan \texttt{bnpb-}\allowbreak\texttt{notifier-}\allowbreak\texttt{group}).
+    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman event baru (\texttt{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda via \texttt{rpk group describe} menunjukkan \texttt{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
+    \item \textbf{Backlog Catch-Up (Langkah 4):} Begitu kontainer \textit{Dashboard} dinyalakan kembali, konsumen segera menyerap pesan yang tertinggal dan melakukan \textit{manual commit}, ditandai dengan \texttt{TOTAL-LAG} yang kembali menjadi 0.
+    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\texttt{bnpb-}\allowbreak\texttt{evaluator-}\allowbreak\texttt{audit-...}) dijalankan pada topik \texttt{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
 \end{enumerate}
 
 \clearpage
@@ -104,7 +104,7 @@ Jawaban komprehensif atas aspek evaluasi Problem 5:
     \item \textbf{Broker dan Pola yang Dipilih:}
     \begin{itemize}
         \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), konsumsi memori rendah, latensi I/O stabil berbasis seastar engine, serta dukungan utilitas CLI \texttt{rpk}.
-        \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \path{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
+        \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \texttt{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
     \end{itemize}
 
     \item \textbf{Semantik Pengiriman yang Berlaku (\textit{At-Least-Once Delivery}):}

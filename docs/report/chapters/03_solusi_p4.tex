@@ -6,11 +6,10 @@ Permasalahan keempat (P4) menyasar dua kelemahan sistem monolitik terikat: kegag
 
 Solusi dirancang melalui integrasi dua pilar arsitektur:
 \begin{enumerate}
-    \item \textbf{Batas Layanan Mandiri (\textit{Service Decoupling}):} Setiap komponen dibungkus dalam container mandiri dengan siklus hidup terisolasi. Pembangunan ulang atau \textit{restart} pada container \path{aggregator} atau \path{canonical-db} tidak memicu kegagalan berantai (\textit{cascading failure}) pada \path{client-api}, \path{mock-bmkg}, maupun \path{mock-pvmbg}. Layanan hilir dilengkapi mekanisme \textit{graceful reconnect} otomatis terhadap koneksi basis data yang terputus sementara.
+    \item \textbf{Batas Layanan Mandiri (\textit{Service Decoupling}):} Setiap komponen dibungkus dalam container mandiri dengan siklus hidup terisolasi. Pembangunan ulang atau \textit{restart} pada container \texttt{aggregator} atau \texttt{canonical-db} tidak memicu kegagalan berantai (\textit{cascading failure}) pada \texttt{client-api}, \texttt{mock-bmkg}, maupun \texttt{mock-pvmbg}. Layanan hilir dilengkapi mekanisme \textit{graceful reconnect} otomatis terhadap koneksi basis data yang terputus sementara.
     \item \textbf{Penyimpanan Kanonis Fleksibel (Hybrid Relational + JSONB):} Skema tabel \texttt{hazards} memadukan kolom relasional bertipe kuat untuk dimensi pencarian umum (\texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{occurred\_at}) dengan kolom \texttt{attributes JSONB} untuk atribut spesifik instansi. Ketika PVMBG memperkenalkan field \texttt{confidence\_level}, data langsung disimpan berdampingan dengan data lama tanpa memerlukan instruksi \texttt{ALTER TABLE} maupun penguncian tabel.
     \item \textbf{Kepemilikan Tunggal (\textit{Single Ownership}):} Port 5432 database hanya terhubung ke Aggregator di jaringan internal. Client API dilarang keras melakukan koneksi SQL langsung, melainkan mengambil data melalui antarmuka HTTP internal Aggregator (\texttt{:8083/internal/hazards}).
 \end{enumerate}
-
 \clearpage
 \subsection{Alasan Keputusan dan Trade-Off}
 Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsitektur penyimpanan:
@@ -43,12 +42,11 @@ Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebut
     \item Kueri berbasis teks bebas atau pencarian parsial di dalam dokumen \mbox{JSONB} yang belum diindeks GIN memerlukan \textit{full-table scan} parsial jika tabel bertumbuh hingga jutaan baris.
 \end{itemize}
 
-\clearpage
 \subsection{Bukti Penyelesaian}
 Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan pada berkas \path{docs/evidence/p4/storage_restart.log}:
 \begin{enumerate}
     \item \textbf{Koeksistensi Skema Heterogen pada PostgreSQL (P4-02):}
-    Kueri langsung ke basis data \path{canonical-db} membuktikan koeksistensi record sebelum dan setelah evolusi skema:
+    Kueri langsung ke basis data \texttt{canonical-db} membuktikan koeksistensi record sebelum dan setelah evolusi skema:
 
 \noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=SQL, caption={Hasil Kueri PostgreSQL Menunjukkan Koeksistensi Atribut Heterogen}]
@@ -67,7 +65,6 @@ FROM hazards ORDER BY occurred_at DESC LIMIT 2;
     Kontainer \texttt{canonical-db} dijalankan ulang (\textit{restart}). Klien API mendeteksi ketiadaan basis data sementara dan seketika pulih melayani permintaan dengan HTTP 200 begitu PostgreSQL siap menerima koneksi kembali.
 \end{enumerate}
 
-\clearpage
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
 \textbf{Pertanyaan:} \textit{Jelaskan alasan penentuan batas tiap service, mengapa dipecah seperti itu dan bukan dengan pembagian lain. Serta, bandingkan minimal dua alternatif penyimpanan beserta konsekuensi dari pilihan yang diambil.}
 

@@ -3,9 +3,9 @@
 \section{Arsitektur Sistem}
 Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event-driven microservices} yang terisolasi dalam batas container mandiri. Arsitektur sistem terdiri atas tiga tingkatan utama:
 \begin{enumerate}
-    \item \textbf{Lapisan Hulu (Upstream Mock Services):} Terdiri atas \path{mock-bmkg} (port 8081) dan \path{mock-pvmbg} (port 8082) yang mensimulasikan penyedia data instansi eksternal secara otonom dengan karakteristik latensi dan kegagalan yang dapat dikendalikan.
-    \item \textbf{Lapisan Inti Koordinasi BNPB (Core Aggregation \& Persistence):} Terdiri atas \path{aggregator} (port 8083 internal) yang memegang kepemilikan eksklusif atas basis data kanonis \path{canonical-db} (PostgreSQL 16, port 5432) serta mempublikasikan event kanonis ke broker Redpanda (port 9092 / 19092).
-    \item \textbf{Lapisan Hilir Klien \& Konsumen (Downstream Client API \& Event Consumers):} Terdiri atas \path{auth} (port 8084), \path{client-api} (port 8080), serta dua \textit{consumer} independen \path{dashboard-consumer} dan \path{notifier-consumer}.
+    \item \textbf{Lapisan Hulu (Upstream Mock Services):} Terdiri atas \texttt{mock-bmkg} (port 8081) dan \texttt{mock-pvmbg} (port 8082) yang mensimulasikan penyedia data instansi eksternal secara otonom dengan karakteristik latensi dan kegagalan yang dapat dikendalikan.
+    \item \textbf{Lapisan Inti Koordinasi BNPB (Core Aggregation \& Persistence):} Terdiri atas \texttt{aggregator} (port 8083 internal) yang memegang kepemilikan eksklusif atas basis data kanonis \texttt{canonical-db} (PostgreSQL 16, port 5432) serta mempublikasikan event kanonis ke broker Redpanda (port 9092 / 19092).
+    \item \textbf{Lapisan Hilir Klien \& Konsumen (Downstream Client API \& Event Consumers):} Terdiri atas \texttt{auth} (port 8084), \texttt{client-api} (port 8080), serta dua \textit{consumer} independen \texttt{dashboard-consumer} dan \texttt{notifier-consumer}.
 \end{enumerate}
 \begin{figure}[H]
 \centering
@@ -126,27 +126,27 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
 \section{Tanggung Jawab Setiap Service}
 Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang didefinisikan secara tegas:
 \begin{itemize}
-    \item \textbf{\path{mock-bmkg}:} Mensimulasikan data gempa bumi (\texttt{SeismicEvent}) dan peringatan tsunami (\texttt{TsunamiWarning}). Menegakkan header autentikasi \texttt{X-BMKG-Key} dan merespons dengan latensi rendah (50--150 ms).
-    \item \textbf{\path{mock-pvmbg}:} Mensimulasikan laporan vulkanik (\texttt{VolcanicReport}). Menegakkan Bearer token, latensi tinggi (500 ms--3 s), simulasi pemadaman (\path{POST /admin/outage}), dan perubahan skema aditif (\path{POST /admin/schema-version}).
-    \item \textbf{\path{aggregator}:} Melakukan ingesti hulu berkala secara paralel, normalisasi ke \texttt{HazardEvent}, pengayaan koordinat via katalog statis, persistensi transaksional PostgreSQL, penandaan status degradasi, dan \textit{Transactional Outbox Relay}.
-    \item \textbf{\path{auth}:} Mengelola direktori klien, menerbitkan token akses JWT berumur 60 detik dengan klaim \textit{scope} terisolasi, serta menangani rotasi \textit{refresh token} dengan deteksi pembatalan \textit{replay}.
-    \item \textbf{\path{client-api}:} Gerbang HTTP publik hilir. Bertanggung jawab memvalidasi JWT dan klaim scope, menyaring atribut mentah untuk Media, serta mempropagasi \texttt{X-Correlation-ID} ke Aggregator.
-    \item \textbf{\path{dashboard-consumer}:} Berlangganan topik event kanonis dengan grup \path{bnpb-dashboard-group}, melakukan deduplikasi berbasis \texttt{hazard\_id}, dan memperbarui rekapitulasi bencana secara \textit{real-time}.
-    \item \textbf{\path{notifier-consumer}:} Berlangganan topik event kanonis dengan grup \path{bnpb-notifier-group}, mengevaluasi ambang darurat (gempa $\ge 6.0$, tsunami SIAGA/AWAS, vulkanik AWAS), dan menerbitkan sinyal peringatan darurat.
+    \item \textbf{\texttt{mock-bmkg}:} Mensimulasikan data gempa bumi (\texttt{SeismicEvent}) dan peringatan tsunami (\texttt{TsunamiWarning}). Menegakkan header autentikasi \texttt{X-BMKG-Key} dan merespons dengan latensi rendah (50--150 ms).
+    \item \textbf{\texttt{mock-pvmbg}:} Mensimulasikan laporan vulkanik (\texttt{VolcanicReport}). Menegakkan Bearer token, latensi tinggi (500 ms--3 s), simulasi pemadaman (\texttt{POST /admin/outage}), dan perubahan skema aditif (\texttt{POST /admin/schema-version}).
+    \item \textbf{\texttt{aggregator}:} Melakukan ingesti hulu berkala secara paralel, normalisasi ke \texttt{HazardEvent}, pengayaan koordinat via katalog statis, persistensi transaksional PostgreSQL, penandaan status degradasi, dan \textit{Transactional Outbox Relay}.
+    \item \textbf{\texttt{auth}:} Mengelola direktori klien, menerbitkan token akses JWT berumur 60 detik dengan klaim \textit{scope} terisolasi, serta menangani rotasi \textit{refresh token} dengan deteksi pembatalan \textit{replay}.
+    \item \textbf{\texttt{client-api}:} Gerbang HTTP publik hilir. Bertanggung jawab memvalidasi JWT dan klaim scope, menyaring atribut mentah untuk Media, serta mempropagasi \texttt{X-Correlation-ID} ke Aggregator.
+    \item \textbf{\texttt{dashboard-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-}\allowbreak\texttt{dashboard-}\allowbreak\texttt{group}, melakukan deduplikasi berbasis \texttt{hazard\_id}, dan memperbarui rekapitulasi bencana secara \textit{real-time}.
+    \item \textbf{\texttt{notifier-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-}\allowbreak\texttt{notifier-}\allowbreak\texttt{group}, mengevaluasi ambang darurat (gempa $\ge 6.0$, tsunami SIAGA/AWAS, vulkanik AWAS), dan menerbitkan sinyal peringatan darurat.
 \end{itemize}
 
 \section{Protokol Komunikasi Antarservice}
 Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
 \begin{itemize}
-    \item \textbf{Komunikasi Sinkron (HTTP/REST):} Untuk operasi pembacaan data historis. Polling Aggregator ke hulu dan Client API ke Aggregator menggunakan HTTP/1.1 dengan payload JSON dan header \path{X-Correlation-ID}.
-    \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{pub-sub}). Aggregator menerbitkan event kanonis ke topik \path{bnpb.hazard-events} berpartisi dengan \texttt{hazard\_id} sebagai \textit{message key}.
+    \item \textbf{Komunikasi Sinkron (HTTP/REST):} Untuk operasi pembacaan data historis. Polling Aggregator ke hulu dan Client API ke Aggregator menggunakan HTTP/1.1 dengan payload JSON dan header \texttt{X-Correlation-ID}.
+    \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{pub-sub}). Aggregator menerbitkan event kanonis ke topik \texttt{bnpb.hazard-events} berpartisi dengan \texttt{hazard\_id} sebagai \textit{message key}.
 \end{itemize}
 
 \clearpage
 \section{Kepemilikan Penyimpanan dan Isolasi \mbox{Kontainer}}
 Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi Tugas Besar:
 \begin{itemize}
-    \item \textbf{Single Ownership:} Basis data relasional \path{canonical-db} dimiliki eksklusif oleh \path{aggregator}. Service lain dilarang terhubung langsung ke port 5432 database.
+    \item \textbf{Single Ownership:} Basis data relasional \texttt{canonical-db} dimiliki eksklusif oleh \texttt{aggregator}. Service lain dilarang terhubung langsung ke port 5432 database.
     \item \textbf{Isolasi Jaringan Docker:} Port basis data tidak diekspos ke publik host. Komunikasi berlangsung eksklusif di dalam jaringan privat \texttt{bnpb-internal}.
     \item \textbf{Zero Shared Libraries:} Seluruh service Go beroperasi mandiri tanpa modul pustaka bersama (\texttt{pkg/} atau \texttt{common/}) dengan berkas \texttt{go.mod} mandiri via \texttt{go.work}.
 \end{itemize}
@@ -154,7 +154,7 @@ Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi T
 \section{Alur Permintaan, Data, dan Event}
 Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 \begin{enumerate}
-    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \path{mock-bmkg} dan \path{mock-pvmbg} berkala tiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
+    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
     \item \textbf{Normalisasi \& Transaksi:} Data dipetakan ke \texttt{HazardEvent}. Melalui satu transaksi ACID (\texttt{SaveHazardWithOutbox}), Aggregator menyimpan entitas ke \texttt{hazards} sekaligus mencatat baris baru pada \texttt{outbox\_events}.
     \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandainya sebagai terkirim (\textit{marked as sent}).
     \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.
@@ -166,7 +166,7 @@ Tabel~\ref{tab:teknologi} merangkum tumpukan teknologi yang dipilih beserta just
 
 \begin{singlespacing}
 \begin{footnotesize}
-\begin{xltabular}{\textwidth}{l p{4.2cm} X}
+\begin{xltabular}{\textwidth}{l p{4.9cm} X}
 \caption{Rangkuman Pemilihan Teknologi Sistem Terdistribusi BNPB} \label{tab:teknologi} \\
 \toprule
 \textbf{Kategori} & \textbf{Teknologi Terpilih} & \textbf{Alasan Pemilihan \& Kesesuaian Kebutuhan} \\
