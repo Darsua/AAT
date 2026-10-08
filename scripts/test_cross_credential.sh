@@ -22,8 +22,8 @@ NC='\033[0m' # No Color
 
 BMKG_URL="${BMKG_URL:-http://localhost:8081}"
 PVMBG_URL="${PVMBG_URL:-http://localhost:8082}"
-BMKG_KEY="${BMKG_KEY:-${BMKG_API_KEY:-}}"
-PVMBG_TOKEN="${PVMBG_TOKEN:-}"
+BMKG_KEY="${BMKG_KEY:-${BMKG_API_KEY:-bmkg-secret-key-2026}}"
+PVMBG_TOKEN="${PVMBG_TOKEN:-pvmbg-bearer-token-2026}"
 
 FAILURES=0
 

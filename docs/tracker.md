@@ -14,9 +14,9 @@
 |---|---|---|---|---|
 | **Phase 1: Alignment** | 21–22 Sep | Architecture decisions, service boundaries, frozen contracts, Docker Compose & CI | All ADRs, contracts, compose, and CI active on `main` | **COMPLETED ✅** |
 | **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **COMPLETED ✅** |
-| **Phase 3: Integration** | 28 Sep–04 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Sunday exit) | **IN PROGRESS** |
-| **Phase 4: Validation** | 03–05 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Monday in-person alignment) | **IN PROGRESS** |
-| **Phase 5: Closeout** | 05–08 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **PLANNED** |
+| **Phase 3: Integration** | 28 Sep–05 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Monday exit) | **IN PROGRESS** |
+| **Phase 4: Validation** | 03–06 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Tuesday in-person alignment) | **IN PROGRESS** |
+| **Phase 5: Closeout** | 06–08 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **PLANNED** |
 | **Buffer Window** | 08–09 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 09 Oct 23:59 WIB deadline | **PLANNED** |
 
 ---
@@ -148,18 +148,18 @@
   *Deliverable:* Verified Client API → Aggregator correlation propagation and HTTP latency logs; a directly produced Kafka test event verifies correlation headers at both consumers. Also verifies dependency health and consumer-group lag metrics. This script does not claim to test the Aggregator outbox path.
 
 #### Joint Validation (All)
-- [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (05 Oct, In-person on campus)  
+- [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (06 Oct, In-person on campus)  
   *Deliverable:* Rehearsal execution of all 5 demonstration scripts in sequence (`make demo-p1`, `demo-p2`, `demo-p3`, `demo-p5`, `load-test`) and cross-service oral defense review.
 
 ---
 
-### Phase 5: Closeout & Submission Prep (05–08 Oct)
+### Phase 5: Closeout & Submission Prep (06–08 Oct)
 
-- [ ] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (05–07 Oct)  
+- [ ] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (06–07 Oct)  
   *Deliverable:* Drafted report sections for Problem 1 and mock architectures.
 - [ ] **`B-09`** *(Darrel)* — **Write P2/P4 sections with load and storage evidence** (03–07 Oct)  
   *Deliverable:* 3-way storage comparative evaluation (PostgreSQL+JSONB vs MongoDB vs Strict SQL), concurrency analysis, and k6 benchmark graphs.
-- [ ] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (05–07 Oct)  
+- [ ] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (06–07 Oct)  
   *Deliverable:* RBAC security design, token lifecycle documentation, and pub-sub recovery architecture.
 - [ ] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (07–08 Oct)  
   *Deliverable:* Root [`README.md`](../README.md) verified against rubric; signed ITB AI Declaration Form attached.
@@ -196,7 +196,7 @@ Use this matrix to track and link evidence artifacts for the final report:
 
 ## 4. Operational Rules
 
-1. **Adjusted Phase Roadmap & Milestones:** Phase 3 wraps up remotely on Sunday 04 October. Joint in-person validation and rehearsal (`ALL-01`) takes place Monday 05 October around the IF4031 class session on campus. Report consolidation occurs 05–08 October, preserving an 08–09 October contingency buffer before the hard submission deadline on 09 October 2026, 23:59 WIB.
+1. **Adjusted Phase Roadmap & Milestones:** Phase 3 wraps up remotely on Monday 05 October once downstream consumers are integrated. Joint in-person validation and rehearsal (`ALL-01`) takes place Tuesday 06 October on campus. Report consolidation occurs 06–08 October, preserving an 08–09 October contingency buffer before the hard submission deadline on 09 October 2026, 23:59 WIB.
 2. **Strict RACI Boundaries:** Do not write code or business logic in another member's assigned services.
 3. **No Shared Go Packages:** Every service must be 100% self-contained (`pkg/` and `common/` are forbidden).
 4. **Git Branch & PR Workflow:** Work on feature branches, ensure `make test` and Docker builds pass, and merge into `main` via reviewed Pull Requests.

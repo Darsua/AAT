@@ -26,10 +26,10 @@ MEDIA_CLIENT_ID="${AUTH_MEDIA_CLIENT_ID:-test-media-client}"
 FIELD_CLIENT_ID="${AUTH_FIELD_CLIENT_ID:-test-field-client}"
 INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
 
-# Secrets intentionally have no defaults. Load them from .env or export them.
-MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET:-}"
-FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET:-}"
-INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-}"
+# Secrets default to standard development credentials matching docker-compose.yml if not set
+MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET:-secret123}"
+FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET:-secret123}"
+INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-secret123}"
 
 PASSES=0
 FAILURES=0

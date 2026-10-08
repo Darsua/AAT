@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Correlation IDs, Latency Logs, Health Checks, and Broker Metrics (malas, nanti cek lagi)
+# Problem 3 / C-09: Correlation IDs, Latency Logs, Health Checks, and Broker Metrics
 # Demonstrates:
 #   1. Auth, Client API, Aggregator, and Redpanda health.
 #   2. X-Correlation-ID propagation from Client API to Aggregator.
@@ -23,7 +23,7 @@ AUTH_URL="${AUTH_URL:-http://localhost:8084}"
 CLIENT_API_URL="${CLIENT_API_URL:-http://localhost:8080}"
 TOPIC="${TOPIC:-bnpb.hazard-events}"
 INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
-INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-}"
+INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-secret123}"
 CONSUMER_1_SERVICE="${CONSUMER_1_SERVICE:-dashboard-consumer}"
 CONSUMER_1_GROUP="${CONSUMER_1_GROUP:-bnpb-dashboard-group}"
 CONSUMER_2_SERVICE="${CONSUMER_2_SERVICE:-notifier-consumer}"
