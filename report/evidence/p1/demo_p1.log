@@ -1,0 +1,507 @@
+[0;34m========================================================================[0m
+[0;36m   Problem 1 Demo: Dynamic Schema Evolution (PVMBG Confidence Level)     [0m
+[0;34m========================================================================[0m
+
+[0;34m[Step 0] Checking upstream mock-pvmbg service health...[0m
+[0;32m[OK] mock-pvmbg is healthy.[0m
+
+[0;34m[Step 1] Setting baseline schema: include_confidence_level = false...[0m
+Response from /admin/schema-version: {"include_confidence_level":false,"message":"Dynamic schema updated successfully","status":"updated"}
+
+[0;34m[Step 2] Querying PVMBG reports with baseline schema...[0m
+Sample baseline report output:
+[
+  {
+    "report_id": "pvmbg-rpt-20260905-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 12,
+    "ash_column_height_m": 750,
+    "reported_at": "2026-09-05T15:30:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260906-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 180,
+    "reported_at": "2026-09-06T04:20:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260907-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 8,
+    "ash_column_height_m": 900,
+    "reported_at": "2026-09-07T09:45:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260908-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 250,
+    "reported_at": "2026-09-08T12:10:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260909-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 320,
+    "reported_at": "2026-09-09T18:35:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260910-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 15,
+    "ash_column_height_m": 1800,
+    "reported_at": "2026-09-10T02:25:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260911-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 10,
+    "ash_column_height_m": 680,
+    "reported_at": "2026-09-11T06:50:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260912-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 120,
+    "reported_at": "2026-09-12T11:15:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260913-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 7,
+    "ash_column_height_m": 820,
+    "reported_at": "2026-09-13T14:40:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260914-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 6,
+    "ash_column_height_m": 520,
+    "reported_at": "2026-09-14T20:05:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260915-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Normal",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 0,
+    "reported_at": "2026-09-15T03:30:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260916-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 17,
+    "ash_column_height_m": 2100,
+    "reported_at": "2026-09-16T07:55:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260917-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 11,
+    "ash_column_height_m": 710,
+    "reported_at": "2026-09-17T10:20:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260918-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 210,
+    "reported_at": "2026-09-18T13:45:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260919-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 9,
+    "ash_column_height_m": 970,
+    "reported_at": "2026-09-19T16:10:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260920-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 5,
+    "ash_column_height_m": 400,
+    "reported_at": "2026-09-20T19:35:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260921-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 280,
+    "reported_at": "2026-09-21T22:00:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260922-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 14,
+    "ash_column_height_m": 1750,
+    "reported_at": "2026-09-22T01:25:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260923-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 13,
+    "ash_column_height_m": 800,
+    "reported_at": "2026-09-23T05:50:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-20260924-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 160,
+    "reported_at": "2026-09-24T08:15:00Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-live-20261007-144647-000001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 250,
+    "reported_at": "2026-10-07T14:46:47.952251391Z"
+  },
+  {
+    "report_id": "pvmbg-rpt-live-20261007-144657-000002",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 350,
+    "reported_at": "2026-10-07T14:46:57.95225798Z"
+  }
+]
+[0;32m[OK] Verified: baseline reports do NOT contain confidence_level.[0m
+
+[0;34m[Step 3] Triggering schema change: include_confidence_level = true...[0m
+Response from /admin/schema-version: {"include_confidence_level":true,"message":"Dynamic schema updated successfully","status":"updated"}
+
+[0;34m[Step 4] Querying PVMBG reports with updated schema...[0m
+Sample evolved report output:
+[
+  {
+    "report_id": "pvmbg-rpt-20260905-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 12,
+    "ash_column_height_m": 750,
+    "reported_at": "2026-09-05T15:30:00Z",
+    "confidence_level": 0.8
+  },
+  {
+    "report_id": "pvmbg-rpt-20260906-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 180,
+    "reported_at": "2026-09-06T04:20:00Z",
+    "confidence_level": 0.81
+  },
+  {
+    "report_id": "pvmbg-rpt-20260907-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 8,
+    "ash_column_height_m": 900,
+    "reported_at": "2026-09-07T09:45:00Z",
+    "confidence_level": 0.8200000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260908-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 250,
+    "reported_at": "2026-09-08T12:10:00Z",
+    "confidence_level": 0.8300000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260909-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 320,
+    "reported_at": "2026-09-09T18:35:00Z",
+    "confidence_level": 0.8400000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260910-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 15,
+    "ash_column_height_m": 1800,
+    "reported_at": "2026-09-10T02:25:00Z",
+    "confidence_level": 0.8500000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260911-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 10,
+    "ash_column_height_m": 680,
+    "reported_at": "2026-09-11T06:50:00Z",
+    "confidence_level": 0.8600000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260912-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 120,
+    "reported_at": "2026-09-12T11:15:00Z",
+    "confidence_level": 0.8700000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260913-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 7,
+    "ash_column_height_m": 820,
+    "reported_at": "2026-09-13T14:40:00Z",
+    "confidence_level": 0.88
+  },
+  {
+    "report_id": "pvmbg-rpt-20260914-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 6,
+    "ash_column_height_m": 520,
+    "reported_at": "2026-09-14T20:05:00Z",
+    "confidence_level": 0.89
+  },
+  {
+    "report_id": "pvmbg-rpt-20260915-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Normal",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 0,
+    "reported_at": "2026-09-15T03:30:00Z",
+    "confidence_level": 0.9
+  },
+  {
+    "report_id": "pvmbg-rpt-20260916-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 17,
+    "ash_column_height_m": 2100,
+    "reported_at": "2026-09-16T07:55:00Z",
+    "confidence_level": 0.91
+  },
+  {
+    "report_id": "pvmbg-rpt-20260917-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 11,
+    "ash_column_height_m": 710,
+    "reported_at": "2026-09-17T10:20:00Z",
+    "confidence_level": 0.92
+  },
+  {
+    "report_id": "pvmbg-rpt-20260918-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 210,
+    "reported_at": "2026-09-18T13:45:00Z",
+    "confidence_level": 0.93
+  },
+  {
+    "report_id": "pvmbg-rpt-20260919-001",
+    "volcano_id": "VLC-003",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 9,
+    "ash_column_height_m": 970,
+    "reported_at": "2026-09-19T16:10:00Z",
+    "confidence_level": 0.9400000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260920-001",
+    "volcano_id": "VLC-004",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 5,
+    "ash_column_height_m": 400,
+    "reported_at": "2026-09-20T19:35:00Z",
+    "confidence_level": 0.9500000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260921-001",
+    "volcano_id": "VLC-005",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 280,
+    "reported_at": "2026-09-21T22:00:00Z",
+    "confidence_level": 0.9600000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260922-001",
+    "volcano_id": "VLC-006",
+    "alert_level": "Awas",
+    "eruption_count_24h": 14,
+    "ash_column_height_m": 1750,
+    "reported_at": "2026-09-22T01:25:00Z",
+    "confidence_level": 0.9700000000000001
+  },
+  {
+    "report_id": "pvmbg-rpt-20260923-001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 13,
+    "ash_column_height_m": 800,
+    "reported_at": "2026-09-23T05:50:00Z",
+    "confidence_level": 0.98
+  },
+  {
+    "report_id": "pvmbg-rpt-20260924-001",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 160,
+    "reported_at": "2026-09-24T08:15:00Z",
+    "confidence_level": 0.99
+  },
+  {
+    "report_id": "pvmbg-rpt-live-20261007-144647-000001",
+    "volcano_id": "VLC-001",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 250,
+    "reported_at": "2026-10-07T14:46:47.952251391Z",
+    "confidence_level": 0.8
+  },
+  {
+    "report_id": "pvmbg-rpt-live-20261007-144657-000002",
+    "volcano_id": "VLC-002",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 350,
+    "reported_at": "2026-10-07T14:46:57.95225798Z",
+    "confidence_level": 0.81
+  }
+]
+[0;32m[OK] Verified: Upstream reports successfully include dynamic 'confidence_level'.[0m
+
+[0;34m[Step 5] Verifying canonical ingestion tolerance in Client API / Aggregator...[0m
+[1;33mWaiting 4 seconds for aggregator polling cycle...[0m
+Canonical hazards response:
+{
+  "data": [
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144707-000003",
+      "source": "PVMBG",
+      "source_ref_id": "pvmbg-rpt-live-20261007-144707-000003",
+      "hazard_type": "VOLCANIC",
+      "severity": "SIAGA",
+      "area_name": "Gunung Semeru",
+      "latitude": -8.1077,
+      "longitude": 112.9224,
+      "attributes": {
+        "ash_column_height_m": 450,
+        "confidence_level": 0.8200000000000001,
+        "eruption_count_24h": 3,
+        "volcano_id": "VLC-003"
+      },
+      "occurred_at": "2026-10-07T14:47:07.951865Z",
+      "ingested_at": "2026-10-07T14:47:10.865165Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144657-000002",
+      "source": "PVMBG",
+      "source_ref_id": "pvmbg-rpt-live-20261007-144657-000002",
+      "hazard_type": "VOLCANIC",
+      "severity": "WASPADA",
+      "area_name": "Gunung Anak Krakatau",
+      "latitude": -6.102,
+      "longitude": 105.423,
+      "attributes": {
+        "ash_column_height_m": 350,
+        "confidence_level": 0.81,
+        "eruption_count_24h": 2,
+        "volcano_id": "VLC-002"
+      },
+      "occurred_at": "2026-10-07T14:46:57.952257Z",
+      "ingested_at": "2026-10-07T14:47:02.839072Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144647-000001",
+      "source": "PVMBG",
+      "source_ref_id": "pvmbg-rpt-live-20261007-144647-000001",
+      "hazard_type": "VOLCANIC",
+      "severity": "SIAGA",
+      "area_name": "Gunung Merapi",
+      "latitude": -7.5407,
+      "longitude": 110.4456,
+      "attributes": {
+        "ash_column_height_m": 250,
+        "confidence_level": 0.8,
+        "eruption_count_24h": 1,
+        "volcano_id": "VLC-001"
+      },
+      "occurred_at": "2026-10-07T14:46:47.952251Z",
+      "ingested_at": "2026-10-07T14:46:48.001829Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-20260924-001",
+      "source": "PVMBG",
+      "source_ref_id": "pvmbg-rpt-20260924-001",
+      "hazard_type": "VOLCANIC",
+      "severity": "WASPADA",
+      "area_name": "Gunung Anak Krakatau",
+      "latitude": -6.102,
+      "longitude": 105.423,
+      "attributes": {
+        "ash_column_height_m": 160,
+        "eruption_count_24h": 2,
+        "volcano_id": "VLC-002"
+      },
+      "occurred_at": "2026-09-24T08:15:00Z",
+      "ingested_at": "2026-10-07T14:46:48.000446Z"
+    },
+    {
+      "hazard_id": "haz-pvmbg-pvmbg-rpt-20260923-001",
+      "source": "PVMBG",
+      "source_ref_id": "pvmbg-rpt-20260923-001",
+      "hazard_type": "VOLCANIC",
+      "severity": "SIAGA",
+      "area_name": "Gunung Merapi",
+      "latitude": -7.5407,
+      "longitude": 110.4456,
+      "attributes": {
+        "ash_column_height_m": 800,
+        "eruption_count_24h": 13,
+        "volcano_id": "VLC-001"
+      },
+      "occurred_at": "2026-09-23T05:50:00Z",
+      "ingested_at": "2026-10-07T14:46:47.999078Z"
+    }
+  ],
+  "meta": {
+    "total": 23,
+    "limit": 5,
+    "offset": 0,
+    "degraded": false,
+    "stale_since": null
+  }
+}
+[0;32m[OK] Verified: Canonical hazards successfully contain dynamic 'confidence_level' in attributes![0m
+[0;32m[OK] Aggregator digested dynamic schema without schema rupture or crash.[0m
+
+[0;32m========================================================================[0m
+[0;32m   Problem 1 Verification Complete: Schema Evolution Handled Cleanly!    [0m
+[0;32m========================================================================[0m

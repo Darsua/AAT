@@ -1,0 +1,12 @@
+=== RUN   TestBMKGSeedAndEndpoints
+--- PASS: TestBMKGSeedAndEndpoints (0.00s)
+=== RUN   TestBMKGEventGeneration
+--- PASS: TestBMKGEventGeneration (0.00s)
+PASS
+ok  	bnpb/mock-bmkg	0.003s
+=== RUN   TestPVMBGAuthSchemaAndOutageControls
+--- PASS: TestPVMBGAuthSchemaAndOutageControls (0.00s)
+=== RUN   TestPVMBGReportFilterAndGeneration
+--- PASS: TestPVMBGReportFilterAndGeneration (0.00s)
+PASS
+ok  	bnpb/mock-pvmbg	0.003s
