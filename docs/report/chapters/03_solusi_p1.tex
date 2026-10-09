@@ -5,8 +5,8 @@ Permasalahan pertama (P1) berkaitan dengan kerapuhan sistem terhadap perubahan s
 
 Untuk mengatasi permasalahan tersebut tanpa mengharuskan \textit{redeploy} atau modifikasi kode pada Aggregator, sistem menerapkan mekanisme \textbf{Hybrid Schemaless Ingestion \& Dynamic Attribute Mapping}:
 \begin{enumerate}
-    \item \textbf{Penangkapan Skema Dinamis di Adapter:} Struktur data \texttt{VolcanicReport} pada adapter Aggregator memisahkan atribut wajib yang telah disepakati dari atribut yang tidak terpetakan dengan memanfaatkan pemetaan \texttt{DynamicFields map[string]any}. Serialisasi JSON dilakukan secara fleksibel sehingga setiap kunci yang tidak terdaftar dalam struct Go tidak dibuang atau menyebabkan galat parsing.
-    \item \textbf{Penyeragaman ke Skema Kanonis:} Data diubah ke dalam bentuk \texttt{HazardEvent}. Atribut standar yang memiliki korespondensi langsung (seperti \texttt{report\_id}, \texttt{alert\_level}, \texttt{reported\_at}) dipetakan ke kolom-kolom relasional kanonis terindeks. Atribut spesifik domain yang tidak memiliki padanan langsung (termasuk \texttt{ash\_column\_height\_m}, \texttt{eruption\_count\_24h}, dan field baru \texttt{confidence\_level}) secara otomatis dialirkan ke dalam map \texttt{attributes}.
+    \item \textbf{Penangkapan Skema Dinamis di Adapter:} Struktur data \texttt{VolcanicReportDTO} pada adapter Aggregator (\path{services/aggregator/internal/adapter/pvmbg_adapter.go}) memisahkan atribut wajib yang telah disepakati dari atribut yang tidak terpetakan dengan memanfaatkan pemetaan \texttt{DynamicFields map[string]any}. Metode \texttt{UnmarshalJSON} khusus mengurai respons dua kali: sekali ke struct bertipe tetap dan sekali ke map generik, kemudian menghapus enam kunci yang telah dikenal (\texttt{report\_id}, \texttt{volcano\_id}, \texttt{alert\_level}, \texttt{eruption\_count\_24h}, \texttt{ash\_column\_height\_m}, \texttt{reported\_at}) dari map tersebut. Sisa kunci disimpan pada \texttt{DynamicFields} sehingga setiap kunci yang tidak terdaftar dalam struct Go tidak dibuang atau menyebabkan galat parsing.
+    \item \textbf{Penyeragaman ke Skema Kanonis:} Data diubah ke dalam bentuk \texttt{HazardEvent}. Atribut standar yang memiliki korespondensi langsung (seperti \texttt{report\_id}, \texttt{alert\_level}, \texttt{reported\_at}) dipetakan ke kolom-kolom relasional kanonis terindeks. Atribut spesifik domain yang tidak memiliki padanan langsung (termasuk \texttt{ash\_column\_height\_m}, \texttt{eruption\_count\_24h}, dan field baru \texttt{confidence\_level}) secara otomatis dialirkan ke dalam map \texttt{attributes}. Pada fungsi \texttt{NormalizeVolcanic} (\path{services/aggregator/internal/normalizer/normalizer.go}), setiap pasangan kunci dan nilai pada \texttt{DynamicFields} disalin ke map \texttt{attributes} tanpa daftar kunci yang ditulis secara eksplisit, sehingga field baru tidak memerlukan perubahan kode.
     \item \textbf{Persistensi Tanpa Migrasi DDL:} Nilai \texttt{attributes} disimpan ke dalam kolom PostgreSQL bertipe \texttt{JSONB}. Dengan pendekatan ini, penambahan field baru dari hulu tidak memerlukan eksekusi \texttt{ALTER TABLE} maupun penguncian tabel (\textit{table lock}).
 \end{enumerate}
 
@@ -22,29 +22,33 @@ Dalam menentukan mekanisme evolusi skema, kelompok mempertimbangkan beberapa alt
 Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
 \begin{itemize}
     \item Sistem hanya mendukung \textbf{perubahan skema yang bersifat aditif} (\textit{additive-only changes}), yaitu penambahan atribut baru atau atribut opsional.
-    \item Sistem secara sadar \textbf{tidak mendukung perubahan yang merusak} (\textit{breaking changes}), seperti penghapusan atribut kunci identitas primer (\texttt{report\_id}), penggantian nama field esensial (\textit{renaming}), atau perubahan tipe data primitif pada atribut inti.
+    \item Sistem secara sadar \textbf{tidak mendukung perubahan yang merusak} (\textit{breaking changes}), seperti penghapusan atribut kunci identitas primer (\texttt{report\_id}), penggantian nama field esensial (\textit{renaming}), atau perubahan tipe data primitif pada atribut inti. Perilaku sistem terhadap perubahan semacam ini tidak diuji secara empiris pada Milestone 1.
+    \item Nilai \texttt{alert\_level} PVMBG yang tidak dikenal dipetakan secara diam-diam ke tingkat keparahan \texttt{NORMAL} oleh fungsi \texttt{mapAlertLevelToSeverity}, tanpa peringatan maupun penolakan record. Penambahan tingkat peringatan baru dari hulu karenanya dapat tersaji dengan keparahan yang lebih rendah dari semestinya.
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
 Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada log \path{docs/evidence/p1/demo_p1.log}:
 \begin{enumerate}
-    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
+    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}. Sebagai pembanding, log pengujian penyimpanan (\path{docs/evidence/p4/storage_restart.log}) mencatat 45 record vulkanik berskema awal tanpa \texttt{confidence\_level} berdampingan dengan 771 record yang memuatnya, seluruhnya berada pada basis data yang sama.
     \item \textbf{Pemicuan Skema Dinamis:} Mengirimkan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level":} \texttt{true\}} ke \texttt{mock-pvmbg} (:8082). Upstream langsung memancarkan field baru.
     \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa \textit{restart} container apa pun, Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke \texttt{attributes JSONB}:
 
 \noindent\begin{minipage}{\linewidth}
-\begin{lstlisting}[language=json, caption={Cuplikan Respons Client API Menampilkan Atribut Dinamis confidence\_level}]
+\begin{lstlisting}[language=json, caption={Cuplikan Respons Client API (\texttt{GET /api/v1/hazards?type=VOLCANIC\&fields=all}, token cakupan internal, dipangkas) Menampilkan Atribut Dinamis confidence\_level}]
 {
+  ...
   "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144707-000003",
   "source": "PVMBG", "hazard_type": "VOLCANIC", "severity": "SIAGA",
   "area_name": "Gunung Semeru",
   "attributes": {
     "ash_column_height_m": 450, "confidence_level": 0.82,
     "eruption_count_24h": 3, "volcano_id": "VLC-003"
-  }
+  },
+  ...
 }
 \end{lstlisting}
 \end{minipage}
+    \item \textbf{Pemetaan Sumber BMKG ke Skema Kanonis:} Record gempa BMKG dinormalisasi ke \texttt{HazardEvent} yang sama dengan atribut \texttt{depth\_km}, \texttt{magnitude}, dan \texttt{potential\_tsunami}. Keparahan diturunkan oleh fungsi \texttt{deriveSeismicSeverity}: tingkat ancaman (\texttt{AWAS}, \texttt{SIAGA}, atau \texttt{WASPADA}) pada peringatan tsunami yang berkorelasi menimpa hasil lainnya, sedangkan tanpa peringatan yang dikenali magnitudo di bawah 5,0 menghasilkan \texttt{NORMAL}, di bawah 6,5 menghasilkan \texttt{WASPADA}, dan selebihnya \texttt{SIAGA}. Log \path{docs/evidence/p4/storage_restart.log} mencatat record BMKG bermagnitudo 5 dengan keparahan \texttt{WASPADA} dan record bermagnitudo 4,9 dengan keparahan \texttt{NORMAL}, keduanya tersimpan pada tabel \texttt{hazards} bersama atribut \texttt{JSONB} masing-masing.
 \end{enumerate}
 
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
