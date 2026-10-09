@@ -1,11 +1,12 @@
+\clearpage
 \section{Problem 5: Fan-out Event Distribution atau Publish--Subscribe}
 \label{sec:solusi_p5}
 
 \subsection{Rancangan Solusi dan Mekanisme}
 \label{subsec:p5_rancangan}
-Pada sistem agregasi bencana multi-lembaga, volume dan ragam pemangku kepentingan hilir terus bertambah seiring waktu. Kebutuhan tim operasional internal mencakup pembaruan metrik visual secara instan pada \textit{dashboard}, tim kesiapsiagaan darurat membutuhkan pengiriman notifikasi peringatan dini (\textit{early warning}) secara langsung ke regu penanggulangan bencana di lapangan, dan instansi eksternal (seperti portal pemerintah daerah/Pemda) berencana menyerap aliran data bencana yang sama.
+Pada sistem agregasi bencana multi-lembaga, ragam pemangku kepentingan hilir terus bertambah seiring waktu (pembaruan metrik visual pada \textit{dashboard}, pengiriman notifikasi darurat ke tim lapangan, serta portal pemda eksternal).
 
-Apabila \textit{Aggregator Service} memanggil seluruh sistem hilir secara sinkron melalui HTTP/REST langsung (\textit{point-to-point synchronous chaining}), muncul permasalahan \textit{cascading latency} dan \textit{tight coupling}: keterlambatan pada satu sistem hilir (misalnya koneksi notifikasi seluler yang lambat) akan menahan siklus eksekusi \textit{Aggregator} dan menunda pengiriman data ke sistem lain yang lebih mendesak. Selain itu, setiap penambahan konsumen baru akan mewajibkan modifikasi kode dan \textit{redeploy} pada \textit{Aggregator}.
+Apabila \textit{Aggregator Service} memanggil seluruh sistem hilir secara sinkron melalui HTTP/REST langsung (\textit{point-to-point synchronous chaining}), muncul permasalahan \textit{cascading latency} dan \textit{tight coupling}: keterlambatan pada satu konsumen akan menahan siklus eksekusi \textit{Aggregator} dan menunda pengiriman data ke konsumen lain yang mendesak, serta penambahan konsumen baru mewajibkan modifikasi kode dan \textit{redeploy}.
 
 Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsitektur \textbf{\textit{Publish--Subscribe}} berbasis \textit{log-based message broker} menggunakan Redpanda (kompatibel penuh dengan protokol Apache Kafka). Rancangan dan mekanisme solusi adalah sebagai berikut:
 \begin{enumerate}
@@ -14,11 +15,12 @@ Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsite
     \item \textbf{Independent Consumer Groups:}
     Setiap layanan konsumen hilir beroperasi di bawah \textit{consumer group} yang terisolasi secara independen:
     \begin{itemize}
-        \item \texttt{bnpb-dashboard-group}: Dikelola oleh \textit{Dashboard Consumer} untuk mengagregasi statistik frekuensi jenis bencana dan tingkat keparahan.
+        \item \texttt{bnpb-dashboard-group}: Dikelola oleh \textit{Dashboard Consumer} untuk agregasi metrik frekuensi dan keparahan bencana.
         \item \texttt{bnpb-notifier-group}: Dikelola oleh \textit{Notifier Consumer} untuk mengirimkan notifikasi simulasi peringatan tingkat \textit{Waspada}, \textit{Siaga}, dan \textit{Awas}.
         \item \texttt{bnpb-evaluator-audit-group} / Konsumen Eksternal: Konsumen ketiga (misalnya audit atau portal pemda) yang dapat mendaftar dan membaca aliran data secara independen.
     \end{itemize}
     Masing-masing kelompok konsumen mengelola posisi penunjuk pembacaan (\textit{committed offset}) secara terpisah pada metadata Redpanda (\texttt{\_\_consumer\_offsets}). Kecepatan konsumsi maupun gangguan pada satu grup tidak berdampak sama sekali terhadap grup lainnya.
+    \pagebreak
     \item \textbf{Consumer Downtime Resilience dan Backlog Recovery:}
     Apabila suatu layanan konsumen (misalnya \textit{Dashboard}) mengalami kegagalan proses atau dihentikan (\textit{downtime}), Redpanda tetap menyimpan pesan-pesan baru yang diterbitkan produser ke dalam \textit{append-only log} pada disk broker. Nilai \textit{consumer lag} untuk grup tersebut akan bertambah secara proporsional. Sementara itu, konsumen lain (\textit{Notifier}) tetap memproses pesan baru secara \textit{real-time} tanpa terganggu. Ketika layanan yang mati dihidupkan kembali, konsumen membaca ulang konfigurasi \textit{committed offset} terakhirnya dan segera mengejar ketertinggalan (\textit{catch-up backlog}) hingga nilai \textit{lag} kembali ke nol.
     \item \textbf{Manual Offset Commit Discipline:}
@@ -32,7 +34,7 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
 \begin{enumerate}
     \item \textbf{Pola Publish--Subscribe vs. Pola Polling Sinkron / Webhook:}
     \begin{itemize}
-        \item \textit{Polling Terjadwal:} Jika konsumen secara berkala melakukan HTTP GET ke \textit{Aggregator}, timbul beban kueri basis data berulang (\textit{database thrashing}) dan latensi deteksi bencana menjadi tinggi tergantung interval \textit{polling}.
+        \item \textit{Polling Terjadwal:} Jika konsumen secara berkala melakukan \mbox{HTTP} GET ke \textit{Aggregator}, timbul beban kueri basis data berulang (\textit{database thrashing}) dan latensi deteksi bencana menjadi tinggi tergantung interval \textit{polling}.
         \item \textit{Direct Webhook/HTTP Calls:} Membebani \textit{Aggregator} dengan tanggung jawab \textit{retry}, manajemen kegagalan koneksi, \textit{timeout handling}, dan registrasi dinamis URL konsumen.
         \item \textit{Keputusan:} Pola \textit{Publish--Subscribe} dipilih karena memisahkan tanggung jawab secara bersih (\textit{separation of concerns}). Produser berfokus pada validasi dan penerbitan \textit{event}, sedangkan broker menangani retensi, \textit{buffering}, partisi, dan distribusi data.
     \end{itemize}
@@ -43,6 +45,7 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
     \end{itemize}
 \end{enumerate}
 
+\clearpage
 \noindent\textbf{Trade-Off Arsitektural:}
 \begin{itemize}
     \item \textbf{Kelebihan:} \textit{Zero coupling} antara produser dan konsumen; latensi \textit{end-to-end} sub-milidetik untuk \textit{fan-out}; ketahanan data tinggi terhadap kegagalan komponen hilir (\textit{fault isolation}); penambahan konsumen baru sepenuhnya bersifat non-intrusif.
@@ -61,90 +64,59 @@ Batasan teknis yang disadari dan sengaja dibatasi pada lingkup implementasi saat
     Penyimpanan pesan pada Redpanda dibatasi oleh kebijakan retensi waktu dan ukuran log. Jika konsumen mengalami \textit{downtime} melebihi durasi retensi log yang dikonfigurasi, pesan-pesan terlama yang belum terbaca akan terhapus secara otomatis oleh broker sehingga konsumen tidak dapat lagi memulihkan data tersebut secara utuh.
 \end{enumerate}
 
+\clearpage
 \subsection{Bukti Penyelesaian}
 \label{subsec:p5_bukti}
 Pengujian dan validasi solusi Problem 5 dilakukan secara otomatis melalui skrip \path{scripts/test_consumer_recovery.sh} (dapat dijalankan melalui \texttt{make demo-p5}). Seluruh pengujian mencakup verifikasi partisi, penerbitan paralel, pemulihan \textit{downtime}, dan penambahan konsumen dinamis.
 
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=bash, caption={Keluaran Eksekusi Pengujian Otomatis Problem 5 (Fan-Out \& Downtime Recovery)}]
-========================================================================
-   Problem 5 Demo: Event Streaming, Downtime Recovery & 3rd Consumer    
-========================================================================
-
-[Step 0] Checking Redpanda and the configured topic...
-[PASS] Redpanda is responsive.
-PARTITIONS: 3
-[PASS] Topic 'bnpb.hazard-events' has 3 partitions.
-
-[Step 1] Starting the Dashboard and Notifier consumers...
-[PASS] Dashboard and Notifier containers are running.
-
-[Step 2] Publishing one event for both independent consumer groups...
-[PASS] Dashboard received event 'c08-fanout-1760021884-21948'.
-[PASS] Notifier received the same event 'c08-fanout-1760021884-21948'.
-
-[Step 3] Stopping Dashboard and publishing an event during downtime...
-[PASS] Notifier continued processing while Dashboard was stopped.
-[PASS] The recovery event remained pending for the stopped Dashboard group.
+[Step 0] Checking Redpanda topic: 'bnpb.hazard-events' (3 partitions) -> [PASS]
+[Step 1] Starting Dashboard and Notifier containers -> [PASS]
+[Step 2] Publishing event 'c08-fanout-...' -> Fan-out received by both -> [PASS]
+[Step 3] Stopping Dashboard and publishing recovery event during downtime:
 GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Empty     1
-[PASS] Dashboard group accumulated lag while offline.
-
-[Step 4] Restarting Dashboard and verifying backlog recovery...
-[PASS] Dashboard resumed from its committed offset and processed the missed event.
+[PASS] Notifier processed; Dashboard offline and accumulated TOTAL-LAG = 1
+[Step 4] Restarting Dashboard and verifying backlog recovery:
 GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Stable    0
-[PASS] Dashboard consumer-group lag returned to zero.
-
-[Step 5] Adding a dynamic 3rd consumer group...
-[PASS] A new 3rd consumer group received events without publisher changes.
-
-Results: 9 passed, 0 failed
-========================================================================
-   Problem 5 Verification Complete: Fan-Out & Recovery Verified!        
-========================================================================
+[PASS] Dashboard resumed committed offset; TOTAL-LAG returned to zero
+[Step 5] Dynamic 3rd consumer joined -> Events received -> [PASS]
+Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
 \end{lstlisting}
+\end{minipage}
 
 \noindent\textbf{Analisis Bukti Log:}
 \begin{enumerate}
-    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\texttt{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\texttt{bnpb-dashboard-group} dan \texttt{bnpb-notifier-group}).
-    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman \textit{event} baru (\texttt{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda melalui perintah \texttt{rpk group describe} menunjukkan \texttt{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
+    \item \textbf{Fan-Out Verifikasi (Langkah 2):} Satu kejadian bencana (\texttt{c08-fanout-...}) diterbitkan ke Redpanda. Kedua layanan (\textit{Dashboard} dan \textit{Notifier}) mendeteksi dan memproses pesan tersebut secara simultan dalam kelompok konsumen masing-masing (\texttt{bnpb-}\allowbreak\texttt{dashboard-}\allowbreak\texttt{group} dan \texttt{bnpb-}\allowbreak\texttt{notifier-}\allowbreak\texttt{group}).
+    \item \textbf{Downtime \& Lag Accumulation (Langkah 3):} Saat kontainer \textit{Dashboard} dimatikan paksa, pengiriman event baru (\texttt{c08-recovery-...}) tetap diproses normal oleh \textit{Notifier}. Pemeriksaan Redpanda via \texttt{rpk group describe} menunjukkan \texttt{TOTAL-LAG = 1} pada \textit{Dashboard}, membuktikan pesan aman tersimpan pada broker dan tidak hilang.
     \item \textbf{Backlog Catch-Up (Langkah 4):} Begitu kontainer \textit{Dashboard} dinyalakan kembali, konsumen segera menyerap pesan yang tertinggal dan melakukan \textit{manual commit}, ditandai dengan \texttt{TOTAL-LAG} yang kembali menjadi 0.
-    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\texttt{bnpb-evaluator-audit-...}) dijalankan pada \textit{topic} \texttt{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
+    \item \textbf{Penambahan Konsumen Baru (Langkah 5):} Kontainer independen ketiga (\texttt{bnpb-}\allowbreak\texttt{evaluator-}\allowbreak\texttt{audit-...}) dijalankan pada topik \texttt{bnpb.hazard-events} tanpa melakukan \textit{restart} atau pengubahan kode apa pun pada \textit{Aggregator Service}. Konsumen baru langsung menerima \textit{event} secara transparan.
 \end{enumerate}
 
+\clearpage
 \subsection{Jawaban Butir ``Di Laporan''}
 \label{subsec:p5_jawaban}
-Sesuai dengan butir penugasan pada dokumen spesifikasi resmi (\textit{Problem 5: Fan-out Event Distribution/Pub-sub}), berikut adalah jawaban dan penjelasan komprehensif atas aspek yang diwajibkan:
+Jawaban komprehensif atas aspek evaluasi Problem 5:
 
 \begin{enumerate}
     \item \textbf{Broker dan Pola yang Dipilih:}
     \begin{itemize}
-        \item \textit{Broker:} Dipilih \textbf{Redpanda} (kompatibel API Kafka v3). Keunggulannya adalah arsitektur \textit{single binary} C++ (tanpa Java JVM dan Apache ZooKeeper), konsumsi memori rendah, latensi I/O disk sangat stabil melalui penyimpanan berbasis seastar engine, serta dukungan bawaan utilitas CLI \texttt{rpk}.
-        \item \textit{Pola:} Menggunakan pola \textbf{Publish--Subscribe berbasis Log Terdistribusi} dengan konsep \textbf{Consumer Groups}. \textit{Topic} dibagi ke dalam 3 partisi. Masing-masing aplikasi konsumen membentuk \textit{consumer group} tersendiri, sehingga Redpanda mendistribusikan salinan pesan (\textit{fan-out}) ke setiap grup secara independen.
+        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), konsumsi memori rendah, latensi I/O stabil berbasis seastar engine, serta dukungan utilitas CLI \texttt{rpk}.
+        \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \texttt{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
     \end{itemize}
 
-    \item \textbf{Semantik Pengiriman yang Berlaku (\textit{Delivery Semantics}):}
-    Sistem menerapkan semantik \textbf{\textit{At-Least-Once Delivery}}. Mekanisme ini diwujudkan melalui alur kerja berikut:
+    \item \textbf{Semantik Pengiriman yang Berlaku (\textit{At-Least-Once Delivery}):}
     \begin{itemize}
-        \item Produser mengirimkan pesan dengan tingkat pengakuan (\textit{acknowledgement}) \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan telah tercatat pada \textit{commit log} broker sebelum dianggap sukses.
-        \item Konsumen mematikan \textit{auto-commit} (\texttt{CommitInterval: 0}). Konsumen memanggil \texttt{reader.FetchMessage(ctx)}, mendekode isi pesan JSON, menjalankan pemrosesan bisnis dan deduplikasi, dan hanya memanggil \texttt{reader.CommitMessages(ctx, msg)} apabila seluruh tahapan tersebut tidak menghasilkan kesalahan.
-        \item Apabila terjadi gangguan jaringan atau proses konsumen mati secara tiba-tiba di tengah eksekusi, \textit{offset} belum berpindah pada broker. Saat proses hidup kembali, broker akan mengirimkan ulang (\textit{redeliver}) pesan tersebut. Dengan demikian, tidak ada pesan yang hilang (\textit{no message loss}), meskipun ada konsekuensi potensi pemrosesan ganda.
+        \item Produser mengirimkan pesan dengan tingkat pengakuan \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan tercatat pada \textit{commit log} broker sebelum dianggap sukses.
+        \item Konsumen menonaktifkan \textit{auto-commit} (\texttt{CommitInterval: 0}), membaca pesan via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
+        \item Jika terjadi kegagalan jaringan atau proses mati tiba-tiba, \textit{offset} belum terkomit sehingga pesan dikirim ulang (\textit{redeliver}) saat pulih, menjamin \textit{zero message loss}.
     \end{itemize}
 
     \item \textbf{Konsekuensi bagi Consumer dan Perlunya Sifat Idempoten:}
     \begin{itemize}
-        \item \textbf{Mengapa Consumer Perlu Idempoten?}
-        Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) adalah keniscayaan akibat \textit{network timeout}, kegagalan commit offset, atau rebalancing antar partisi. Jika konsumen tidak idempoten:
-        \begin{itemize}
-            \item Pada layanan \textit{Dashboard}: Metrik jumlah bencana akan terhitung ganda (\textit{double count}), menghasilkan statistik tingkat bahaya yang tidak akurat bagi pengambil kebijakan.
-            \item Pada layanan \textit{Notifier}: Petugas lapangan dan masyarakat akan menerima notifikasi darurat yang sama secara berulang-ulang (\textit{alert fatigue} atau kepanikan publik).
-        \end{itemize}
-        \item \textbf{Bagaimana Kelompok Menyikapinya?}
-        Kelompok menerapkan strategi \textbf{Idempotent Processing with Event Identity}:
-        \begin{itemize}
-            \item Setiap entitas kejadian bencana memiliki identitas global unik yang deterministik (\texttt{hazard\_id}).
-            \item Pada level prototipe saat ini, konsumen menyimpan set \texttt{processed[hazard\_id]} yang dilindungi kunci sinkronisasi (\texttt{sync.Mutex}). Sebelum memproses atau meneruskan notifikasi, konsumen memeriksa keberadaan ID tersebut. Jika ID telah tercatat, pesan ditandai sebagai \texttt{Duplicate}, diabaikan dari penambahan metrik atau pengiriman peringatan, dan \textit{offset}-nya langsung dikomit ke broker.
-            \item Untuk lingkungan produksi skala penuh dengan replika ganda (\textit{multi-replica consumers}), disikapi dengan memanfaatkan penyimpanan terdistribusi berkecepatan tinggi dengan operasi atomik (misalnya Redis dengan perintah \texttt{SETNX hazard\_id "processed" EX 86400}) atau tabel basis data relasional dengan indeks unik (\texttt{INSERT ... ON CONFLICT DO NOTHING}).
-        \end{itemize}
+        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) niscaya terjadi saat \textit{timeout} atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana terhitung ganda (\textit{double count}) pada Dashboard dan memicu banjir notifikasi berulang (\textit{alert fatigue}) pada Notifier.
+        \item \textbf{Strategi Mitigasi (\textit{Event Identity}):} Setiap bencana membawa identitas global deterministik (\texttt{hazard\_id}). Pada prototipe saat ini, konsumen mengelola set \texttt{processed[hazard\_id]} dalam memori dengan perlindungan \texttt{sync.Mutex} untuk mengabaikan duplikasi sebelum komit. Pada skala multi-replika produksi, hal ini disikapi via operasi atomik (Redis \texttt{SETNX}) atau integritas basis data relasional (\texttt{ON CONFLICT DO NOTHING}).
     \end{itemize}
 \end{enumerate}

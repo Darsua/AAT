@@ -26,34 +26,31 @@ Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi empiris dijalankan melalui skrip pengujian otomatis \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada berkas log \path{docs/evidence/p1/demo_p1.log}:
+Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada log \path{docs/evidence/p1/demo_p1.log}:
 \begin{enumerate}
-    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_confidence\_level = false}. Aggregator berhasil menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
-    \item \textbf{Pemicuan Perubahan Skema Dinamis:} Mengirimkan permintaan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_confidence\_level": true\}} ke \texttt{mock-pvmbg} (:8082). Upstream segera memancarkan field baru.
-    \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa mematikan atau me-restart container mana pun (\texttt{mock-pvmbg}, \texttt{aggregator}, \texttt{client-api}), Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke dalam \texttt{attributes JSONB}:
+    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}.
+    \item \textbf{Pemicuan Skema Dinamis:} Mengirimkan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level":} \texttt{true\}} ke \texttt{mock-pvmbg} (:8082). Upstream langsung memancarkan field baru.
+    \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa \textit{restart} container apa pun, Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke \texttt{attributes JSONB}:
+
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=json, caption={Cuplikan Respons Client API Menampilkan Atribut Dinamis confidence\_level}]
 {
   "hazard_id": "haz-pvmbg-pvmbg-rpt-live-20261007-144707-000003",
-  "source": "PVMBG",
-  "hazard_type": "VOLCANIC",
-  "severity": "SIAGA",
+  "source": "PVMBG", "hazard_type": "VOLCANIC", "severity": "SIAGA",
   "area_name": "Gunung Semeru",
   "attributes": {
-    "ash_column_height_m": 450,
-    "confidence_level": 0.82,
-    "eruption_count_24h": 3,
-    "volcano_id": "VLC-003"
+    "ash_column_height_m": 450, "confidence_level": 0.82,
+    "eruption_count_24h": 3, "volcano_id": "VLC-003"
   }
 }
 \end{lstlisting}
+\end{minipage}
 \end{enumerate}
 
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
-\textbf{Pertanyaan:} \textit{Deklarasikan kebijakan penanganan field tak dikenal di laporan (diteruskan ke attributes atau diabaikan) serta nyatakan eksplisit jenis perubahan skema yang didukung dan yang tidak didukung.}
-
-\textbf{Jawaban:}
+\textbf{Pertanyaan:} \textit{Deklarasikan kebijakan penanganan field tak dikenal serta jenis evolusi skema yang didukung dan tidak didukung.} \textbf{Jawaban:}
 \begin{enumerate}
-    \item \textbf{Kebijakan Field Tak Dikenal (Unknown Field Policy):} Kelompok secara eksplisit mendeklarasikan kebijakan \textbf{Forward to Canonical Attributes (\textit{Preserve \& Ingest})}. Setiap field baru yang tidak dikenali dalam skema relasional inti tidak akan diabaikan atau dibuang, melainkan diteruskan seutuhnya ke dalam kolom \texttt{attributes JSONB} agar data domain bernilai tinggi tidak hilang.
+    \item \textbf{Kebijakan Field Tak Dikenal:} Mengadopsi \textbf{Forward to Canonical Attributes (\textit{Preserve \& Ingest})}. Field baru yang belum terpetakan tidak diabaikan atau dibuang, melainkan dipreservasi utuh ke kolom \texttt{attributes JSONB} agar data penting tetap tersimpan.
     \item \textbf{Perubahan yang Didukung:} Penambahan atribut baru bertipe primitif (\textit{number}, \textit{string}, \textit{boolean}) atau bersarang (\textit{nested object/array}) pada respons JSON instansi sumber.
-    \item \textbf{Perubahan yang Tidak Didukung:} Perubahan destruktif yang mencakup penghapusan field penentu identitas (\texttt{event\_id}, \texttt{report\_id}), pengubahan format serialisasi (misal: JSON menjadi XML), atau perubahan tipe data field esensial.
+    \item \textbf{Perubahan Tidak Didukung:} Perubahan destruktif (\textit{breaking changes}) seperti penghapusan field identitas (\texttt{event\_id}, \texttt{report\_id}), pengubahan format serialisasi, atau pergantian tipe data primitif inti.
 \end{enumerate}

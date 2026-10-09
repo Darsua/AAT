@@ -1,4 +1,4 @@
-\usepackage[a4paper, top=3cm, bottom=3cm, left=4cm, right=3cm]{geometry}
+\usepackage[a4paper, top=2cm, bottom=2cm, left=2cm, right=2cm, headheight=14.5pt]{geometry}
 \usepackage{setspace}
 \onehalfspacing
 
@@ -9,6 +9,20 @@
 \usepackage[indonesian]{babel}
 \usepackage{microtype}
 \usepackage{xurl}
+
+% Typography penalties & spacing hygiene
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+\emergencystretch=2.5em
+\raggedbottom
+
+% Prevent hyphenation in headings
+\usepackage{titlesec}
+\titleformat{\chapter}[display]{\normalfont\huge\bfseries\raggedright}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titleformat{\section}{\Large\bfseries\raggedright}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\raggedright}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\raggedright}{\thesubsubsection}{1em}{}
 
 % Math & Symbols
 \usepackage{amsmath, amssymb, amsfonts}
@@ -24,6 +38,9 @@
 \usepackage{float}
 \usepackage{enumitem}
 \setlist{noitemsep, topsep=3pt, parsep=1pt, partopsep=0pt}
+\setlist[1]{leftmargin=*}
+\setlist[2]{leftmargin=1.5em}
+\setlist[3]{leftmargin=1.5em}
 
 % TikZ for crisp diagrams
 \usepackage{tikz}

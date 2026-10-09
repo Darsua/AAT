@@ -7,9 +7,9 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
     \item \textbf{Lapisan Inti Koordinasi BNPB (Core Aggregation \& Persistence):} Terdiri atas \texttt{aggregator} (port 8083 internal) yang memegang kepemilikan eksklusif atas basis data kanonis \texttt{canonical-db} (PostgreSQL 16, port 5432) serta mempublikasikan event kanonis ke broker Redpanda (port 9092 / 19092).
     \item \textbf{Lapisan Hilir Klien \& Konsumen (Downstream Client API \& Event Consumers):} Terdiri atas \texttt{auth} (port 8084), \texttt{client-api} (port 8080), serta dua \textit{consumer} independen \texttt{dashboard-consumer} dan \texttt{notifier-consumer}.
 \end{enumerate}
-
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
+\resizebox{0.60\textwidth}{!}{%
 \begin{tikzpicture}[
     box/.style={
         draw=itbblue!85,
@@ -116,53 +116,57 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
 \draw[arrow] (10.2, 2.1) -- (notif.west);
 \draw[arrow] (10.2, 1.0) -- (dyn.west);
 
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Diagram Arsitektur Sistem Terdistribusi BNPB Milestone 1}
 \label{fig:arsitektur}
 \end{figure}
 
+\clearpage
 \section{Tanggung Jawab Setiap Service}
-Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang didefinisikan secara tegas tanpa adanya tumpang tindih logika:
+Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang didefinisikan secara tegas:
 \begin{itemize}
-    \item \textbf{\texttt{mock-bmkg}:} Mensimulasikan data gempa bumi (\texttt{SeismicEvent}) dan peringatan tsunami (\texttt{TsunamiWarning}). Menegakkan autentikasi via header \texttt{X-BMKG-Key} dan merespons dengan latensi rendah (50--150 ms).
-    \item \textbf{\texttt{mock-pvmbg}:} Mensimulasikan laporan gunung api (\texttt{VolcanicReport}). Menegakkan autentikasi via Bearer token, mendukung injeksi latensi tinggi (500 ms--3 s), simulasi kegagalan instan (\texttt{POST /admin/outage}), serta perubahan skema aditif saat sistem berjalan (\texttt{POST /admin/schema-version}).
-    \item \textbf{\texttt{aggregator}:} Melakukan \textit{ingestion polling} berkala ke kedua sumber hulu secara paralel, melakukan normalisasi ke format kanonis \texttt{HazardEvent}, memperkaya koordinat gunung api via katalog statis, menyimpan data secara transaksional ke PostgreSQL, mendeteksi gangguan hulu dan menandai status degradasi, serta mengeksekusi \textit{Transactional Outbox Relay}.
-    \item \textbf{\texttt{auth}:} Mengelola direktori klien, menerbitkan token akses JWT berumur 60 detik dengan klaim \textit{scope} terisolasi, serta mengelola rotasi \textit{refresh token} dengan deteksi \textit{replay revocation}.
-    \item \textbf{\texttt{client-api}:} Menyediakan gerbang HTTP publik bagi pihak hilir. Bertanggung jawab memverifikasi tanda tangan JWT dan cakupan hak akses, memfilter atribut mentah untuk pengguna Media, serta meneruskan permintaan ke Aggregator dengan propagasi \texttt{X-Correlation-ID}.
-    \item \textbf{\texttt{dashboard-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-dashboard-group}, melakukan deduplikasi berbasis \texttt{hazard\_id}, dan memperbarui metrik rekapitulasi bencana secara \textit{real-time}.
-    \item \textbf{\texttt{notifier-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-notifier-group}, mengevaluasi ambang batas darurat kebencanaan (gempa $\ge 6.0$, tsunami SIAGA/AWAS, vulkanik AWAS), dan menerbitkan sinyal peringatan darurat.
+    \item \textbf{\texttt{mock-bmkg}:} Mensimulasikan data gempa bumi (\texttt{SeismicEvent}) dan peringatan tsunami (\texttt{TsunamiWarning}). Menegakkan header autentikasi \texttt{X-BMKG-Key} dan merespons dengan latensi rendah (50--150 ms).
+    \item \textbf{\texttt{mock-pvmbg}:} Mensimulasikan laporan vulkanik (\texttt{VolcanicReport}). Menegakkan Bearer token, latensi tinggi (500 ms--3 s), simulasi pemadaman (\texttt{POST /admin/outage}), dan perubahan skema aditif (\texttt{POST /admin/schema-version}).
+    \item \textbf{\texttt{aggregator}:} Melakukan ingesti hulu berkala secara paralel, normalisasi ke \texttt{HazardEvent}, pengayaan koordinat via katalog statis, persistensi transaksional PostgreSQL, penandaan status degradasi, dan \textit{Transactional Outbox Relay}.
+    \item \textbf{\texttt{auth}:} Mengelola direktori klien, menerbitkan token akses JWT berumur 60 detik dengan klaim \textit{scope} terisolasi, serta menangani rotasi \textit{refresh token} dengan deteksi pembatalan \textit{replay}.
+    \item \textbf{\texttt{client-api}:} Gerbang HTTP publik hilir. Bertanggung jawab memvalidasi JWT dan klaim scope, menyaring atribut mentah untuk Media, serta mempropagasi \texttt{X-Correlation-ID} ke Aggregator.
+    \item \textbf{\texttt{dashboard-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-}\allowbreak\texttt{dashboard-}\allowbreak\texttt{group}, melakukan deduplikasi berbasis \texttt{hazard\_id}, dan memperbarui rekapitulasi bencana secara \textit{real-time}.
+    \item \textbf{\texttt{notifier-consumer}:} Berlangganan topik event kanonis dengan grup \texttt{bnpb-}\allowbreak\texttt{notifier-}\allowbreak\texttt{group}, mengevaluasi ambang darurat (gempa $\ge 6.0$, tsunami SIAGA/AWAS, vulkanik AWAS), dan menerbitkan sinyal peringatan darurat.
 \end{itemize}
 
 \section{Protokol Komunikasi Antarservice}
-Sistem menerapkan pemisahan yang ketat antara komunikasi sinkron dan asinkron:
+Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
 \begin{itemize}
-    \item \textbf{Komunikasi Sinkron (HTTP/REST):} Digunakan untuk operasi permintaan-respons (\textit{request-response}) berorientasi pembacaan data historis. Polling dari Aggregator ke mock upstream serta Client API ke Aggregator menggunakan HTTP/1.1 dengan payload JSON dan header \texttt{X-Correlation-ID}.
-    \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Digunakan untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{non-blocking pub-sub}). Aggregator menerbitkan pesan terkanonisasi ke topik \texttt{bnpb.hazard-events} menggunakan \texttt{hazard\_id} sebagai \textit{message key} guna menjamin keterurutan partisi.
+    \item \textbf{Komunikasi Sinkron (HTTP/REST):} Untuk operasi pembacaan data historis. Polling Aggregator ke hulu dan Client API ke Aggregator menggunakan HTTP/1.1 dengan payload JSON dan header \texttt{X-Correlation-ID}.
+    \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{pub-sub}). Aggregator menerbitkan event kanonis ke topik \texttt{bnpb.hazard-events} berpartisi dengan \texttt{hazard\_id} sebagai \textit{message key}.
 \end{itemize}
 
-\section{Kepemilikan Penyimpanan dan Batas Container}
+\clearpage
+\section{Kepemilikan Penyimpanan dan Isolasi \mbox{Kontainer}}
 Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi Tugas Besar:
 \begin{itemize}
-    \item \textbf{Single Ownership:} Basis data relasional \texttt{canonical-db} dimiliki secara eksklusif oleh \texttt{aggregator}. Service lain (seperti \texttt{client-api} atau konsumen) secara arsitektural dilarang terhubung langsung ke port 5432 database.
-    \item \textbf{Isolasi Jaringan Docker:} Port basis data tidak diekspos ke jaringan publik host. Komunikasi antara \texttt{aggregator} dan \texttt{canonical-db} berlangsung di dalam jaringan privat \texttt{bnpb-internal}.
-    \item \textbf{Zero Shared Libraries:} Seluruh service Go dikembangkan secara mandiri tanpa menggunakan pustaka \textit{shared business logic} (\texttt{pkg/} atau \texttt{common/}) bersama. Masing-masing service memiliki berkas \texttt{go.mod} mandiri yang diorkestrasi via \texttt{go.work}.
+    \item \textbf{Single Ownership:} Basis data relasional \texttt{canonical-db} dimiliki eksklusif oleh \texttt{aggregator}. Service lain dilarang terhubung langsung ke port 5432 database.
+    \item \textbf{Isolasi Jaringan Docker:} Port basis data tidak diekspos ke publik host. Komunikasi berlangsung eksklusif di dalam jaringan privat \texttt{bnpb-internal}.
+    \item \textbf{Zero Shared Libraries:} Seluruh service Go beroperasi mandiri tanpa modul pustaka bersama (\texttt{pkg/} atau \texttt{common/}) dengan berkas \texttt{go.mod} mandiri via \texttt{go.work}.
 \end{itemize}
 
 \section{Alur Permintaan, Data, dan Event}
 Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 \begin{enumerate}
-    \item \textbf{Pengambilan (Ingestion):} Dua goroutine poller mandiri dalam Aggregator secara berkala memanggil \texttt{mock-bmkg} dan \texttt{mock-pvmbg} setiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
-    \item \textbf{Normalisasi \& Transaksi:} Data dipetakan menjadi \texttt{HazardEvent}. Dalam satu transaksi ACID (\texttt{SaveHazardWithOutbox}), Aggregator menyimpan entitas bahaya ke tabel \texttt{hazards} sekaligus mencatat baris baru pada tabel \texttt{outbox\_events}.
-    \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox yang belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandai baris outbox sebagai terkirim (\textit{marked as sent}).
-    \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan secara paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis masing-masing, dan melakukan \textit{manual offset commit}.
+    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
+    \item \textbf{Normalisasi \& Transaksi:} Data dipetakan ke \texttt{HazardEvent}. Melalui satu transaksi ACID (\texttt{SaveHazardWithOutbox}), Aggregator menyimpan entitas ke \texttt{hazards} sekaligus mencatat baris baru pada \texttt{outbox\_events}.
+    \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandainya sebagai terkirim (\textit{marked as sent}).
+    \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.
 \end{enumerate}
 
+\clearpage
 \section{Teknologi Terpilih dan Alasan Pemilihan}
 Tabel~\ref{tab:teknologi} merangkum tumpukan teknologi yang dipilih beserta justifikasi teknisnya:
 
 \begin{singlespacing}
 \begin{footnotesize}
-\begin{xltabular}{\textwidth}{l p{3.8cm} X}
+\begin{xltabular}{\textwidth}{l p{4.9cm} X}
 \caption{Rangkuman Pemilihan Teknologi Sistem Terdistribusi BNPB} \label{tab:teknologi} \\
 \toprule
 \textbf{Kategori} & \textbf{Teknologi Terpilih} & \textbf{Alasan Pemilihan \& Kesesuaian Kebutuhan} \\
@@ -176,21 +180,21 @@ Tabel~\ref{tab:teknologi} merangkum tumpukan teknologi yang dipilih beserta just
 \bottomrule
 \endfoot
 Back-End & Go 1.22 & Dukungan konkurensi bawaan (\textit{goroutines} dan \textit{channels}) yang sangat efisien, konsumsi memori rendah, kompilasi cepat ke biner statis, dan menyeragamkan pengembangan seluruh service. \\
-\addlinespace
+\addlinespace[2pt]
 Database & PostgreSQL 16 (JSONB) & Menjamin transaksi ACID penuh untuk pola Transactional Outbox, sekaligus menyediakan fleksibilitas kolom JSONB dengan pengindeksan GIN untuk menyimpan atribut dinamis tanpa migrasi DDL. \\
-\addlinespace
+\addlinespace[2pt]
 Komunikasi & HTTP/REST \& JSON & Standar industri yang transparan, mudah di-debug, mendukung interoperabilitas universal, dan menyederhanakan penegakan kontrak OpenAPI antarservice. \\
-\addlinespace
+\addlinespace[2pt]
 Message Broker & Redpanda 24.1 (API Kafka) & Kompatibel penuh dengan ekosistem Kafka tanpa ketergantungan JVM atau Zookeeper, latensi deterministik berbasis C++/Raft, serta konsumsi sumber daya ringan dalam container. \\
-\addlinespace
+\addlinespace[2pt]
 Autentikasi & JWT HS256 \& Refresh Token & Memungkinkan verifikasi klaim hak akses (\textit{scope}) secara terdesentralisasi di sisi Client API tanpa panggilan jaringan berulang ke Auth Service, dengan rotasi berkala untuk keamanan. \\
-\addlinespace
+\addlinespace[2pt]
 Infrastruktur & Docker \& Docker Compose & Menyediakan batas proses yang terisolasi sempurna bagi setiap komponen serta memungkinkan orkestrasi seluruh topologi multi-service melalui satu perintah (\texttt{make up}). \\
-\addlinespace
+\addlinespace[2pt]
 Dokumentasi & OpenAPI 3.0 & Mendefinisikan kontrak antarmuka API yang ketat dan terstandarisasi untuk mencegah pelanggaran skema data antartim. \\
-\addlinespace
+\addlinespace[2pt]
 Pengujian & k6, curl, dan jq & k6 memungkinkan pengujian beban konkurensi tinggi ($\ge 50$ VUs) dengan pelaporan terstruktur; curl dan jq mempermudah otomatisasi skrip demonstrasi. \\
-\addlinespace
+\addlinespace[2pt]
 Orkestrasi & GNU Make \& Fish/Bash & Menyeragamkan eksekusi skrip demonstrasi per problem (\texttt{make demo-p1} hingga \texttt{demo-p5}) agar pengujian dapat direproduksi secara instan. \\
 \end{xltabular}
 \end{footnotesize}

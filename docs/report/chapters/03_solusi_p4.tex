@@ -1,3 +1,4 @@
+\clearpage
 \section{Problem 4: Arsitektur Microservice dan Penyimpanan Fleksibel}
 
 \subsection{Rancangan Solusi dan Mekanisme}
@@ -9,11 +10,11 @@ Solusi dirancang melalui integrasi dua pilar arsitektur:
     \item \textbf{Penyimpanan Kanonis Fleksibel (Hybrid Relational + JSONB):} Skema tabel \texttt{hazards} memadukan kolom relasional bertipe kuat untuk dimensi pencarian umum (\texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{occurred\_at}) dengan kolom \texttt{attributes JSONB} untuk atribut spesifik instansi. Ketika PVMBG memperkenalkan field \texttt{confidence\_level}, data langsung disimpan berdampingan dengan data lama tanpa memerlukan instruksi \texttt{ALTER TABLE} maupun penguncian tabel.
     \item \textbf{Kepemilikan Tunggal (\textit{Single Ownership}):} Port 5432 database hanya terhubung ke Aggregator di jaringan internal. Client API dilarang keras melakukan koneksi SQL langsung, melainkan mengambil data melalui antarmuka HTTP internal Aggregator (\texttt{:8083/internal/hazards}).
 \end{enumerate}
-
+\clearpage
 \subsection{Alasan Keputusan dan Trade-Off}
 Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsitektur penyimpanan:
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \footnotesize
 \begin{spacing}{1.05}
@@ -23,7 +24,7 @@ Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsite
 \toprule
 \textbf{Kriteria} & \textbf{PostgreSQL + JSONB (Terpilih)} & \textbf{MongoDB (Document Store)} & \textbf{Strict SQL (EAV / Migrasi DDL)} \\
 \midrule
-Transaksionalitas \& Pola Outbox & \textbf{Sangat Kuat:} Mendukung transaksi ACID atomik antara tabel \texttt{hazards} dan \texttt{outbox\_events}. & \textbf{Kompleks:} Transaksi multi-dokumen memerlukan replika set terdistribusi dengan penalti performa. & \textbf{Kuat:} Mendukung transaksi ACID penuh. \\
+Transaksionalitas \& Pola Outbox & \textbf{Sangat Kuat:} Mendukung transaksi ACID atomik antara tabel \texttt{hazards} dan \texttt{outbox\_events}. & \textbf{Kompleks:} Transaksi \mbox{multi-dokumen} memerlukan replika set terdistribusi dengan penalti performa. & \textbf{Kuat:} Mendukung transaksi ACID penuh. \\
 \addlinespace
 Agilitas Evolusi Skema & \textbf{Tinggi:} Atribut baru masuk ke JSONB tanpa \textit{table lock} atau migrasi DDL. & \textbf{Tinggi:} Skema dokumen secara alami dinamis. & \textbf{Rendah:} Memerlukan DDL \texttt{ALTER TABLE} atau tabel EAV yang rumit. \\
 \addlinespace
@@ -38,27 +39,30 @@ Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebut
 \subsection{Batasan yang Disadari}
 \begin{itemize}
     \item Kolom JSONB tidak menegakkan validasi tipe data pada level basis data. Integritas tipe nilai dalam atribut dinamis sepenuhnya menjadi tanggung jawab lapisan kode normalizer di Aggregator.
-    \item Kueri berbasis teks bebas atau pencarian parsial di dalam dokumen JSONB yang belum diindeks GIN memerlukan \textit{full-table scan} parsial jika tabel bertumbuh hingga jutaan baris.
+    \item Kueri berbasis teks bebas atau pencarian parsial di dalam dokumen \mbox{JSONB} yang belum diindeks GIN memerlukan \textit{full-table scan} parsial jika tabel bertumbuh hingga jutaan baris.
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi diotomasi melalui \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan di \path{docs/evidence/p4/storage_restart.log}:
+Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan pada berkas \path{docs/evidence/p4/storage_restart.log}:
 \begin{enumerate}
     \item \textbf{Koeksistensi Skema Heterogen pada PostgreSQL (P4-02):}
-    Kueri langsung ke basis data \texttt{canonical-db} membuktikan record sebelum evolusi skema dan record setelah evolusi skema hidup berdampingan secara harmonis:
+    Kueri langsung ke basis data \texttt{canonical-db} membuktikan koeksistensi record sebelum dan setelah evolusi skema:
+
+\noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=SQL, caption={Hasil Kueri PostgreSQL Menunjukkan Koeksistensi Atribut Heterogen}]
 SELECT hazard_id, source, hazard_type, severity, attributes 
 FROM hazards ORDER BY occurred_at DESC LIMIT 2;
-
 -- Record 1 (Evolved PVMBG):
--- attributes: {"volcano_id": "VLC-002", "confidence_level": 0.82, "ash_column_height_m": 350}
+-- attributes: {"confidence_level": 0.82, "ash_column_height_m": 350, "volcano_id": "VLC-002"}
 -- Record 2 (Baseline BMKG):
 -- attributes: {"depth_km": 36, "magnitude": 4.9, "potential_tsunami": true}
 \end{lstlisting}
+\end{minipage}
+
     \item \textbf{Uji Restart Kontainer Independen (P4-01):}
-    Container \texttt{aggregator} di-restart via Docker Compose. Selama proses restart, \texttt{client-api} (:8080) dan mock services tetap merespons dengan HTTP 200 tanpa mengalami kegagalan berantai.
+    Kontainer \texttt{aggregator} dijalankan ulang (\textit{restart}) via Docker Compose. Selama proses berjalan, \texttt{client-api} (:8080) dan \textit{mock services} tetap merespons dengan HTTP 200 tanpa mengalami kegagalan berantai.
     \item \textbf{Pemulihan Mandiri Sambungan Basis Data:}
-    Container \texttt{canonical-db} di-restart. Klien API mendeteksi ketiadaan basis data sementara dan seketika pulih melayani permintaan dengan HTTP 200 begitu PostgreSQL siap menerima koneksi kembali.
+    Kontainer \texttt{canonical-db} dijalankan ulang (\textit{restart}). Klien API mendeteksi ketiadaan basis data sementara dan seketika pulih melayani permintaan dengan HTTP 200 begitu PostgreSQL siap menerima koneksi kembali.
 \end{enumerate}
 
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}
@@ -76,7 +80,7 @@ FROM hazards ORDER BY occurred_at DESC LIMIT 2;
     \item \textbf{Perbandingan Alternatif Penyimpanan:}
     Dua alternatif utama dievaluasi (Tabel~\ref{tab:storage_eval}):
     \begin{itemize}
-        \item \textit{Alternatif 1: Basis Data Dokumen Murni (MongoDB):} Keuntungannya fleksibel secara alami, namun konsekuensi buruknya adalah implementasi Transactional Outbox memerlukan transaksi multi-dokumen terdistribusi yang sangat kompleks dan rentan performa.
+        \item \textit{Alternatif 1: Basis Data Dokumen Murni (MongoDB):} Keuntungannya fleksibel secara alami, namun konsekuensi buruknya adalah implementasi Transactional Outbox memerlukan transaksi \mbox{multi-dokumen} terdistribusi yang sangat kompleks dan rentan performa.
         \item \textit{Pilihan Terpilih: PostgreSQL 16 dengan Kolom JSONB:} Konsekuensinya adalah kelompok harus menjaga validasi skema atribut dinamis di lapisan aplikasi, namun memperoleh keuntungan besar berupa transaksi ACID tunggal atomik untuk outbox event, pengindeksan relasional yang matang, serta keandalan operasional tingkat tinggi.
     \end{itemize}
 \end{enumerate}
