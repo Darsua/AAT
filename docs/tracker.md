@@ -1,10 +1,10 @@
 # Project Tracker: BNPB Disaster Coordination Platform
 
 **Course:** IF4031 Arsitektur Aplikasi Terdistribusi (Milestone 1)  
-**Target Project Completion:** **08 October 2026** (Internal target with 24h contingency buffer ahead of hard deadline)  
-**Hard Submission Deadline:** **09 October 2026, 23:59 WIB**  
+**Target Project Completion:** **08 October 2026** (Internal target buffer)  
+**Hard Submission Deadline:** **10 October 2026, 23:59 WIB** (Extended from 09 Oct per Spec Changelog [1])  
 **Demonstration:** H+1 after deadline  
-**Last Updated:** **05 October 2026**
+**Last Updated:** **09 October 2026**
 
 ---
 
@@ -14,10 +14,10 @@
 |---|---|---|---|---|
 | **Phase 1: Alignment** | 21–22 Sep | Architecture decisions, service boundaries, frozen contracts, Docker Compose & CI | All ADRs, contracts, compose, and CI active on `main` | **COMPLETED ✅** |
 | **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **COMPLETED ✅** |
-| **Phase 3: Integration** | 28 Sep–05 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Monday exit) | **IN PROGRESS** |
-| **Phase 4: Validation** | 03–06 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Tuesday in-person alignment) | **IN PROGRESS** |
-| **Phase 5: Closeout** | 06–08 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **PLANNED** |
-| **Buffer Window** | 08–09 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 09 Oct 23:59 WIB deadline | **PLANNED** |
+| **Phase 3: Integration** | 28 Sep–05 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Monday exit) | **COMPLETED ✅** |
+| **Phase 4: Validation** | 03–06 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Tuesday in-person alignment) | **COMPLETED ✅** |
+| **Phase 5: Closeout** | 06–08 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **COMPLETED ✅** |
+| **Buffer Window** | 09–10 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 10 Oct 23:59 WIB deadline | **ACTIVE** |
 
 ---
 
@@ -149,25 +149,25 @@
   *Deliverable:* Verified Client API → Aggregator correlation propagation and HTTP latency logs; a directly produced Kafka test event verifies correlation headers at both consumers. Also verifies dependency health and consumer-group lag metrics. This script does not claim to test the Aggregator outbox path.
 
 #### Joint Validation (All)
-- [ ] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (06 Oct, In-person on campus)  
+- [x] **`ALL-01`** — **Integrated rehearsal of P1–P5 from clean Compose startup** (06 Oct, In-person on campus)  
   *Deliverable:* Rehearsal execution of all 5 demonstration scripts in sequence (`make demo-p1`, `demo-p2`, `demo-p3`, `demo-p5`, `load-test`) and cross-service oral defense review.
 
 ---
 
-### Phase 5: Closeout & Submission Prep (06–08 Oct)
+### Phase 5: Closeout & Submission Prep (06–09 Oct)
 
-- [ ] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (06–07 Oct)  
+- [x] **`A-08`** *(Aldoy)* — **Write P1 and mock-service sections with screenshots/logs** (06–07 Oct)  
   *Deliverable:* Drafted report sections for Problem 1 and mock architectures.
-- [ ] **`B-09`** *(Darrel)* — **Write P2/P4 sections with load and storage evidence** (03–07 Oct)  
+- [x] **`B-09`** *(Darrel)* — **Write P2/P4 sections with load and storage evidence** (03–07 Oct)  
   *Deliverable:* 3-way storage comparative evaluation (PostgreSQL+JSONB vs MongoDB vs Strict SQL), concurrency analysis, and k6 benchmark graphs.
-- [ ] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (06–07 Oct)  
+- [x] **`C-10`** *(Jenka)* — **Write P3/P5 sections with auth and broker evidence** (06–07 Oct)  
   *Deliverable:* RBAC security design, token lifecycle documentation, and pub-sub recovery architecture.
-- [ ] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (07–08 Oct)  
+- [x] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (07–08 Oct)  
   *Deliverable:* Root [`README.md`](../README.md) verified against rubric; signed ITB AI Declaration Form attached.
-- [ ] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (08 Oct)  
+- [x] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (08–09 Oct)  
   *Deliverable:* Pristine `git checkout` test in clean directory; tag `milestone-1` pushed to GitHub.
-- [ ] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-day buffer** (08–09 Oct)  
-  *Deliverable:* Final PDF report, GitHub repository link, and submission form ready 24 hours ahead of hard deadline.
+- [x] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-day buffer** (08–09 Oct)  
+  *Deliverable:* Final PDF report, GitHub repository link, and submission form ready ahead of hard deadline.
 
 ---
 
@@ -183,21 +183,21 @@ Use this matrix to track and link evidence artifacts for the final report:
 | **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | [`docs/evidence/p2/`](evidence/p2/) |
 | **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log) |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | [`docs/evidence/p2/demo_p2.log`](evidence/p2/demo_p2.log) |
-| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Planned | `docs/evidence/p3/` |
-| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Planned | `docs/evidence/p3/` |
-| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Planned | `docs/evidence/p3/` |
+| **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Verified ✅ | [`docs/evidence/p3/cross_credential.log`](evidence/p3/cross_credential.log) |
+| **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Verified ✅ | [`docs/evidence/p3/auth_scopes.log`](evidence/p3/auth_scopes.log) |
+| **`P3-03`** | P3 | Natural 60s TTL & Refresh Rotation | `scripts/test_auth_scopes.sh` | Expired token returns 401; refresh returns new token; old refresh token burned | Jenka | Verified ✅ | [`docs/evidence/p3/auth_scopes.log`](evidence/p3/auth_scopes.log) |
 | **`P4-01`** | P4 | Independent Container Restart | `make demo-p4` | Unrelated services remain functional; clean reconnect to database | Darrel | Verified ✅ | [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log) |
 | **`P4-02`** | P4 | Flexible Canonical Storage | `make demo-p4` | Records before and after schema evolution coexist seamlessly | Darrel | Verified ✅ | [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log) |
-| **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Planned | `docs/evidence/p5/` |
-| **`P5-02`** | P5 | Consumer Outage | Stop one consumer, publish events | Publisher and surviving consumer continue processing normally | Jenka | Planned | `docs/evidence/p5/` |
-| **`P5-03`** | P5 | Consumer Downtime Recovery | Restart stopped consumer | Resumes from last committed checkpoint and consumes missed backlog | Jenka | Planned | `docs/evidence/p5/` |
-| **`P5-04`** | P5 | Dynamic 3rd Consumer Addition | Spin up new consumer group | New consumer replays stream without publisher reconfiguration or restart | Jenka | Planned | `docs/evidence/p5/` |
+| **`P5-01`** | P5 | Pub-Sub Fan-Out | Publish event to Redpanda | Both `dashboard` and `notifier` consumer groups receive identical event | Jenka | Verified ✅ | [`docs/evidence/p5/consumer_recovery.log`](evidence/p5/consumer_recovery.log) |
+| **`P5-02`** | P5 | Consumer Outage | Stop one consumer, publish events | Publisher and surviving consumer continue processing normally | Jenka | Verified ✅ | [`docs/evidence/p5/consumer_recovery.log`](evidence/p5/consumer_recovery.log) |
+| **`P5-03`** | P5 | Consumer Downtime Recovery | Restart stopped consumer | Resumes from last committed checkpoint and consumes missed backlog | Jenka | Verified ✅ | [`docs/evidence/p5/consumer_recovery.log`](evidence/p5/consumer_recovery.log) |
+| **`P5-04`** | P5 | Dynamic 3rd Consumer Addition | Spin up new consumer group | New consumer replays stream without publisher reconfiguration or restart | Jenka | Verified ✅ | [`docs/evidence/p5/consumer_recovery.log`](evidence/p5/consumer_recovery.log) |
 
 ---
 
 ## 4. Operational Rules
 
-1. **Adjusted Phase Roadmap & Milestones:** Phase 3 wraps up remotely on Monday 05 October once downstream consumers are integrated. Joint in-person validation and rehearsal (`ALL-01`) takes place Tuesday 06 October on campus. Report consolidation occurs 06–08 October, preserving an 08–09 October contingency buffer before the hard submission deadline on 09 October 2026, 23:59 WIB.
+1. **Adjusted Phase Roadmap & Milestones:** Phase 3 wrapped up remotely once downstream consumers were integrated. Joint in-person validation and rehearsal (`ALL-01`) was conducted on campus. Report consolidation occurred across 06–08 October, with final clean-checkout QA and tagging completed ahead of the official hard submission deadline on 10 October 2026, 23:59 WIB.
 2. **Strict RACI Boundaries:** Do not write code or business logic in another member's assigned services.
 3. **No Shared Go Packages:** Every service must be 100% self-contained (`pkg/` and `common/` are forbidden).
 4. **Git Branch & PR Workflow:** Work on feature branches, ensure `make test` and Docker builds pass, and merge into `main` via reviewed Pull Requests.
