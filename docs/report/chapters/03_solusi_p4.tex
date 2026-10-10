@@ -10,6 +10,14 @@ Solusi dirancang melalui integrasi dua pilar arsitektur:
     \item \textbf{Penyimpanan Kanonis Fleksibel (Hybrid Relational + JSONB):} Skema tabel \texttt{hazards} memadukan kolom relasional bertipe kuat untuk dimensi pencarian umum (\texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{occurred\_at}) dengan kolom \texttt{attributes JSONB} untuk atribut spesifik instansi. Ketika PVMBG memperkenalkan field \texttt{confidence\_level}, data langsung disimpan berdampingan dengan data lama tanpa memerlukan instruksi \texttt{ALTER TABLE} maupun penguncian tabel.
     \item \textbf{Kepemilikan Tunggal (\textit{Single Ownership}):} Port 5432 database hanya terhubung ke Aggregator di jaringan internal. Client API dilarang keras melakukan koneksi SQL langsung, melainkan mengambil data melalui antarmuka HTTP internal Aggregator (\texttt{:8083/internal/hazards}).
 \end{enumerate}
+Gambar~\ref{fig:relay_outbox} memperlihatkan hubungan kepemilikan penyimpanan dengan distribusi event. Penyimpanan hazard dan outbox dilakukan dalam satu transaksi; relay kemudian melakukan claim, publish ke broker di luar transaksi basis data, dan complete. PostgreSQL menyimpan outbox, sedangkan proses Aggregator yang menerbitkan event ke Redpanda.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.55\textheight,keepaspectratio]{../diagrams/rendered/adr003-outbox.png}
+    \caption[Tiga fase relay Transactional Outbox]{Tiga fase relay Transactional Outbox: claim, publish, dan complete (sumber: \texttt{adr003-outbox.mmd}).}
+    \label{fig:relay_outbox}
+\end{figure}
+
 \clearpage
 \subsection{Alasan Keputusan dan Trade-Off}
 Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsitektur penyimpanan:

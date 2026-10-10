@@ -16,6 +16,22 @@ Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berla
     \item \textbf{Rotasi Refresh Token Sekali Pakai (Single-Use Token Rotation):} Klien Tim Lapangan memperoleh \textit{refresh token} kriptografis acak 32-byte. Saat token akses kedaluwarsa setelah 60 detik, klien memanggil \mbox{\texttt{POST /auth/refresh}}. Auth Service memvalidasi refresh token, mencabut (\textit{burn}) token lama, dan menerbitkan pasangan token baru. Jika token lama digunakan kembali (\textit{replay attack}), sistem secara otomatis membatalkan seluruh sesi refresh terkait.
 \end{enumerate}
 
+Gambar~\ref{fig:alur_auth} menunjukkan pemisahan penerbitan dan pemeriksaan token: klien memperoleh JWT dari Auth, kemudian mengirimkannya ke Client API. Pemeriksaan permintaan data tidak memerlukan panggilan balik ke Auth.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.42\textheight,keepaspectratio]{../diagrams/rendered/auth-flow.png}
+    \caption[Penerbitan dan verifikasi token]{Penerbitan token oleh Auth dan verifikasi lokal oleh Client API (sumber: \texttt{auth-flow.mmd}).}
+    \label{fig:alur_auth}
+\end{figure}
+
+Urutan penegakan akses pada Gambar~\ref{fig:alur_client_api} menempatkan validasi JWT dan scope sebelum permintaan diteruskan ke Aggregator. Dengan urutan ini, permintaan Media terhadap field mentah dapat ditolak di gerbang API.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../diagrams/rendered/clientapi-gateway.png}
+    \caption[Alur permintaan pada Client API]{Alur pemeriksaan JWT, scope, dan penerusan permintaan pada Client API (sumber: \texttt{clientapi-gateway.mmd}).}
+    \label{fig:alur_client_api}
+\end{figure}
+
 \subsection{Alasan Keputusan dan Trade-Off}
 \begin{itemize}
     \item \textbf{JWT Terdesentralisasi vs Token Referensi Terpusat:} Verifikasi JWT secara lokal di Client API mengeliminasi latensi jaringan panggilan balik (\textit{network hop}) ke Auth Service pada setiap permintaan data, dengan \textit{trade-off} token akses yang telah terbit tidak dapat dicabut seketika sebelum masa berlakunya habis (dimitigasi dengan TTL pendek 60 detik).

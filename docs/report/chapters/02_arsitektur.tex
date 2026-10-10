@@ -34,6 +34,14 @@ Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
     \item \textbf{Komunikasi Asinkron (Kafka Protocol via Redpanda):} Untuk aliran diseminasi kejadian bencana ke banyak konsumen secara non-pemblokir (\textit{pub-sub}). Aggregator menerbitkan event kanonis ke topik \texttt{bnpb.hazard-events} berpartisi dengan \texttt{hazard\_id} sebagai \textit{message key}.
 \end{itemize}
 
+Gambar~\ref{fig:komunikasi_http} memperlihatkan jalur permintaan sinkron. Client API memverifikasi JWT secara lokal, meneruskan permintaan beserta \texttt{X-Correlation-ID} ke Aggregator, lalu menyaring respons sesuai scope klien.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.52\textheight,keepaspectratio]{../diagrams/rendered/adr004-sequence.png}
+    \caption[Komunikasi HTTP antarservice]{Komunikasi HTTP antara klien, Client API, Aggregator, dan basis data (sumber: \texttt{adr004-sequence.mmd}).}
+    \label{fig:komunikasi_http}
+\end{figure}
+
 \clearpage
 \section{Kepemilikan Penyimpanan dan Isolasi \mbox{Kontainer}}
 Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi Tugas Besar:
@@ -51,6 +59,14 @@ Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
     \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandainya sebagai terkirim (\textit{marked as sent}).
     \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.
 \end{enumerate}
+
+Gambar~\ref{fig:alur_aggregator} menunjukkan pemisahan poller, normalizer, repository, dan relay di dalam Aggregator. Jalur baca HTTP menggunakan data kanonis yang telah tersimpan, sedangkan relay menerbitkan event dari outbox ke broker.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/aggregator-flow.png}
+    \caption[Alur pemrosesan data pada Aggregator]{Alur pengambilan, normalisasi, persistensi, dan distribusi event oleh Aggregator (sumber: \texttt{aggregator-flow.mmd}).}
+    \label{fig:alur_aggregator}
+\end{figure}
 
 \clearpage
 \section{Teknologi Terpilih dan Alasan Pemilihan}
