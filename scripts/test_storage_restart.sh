@@ -125,7 +125,7 @@ sleep 2
 
 AUTH_URL="${AUTH_URL:-http://localhost:8084}"
 AUTH_INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
-AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-secret123}"
+AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-internal-secret-2026}"
 
 AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
     -H "Content-Type: application/json" \

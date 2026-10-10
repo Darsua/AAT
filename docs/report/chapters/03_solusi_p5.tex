@@ -41,15 +41,15 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
     \item \textbf{Pemilihan Redpanda (Log-based Pub/Sub) vs. Tradisional Message Queue (RabbitMQ AMQP):}
     \begin{itemize}
         \item \textit{RabbitMQ (AMQP Fanout Exchange):} Menyediakan mekanisme distribusi pesan yang baik, namun model antreannya menghapus pesan setelah diakui (\textit{destructive read}). Apabila konsumen baru mendaftar di kemudian hari atau konsumen yang mati membutuhkan pemutaran ulang (\textit{replayability}) dari \textit{offset} awal hari, antrean AMQP membutuhkan konfigurasi antrean terpisah sebelum pesan diterbitkan.
-        \item \textit{Redpanda (Kafka API):} Menggunakan model \textit{immutable distributed commit log}. Pesan dipertahankan berdasarkan durasi retensi waktu dan kuota penyimpanan fisik, bukan status pembacaan konsumen. Konsumen baru dapat bergabung kapan saja dan membaca data tanpa intervensi produser. Redpanda dipilih karena diimplementasikan dalam C++ tanpa ketergantungan JVM atau Zookeeper, berkinerja tinggi, dan hemat memori pada lingkungan kontainer Docker.
+        \item \textit{Redpanda (Kafka API):} Menggunakan model \textit{immutable distributed commit log}. Pesan dipertahankan berdasarkan durasi retensi waktu dan kuota penyimpanan fisik, bukan status pembacaan konsumen. Konsumen baru dapat bergabung kapan saja dan membaca data tanpa intervensi produser. Redpanda dipilih karena diimplementasikan dalam C++ tanpa ketergantungan JVM atau Zookeeper, dan kompatibel dengan API Kafka. Hemat memori bukan alasan pemilihan: saat idle, Redpanda (352 MiB) tidak lebih ringan daripada Kafka 3.7 mode KRaft (297 MiB; lihat ADR 002).
     \end{itemize}
 \end{enumerate}
 
 \clearpage
 \noindent\textbf{Trade-Off Arsitektural:}
 \begin{itemize}
-    \item \textbf{Kelebihan:} \textit{Zero coupling} antara produser dan konsumen; latensi \textit{end-to-end} sub-milidetik untuk \textit{fan-out}; ketahanan data tinggi terhadap kegagalan komponen hilir (\textit{fault isolation}); penambahan konsumen baru sepenuhnya bersifat non-intrusif.
-    \item \textbf{Konsekuensi Negatif:} Diperlukan pengelolaan infrastruktur broker pesan tambahan (\textit{cluster health}, partisi, dan kuota disk); konsistensi data berubah menjadi \textit{eventual consistency} (sistem hilir memiliki selisih latensi beberapa milidetik dibandingkan basis data \textit{Aggregator}); konsumen wajib menangani potensi duplikasi pesan akibat semantik \textit{at-least-once}.
+    \item \textbf{Kelebihan:} Produser tidak bergantung pada identitas atau ketersediaan konsumen; broker mengisolasi gangguan komponen hilir (\textit{fault isolation}); dan konsumen baru dapat ditambahkan tanpa mengubah produser.
+    \item \textbf{Konsekuensi Negatif:} Diperlukan pengelolaan infrastruktur broker pesan tambahan (\textit{cluster health}, partisi, dan kuota disk); data pada sistem hilir bersifat \textit{eventually consistent} dan dapat tertunda ketika terdapat backlog; konsumen wajib menangani potensi duplikasi pesan akibat semantik \textit{at-least-once}. Latensi \textit{fan-out} belum diukur secara khusus pada Milestone 1.
 \end{itemize}
 
 \subsection{Batasan yang Disadari}
@@ -83,7 +83,7 @@ GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Stable    0
 [PASS] Dashboard resumed committed offset; TOTAL-LAG returned to zero
 [Step 5] Dynamic 3rd consumer joined -> Events received -> [PASS]
-Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
+Results: 11 passed, 0 failed. Fan-Out & Recovery Verified!
 \end{lstlisting}
 \end{minipage}
 
@@ -103,20 +103,20 @@ Jawaban komprehensif atas aspek evaluasi Problem 5:
 \begin{enumerate}
     \item \textbf{Broker dan Pola yang Dipilih:}
     \begin{itemize}
-        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), konsumsi memori rendah, latensi I/O stabil berbasis seastar engine, serta dukungan utilitas CLI \texttt{rpk}.
+        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), serta dukungan utilitas CLI \texttt{rpk}.
         \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \texttt{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
     \end{itemize}
 
     \item \textbf{Semantik Pengiriman yang Berlaku (\textit{At-Least-Once Delivery}):}
     \begin{itemize}
-        \item Produser mengirimkan pesan dengan tingkat pengakuan \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan tercatat pada \textit{commit log} broker sebelum dianggap sukses.
-        \item Konsumen menonaktifkan \textit{auto-commit} (\texttt{CommitInterval: 0}), membaca pesan via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
-        \item Jika terjadi kegagalan jaringan atau proses mati tiba-tiba, \textit{offset} belum terkomit sehingga pesan dikirim ulang (\textit{redeliver}) saat pulih, menjamin \textit{zero message loss}.
+        \item Produser (outbox relay pada Aggregator) mengirimkan pesan dengan tingkat pengakuan \texttt{acks=1} (\texttt{kafka.RequireOne}), sehingga pesan telah dicatat oleh \textit{leader} partisi sebelum dianggap sukses.
+        \item Konsumen tidak memakai komit otomatis: pesan dibaca via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
+        \item Jika terjadi kegagalan jaringan atau proses mati sebelum komit, \textit{offset} belum tersimpan sehingga pesan dapat dikirim ulang (\textit{redeliver}) saat pulih. Kombinasi transactional outbox, retry, retensi broker, dan komit manual mendukung semantik \textit{at-least-once} selama basis data dan log broker tetap tersedia; rancangan single-node dengan \texttt{acks=1} bukan jaminan absolut \textit{zero message loss}.
     \end{itemize}
 
     \item \textbf{Konsekuensi bagi Consumer dan Perlunya Sifat Idempoten:}
     \begin{itemize}
-        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) niscaya terjadi saat \textit{timeout} atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana terhitung ganda (\textit{double count}) pada Dashboard dan memicu banjir notifikasi berulang (\textit{alert fatigue}) pada Notifier.
+        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) dapat terjadi saat \textit{timeout}, retry, atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana dapat terhitung ganda (\textit{double count}) pada Dashboard dan memicu notifikasi berulang (\textit{alert fatigue}) pada Notifier.
         \item \textbf{Strategi Mitigasi (\textit{Event Identity}):} Setiap bencana membawa identitas global deterministik (\texttt{hazard\_id}). Pada prototipe saat ini, konsumen mengelola set \texttt{processed[hazard\_id]} dalam memori dengan perlindungan \texttt{sync.Mutex} untuk mengabaikan duplikasi sebelum komit. Pada skala multi-replika produksi, hal ini disikapi via operasi atomik (Redis \texttt{SETNX}) atau integritas basis data relasional (\texttt{ON CONFLICT DO NOTHING}).
     \end{itemize}
 \end{enumerate}

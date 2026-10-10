@@ -11,11 +11,17 @@
 
 The `mock-bmkg` service acts as an upstream simulation of the Indonesian BMKG seismic and tsunami early warning API feeds. It provides earthquake event catalogs and tsunami warnings for the central BNPB `aggregator` service to ingest, normalize, and distribute.
 
-```
-+---------------+     HTTP (GET)      +--------------------+
-|   mock-bmkg   | <------------------ |  aggregator (8083) |
-|  (:8081)      |   X-BMKG-Key Auth   +--------------------+
-+---------------+
+```mermaid
+flowchart LR
+    AGG["aggregator :8083"]:::svc -->|"HTTP GET<br/>X-BMKG-Key"| BM["mock-bmkg :8081"]:::ext
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---

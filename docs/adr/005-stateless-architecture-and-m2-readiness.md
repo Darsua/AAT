@@ -14,34 +14,45 @@ Authoritative state should live in durable infrastructure before services are sc
 ---
 
 ## Decision
-We keep the synchronous read path stateless, delegate canonical data and message offsets to `canonical-db` and `redpanda`, adopt **time-ordered UUIDv7 identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**. The Milestone 1 Auth refresh-token store and consumer deduplication/counters are documented exceptions that must move to durable shared storage before those services are horizontally scaled.
+We keep the synchronous read path stateless, delegate canonical data and message offsets to `canonical-db` and `redpanda`, derive **deterministic, source-based hazard identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**. The Milestone 1 Auth refresh-token store and consumer deduplication/counters are documented exceptions that must move to durable shared storage before those services are horizontally scaled.
 
 ```mermaid
-flowchart TD
-    subgraph M1Baseline["Milestone 1: Single-Instance Baseline"]
-        C1["client-api:8080"]
-        A1["aggregator:8083"]
-        DB1[("canonical-db:5432\nPostgreSQL")]
-        RP1[("redpanda:9092\nPartitions 0–2")]
-        CG1["consumers (1 replica)"]
+flowchart TB
+    subgraph M1["Milestone 1: single-instance baseline (implemented)"]
+        direction LR
+        C1["client-api :8080"]:::svc
+        A1["aggregator :8083"]:::svc
+        DB1[("canonical-db :5432")]:::store
+        RP1[["redpanda :9092<br/>3 partitions"]]:::broker
+        CG1["consumers<br/>1 replica per group"]:::cons
+        C1 --> A1
+        A1 --> DB1
+        A1 --> RP1
+        RP1 --> CG1
     end
 
-    subgraph M2Evolution["Milestone 2: Horizontal Scale-Out"]
-        LB["Nginx / Envoy Load Balancer"]
-        C_N1["client-api (Replica 1)"]
-        C_N2["client-api (Replica 2)"]
-        Redis[("Redis Cluster\n(Read-Through Cache)")]
-        A_N1["aggregator (Replica 1 - Leader)"]
-        A_N2["aggregator (Replica 2 - Follower)"]
-        RP_N[("redpanda:9092\nPartitions 0, 1, 2")]
-        CG_N1["consumer (Worker 1)"]
-        CG_N2["consumer (Worker 2)"]
+    subgraph M2["Milestone 2: horizontal scale-out (plan only)"]
+        direction LR
+        LB["Nginx or Envoy<br/>load balancer"]:::plan
+        CN["client-api<br/>replicas 1..N"]:::plan
+        RED[("Redis<br/>read-through cache")]:::plan
+        AN["aggregator"]:::plan
+        RPN[["redpanda<br/>6 partitions"]]:::plan
+        CGN["consumer workers<br/>share one group"]:::plan
+        LB --> CN
+        CN --> RED
+        RED -->|"cache miss"| AN
+        RPN --> CGN
     end
+    M1 ~~~ M2
 
-    LB --> C_N1 & C_N2
-    C_N1 & C_N2 --> Redis
-    Redis --> A_N1 & A_N2
-    RP_N --> CG_N1 & CG_N2
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -52,18 +63,12 @@ flowchart TD
 * **`client-api`**: Holds no local state. Authentication is verified statelessly via cryptographic signature verification on self-contained JWT tokens (HMAC-SHA256 with 60-second expiration). Any incoming request can be served by any `client-api` container replica.
 * **`auth`**: Issues signed JWTs containing user identities and a `scope` claim (`hazards:read:summary` or `hazards:read:all`; see `contracts/auth_api.yaml`). Access-token verification requires only the shared verification key. Refresh-token rotation is process-local in Milestone 1, so an Auth restart invalidates outstanding refresh tokens and multiple Auth replicas would require a shared Redis or database store.
 * **Consumers**: Redpanda durably stores committed offsets, but the current deduplication sets and dashboard counters are process-local. They are sufficient for the single-replica Milestone 1 baseline; durable idempotency and counters must be externalized before multi-replica deployment.
-* **`aggregator`**: Polling cursors and ingestion timestamps are committed transactionally to `canonical-db`. Restarting or replicating the aggregator does not lose cursor progress.
+* **`aggregator`**: Each poller keeps its cursor in process memory and bootstraps it from the latest `occurred_at` stored in `canonical-db` on start (`GetLatestOccurredAt`), re-reading with a 10-second overlap window. Restarting the aggregator therefore does not lose progress, and the overlap is made safe by the idempotent upsert below.
 
-### 2. Time-Ordered Identifiers (UUIDv7)
-Traditional sequential auto-increment integer IDs (`SERIAL`) require central database sequences, causing contention during high-concurrency inserts across distributed instances. Traditional random UUIDv4 identifiers cause B-Tree index fragmentation and poor cache locality.
-* **Solution**: We adopt **UUIDv7** for all `hazard_id` generation. UUIDv7 combines a 48-bit millisecond Unix timestamp with 74 bits of cryptographically random data:
-  ```
-  018e6e5b-3b4e-7b3b-8f3a-2a1c9e8d4f00
-  |--- Timestamp ---|-- Ver --|-- Rand --|
-  ```
-* **Advantages**:
-  * Globally unique and generated locally in Go with zero database round-trips.
-  * Monotonically increasing: Maintains sequential B-Tree append locality, maximizing PostgreSQL insert performance and reducing table bloat.
+### 2. Deterministic Identifiers
+`hazard_id` is not a random or sequential value. `formatHazardID` in `services/aggregator/internal/normalizer/normalizer.go` builds it from a source prefix and the upstream reference (for example `haz-bmkg-<event_id>` and `haz-pvmbg-<report_id>`), bounded in length. The outbox `event_id` is derived the same way from the source and reference (`formatOutboxEventID`).
+* **Advantages**: no database round-trip or sequence is needed to generate an identifier, any replica derives the same identifier for the same upstream record, and re-ingesting a record updates the existing row instead of creating a duplicate.
+* **Trade-off**: identifiers are not time-ordered, so inserts do not benefit from B-Tree append locality. Time-ordered keys such as UUIDv7 remain an option if insert contention becomes a measured problem in Milestone 2.
 
 ### 3. Database-Level Idempotency Guarantees
 To prevent duplicate records during network retries or multi-instance polling, idempotency is enforced at the storage engine level:
@@ -75,6 +80,8 @@ Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) D
 ---
 
 ## Milestone 2 Evolution Path
+
+> **Status: plan only.** Nothing in this section is implemented in Milestone 1. Items here (replicas behind a load balancer, Redis read-through cache, circuit breaker, six partitions) are design intentions to be validated when Milestone 2 starts; they are not claims about the current code.
 
 ### 1. Multi-Instance Horizontal Scaling
 * **`client-api` Scaling**:
@@ -118,11 +125,12 @@ Problem 2 introduces external provider outages (e.g., PVMBG downtime).
 * In Milestone 2, we wrap external HTTP polling with a **Circuit Breaker** (e.g., `sony/gobreaker`):
   ```mermaid
   stateDiagram-v2
+      direction LR
       [*] --> Closed
-      Closed --> Open: Consecutive Failures > Threshold (e.g. 5)
-      Open --> HalfOpen: Cooldown Timer Expires (e.g. 30s)
-      HalfOpen --> Closed: Probe Request Succeeds
-      HalfOpen --> Open: Probe Request Fails
+      Closed --> Open: consecutive failures > threshold (e.g. 5)
+      Open --> HalfOpen: cooldown expires (e.g. 30 s)
+      HalfOpen --> Closed: probe succeeds
+      HalfOpen --> Open: probe fails
   ```
   * **Closed State**: Requests flow normally to `mock-pvmbg`.
   * **Open State**: Immediate fallback to canonical cache; prevents polling worker threads from exhausting sockets or thundering-herd effects on recovering providers.
@@ -131,8 +139,8 @@ Problem 2 introduces external provider outages (e.g., PVMBG downtime).
 ### 4. Topic Partitioning & High Throughput
 In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the one-shot `redpanda-init` Compose service. For Milestone 2:
 * Increase partitions from 3 to 6.
-* Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`).
-* Guarantees strict chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
+* Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`). Note that Milestone 1 keys by `hazard_id`, which orders updates per hazard (see [ADR 002](002-message-broker-redpanda.md)); changing the key changes the ordering guarantee from per hazard to per category or area, so this trade-off must be re-evaluated before the change.
+* Would give chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
 
 ---
 
@@ -140,7 +148,7 @@ In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the on
 
 | Architecture Aspect | Milestone 1 Foundation | Milestone 2 Evolution | Code Changes Required |
 | :--- | :--- | :--- | :--- |
-| **Identity Generation** | UUIDv7 (time-ordered) | Distributed UUIDv7 | None |
+| **Identity Generation** | Deterministic `hazard_id` derived from source and source reference | Same scheme (replica-safe because it needs no coordination) | None |
 | **Data Idempotency** | PostgreSQL Unique Constraints | Distributed Deduplication Table | None |
 | **Client Gateway** | Single stateless `client-api` | N instances behind Envoy | Compose configuration only |
 | **Auth Refresh State** | Process-local rotation store | Shared Redis or database store | Replace refresh-token store |

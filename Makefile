@@ -27,7 +27,7 @@ help:
 	@echo "  demo-p3      Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
 	@echo "  demo-p4      Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
 	@echo "  demo-p5      Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
-	@echo "  load-test    Run k6 load test against Client API (50 VUs, 60s)"
+	@echo "  load-test    Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
 	@echo "  report       Compile modular LaTeX report to PDF via tectonic"
 	@echo "========================================================================"
 
@@ -99,7 +99,7 @@ load-test:
 		k6 run ./scripts/load_test.js; \
 	else \
 		echo "[load-test] k6 binary not found locally. Running via Docker grafana/k6..."; \
-		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" grafana/k6 run - < ./scripts/load_test.js; \
+		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" -e PVMBG_TOKEN="$$PVMBG_TOKEN" -e LOAD_DURATION="$${LOAD_DURATION:-60s}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi
 
 ## Build modular LaTeX report using tectonic

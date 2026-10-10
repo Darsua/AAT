@@ -13,16 +13,18 @@ The `mock-pvmbg` service simulates the Geological Agency / Center for Volcanolog
 
 Additionally, this service includes **Admin Chaos Toggles (P1 & P2)** to simulate upstream disruptions and contract changes, allowing Darrel's `aggregator` to be tested against real-world upstream failures.
 
-```
-+--------------------+     HTTP (GET)      +--------------------+
-|     mock-pvmbg     | <------------------ |  aggregator (8083) |
-|      (:8082)       |     Bearer Auth     +--------------------+
-+--------------------+
-          ^
-          | Admin POST toggles (Chaos Testing)
-+--------------------+
-|  Tester / Script   |
-+--------------------+
+```mermaid
+flowchart LR
+    AGG["aggregator :8083"]:::svc -->|"HTTP GET<br/>Bearer token"| PV["mock-pvmbg :8082"]:::ext
+    TST["Tester or script"]:::actor -->|"Admin POST toggles<br/>(chaos testing)"| PV
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -47,7 +49,7 @@ Additionally, this service includes **Admin Chaos Toggles (P1 & P2)** to simulat
 
 ### 2.3 Latency Injection Requirement
 - Field observation data from remote mountain stations suffers from high latency and variable network conditions.
-- Every response to `GET /volcanic-reports` must inject an artificial random delay between **500ms and 3000ms (3.0s)** to test upstream timeout handling and asynchronous polling.
+- Every response to `GET /volcanic-reports` must inject an artificial random delay between **500ms and 3000ms (3.0s)** to test upstream timeout handling and asynchronous polling. The bounds are configurable with `PVMBG_DELAY_MIN_MS` (default `500`) and `PVMBG_DELAY_MAX_MS` (default `3000`); set both to `3000` for a fixed 3 s delay.
 
 ---
 

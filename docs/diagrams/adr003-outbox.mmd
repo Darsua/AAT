@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant Ing as aggregator (ingestion)
+    participant DB as canonical-db
+    participant Rel as aggregator (outbox relay)
+    participant RP as redpanda
+
+    Ing->>DB: One transaction:<br/>UPSERT hazards,<br/>INSERT outbox_events (published = false)
+    loop every 500 ms
+        Rel->>DB: Phase 1, claim (short transaction)<br/>FOR UPDATE SKIP LOCKED, claim_expires_at = now + 30 s
+        DB-->>Rel: claimed rows
+        alt payload cannot be parsed
+            Rel->>DB: quarantine (event_type = hazard_event_quarantined)
+        else payload valid
+            Rel->>RP: Phase 2, publish (no transaction held)<br/>key = hazard_id, header X-Correlation-ID
+            RP-->>Rel: ack
+            Rel->>DB: Phase 3, complete (short transaction)<br/>UPDATE published = true WHERE id AND payload unchanged
+        end
+    end
+    Note over Rel,DB: On a publish error nothing is marked. The row is claimed again once the 30 s lease expires.

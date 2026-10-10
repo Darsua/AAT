@@ -9,115 +9,7 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
 \end{enumerate}
 \begin{figure}[H]
 \centering
-\resizebox{0.60\textwidth}{!}{%
-\begin{tikzpicture}[
-    box/.style={
-        draw=itbblue!85,
-        fill=boxbg,
-        rounded corners=3pt,
-        align=center,
-        font=\scriptsize,
-        inner sep=3pt
-    },
-    clientbox/.style={
-        box,
-        draw=gray!80,
-        fill=white
-    },
-    arrow/.style={
-        -{Stealth[scale=0.85]},
-        thick,
-        itbblue!90
-    },
-    syncarrow/.style={
-        {Stealth[scale=0.85]}-{Stealth[scale=0.85]},
-        thick,
-        itbblue!90
-    },
-    lbl/.style={
-        font=\tiny\itshape,
-        text=black!85,
-        fill=white,
-        inner sep=1.5pt,
-        rounded corners=1pt
-    }
-]
-
-% Row 1: Upstream Mocks (y=6.4)
-\node[box, fill=orange!10, draw=orange!80, text width=4.5cm] (bmkg) at (3.8, 6.4) {
-    \textbf{\texttt{mock-bmkg}} \textnormal{(:8081)}\\
-    \tiny Upstream Gempa \& Tsunami (REST)
-};
-\node[box, fill=orange!10, draw=orange!80, text width=4.5cm] (pvmbg) at (9.6, 6.4) {
-    \textbf{\texttt{mock-pvmbg}} \textnormal{(:8082)}\\
-    \tiny Upstream Vulkanik \& Outage (REST)
-};
-
-% Column 1: Client API & Auth (x=2.2)
-\node[box, fill=teal!10, draw=teal!80, text width=3.4cm] (auth) at (2.2, 4.4) {
-    \textbf{Auth Service} \textnormal{(:8084)}\\
-    \tiny Token JWT 60s \& Refresh
-};
-\node[box, fill=blue!10, draw=blue!80, text width=3.4cm] (clientapi) at (2.2, 2.6) {
-    \textbf{Client API} \textnormal{(:8080)}\\
-    \tiny Gateway $\cdot$ RBAC $\cdot$ Tracing
-};
-\node[clientbox, text width=3.4cm] (clients) at (2.2, 0.9) {
-    \textbf{Downstream Clients}\\
-    \tiny Media $\mid$ Tim Lapangan $\mid$ Ops
-};
-
-% Column 2: Core Platform (x=6.2)
-\node[box, fill=itbblue!12, draw=itbblue, text width=4.4cm] (agg) at (6.2, 4.4) {
-    \textbf{Aggregator Service} \textnormal{(:8083)}\\
-    \tiny Ingesti \& Harmonisasi\\
-    \tiny Transactional Outbox Relay
-};
-\node[box, fill=green!10, draw=green!60!black, text width=4.4cm] (db) at (6.2, 2.4) {
-    \textbf{PostgreSQL 16}\\
-    \tiny Canonical DB (:5432)\\
-    \tiny \texttt{hazards} + \texttt{outbox\_events}
-};
-
-% Column 3: Redpanda & Consumers (x=12.2)
-\node[box, fill=red!10, draw=red!80, text width=3.4cm] (redpanda) at (12.2, 4.4) {
-    \textbf{Redpanda Broker} \textnormal{(:9092)}\\
-    \tiny Topic: \texttt{bnpb.hazard-events}
-};
-\node[box, fill=purple!10, draw=purple!80, text width=3.2cm] (dash) at (12.2, 3.2) {
-    \textbf{\texttt{dashboard-consumer}}\\
-    \tiny Group: \texttt{dashboard}
-};
-\node[box, fill=purple!10, draw=purple!80, text width=3.2cm] (notif) at (12.2, 2.1) {
-    \textbf{\texttt{notifier-consumer}}\\
-    \tiny Group: \texttt{notifier}
-};
-\node[box, fill=purple!10, draw=purple!80, text width=3.2cm] (dyn) at (12.2, 1.0) {
-    \textbf{\texttt{dynamic-3rd}}\\
-    \tiny Evaluator / Pemda
-};
-
-% Upstream Polling
-\draw[arrow] (agg.north west) -- node[lbl, above left=-1pt] {Polling (\texttt{X-BMKG-Key})} (bmkg.south);
-\draw[arrow] (agg.north east) -- node[lbl, above right=-1pt] {Polling (Bearer)} (pvmbg.south);
-
-% Storage & Outbox
-\draw[syncarrow] (agg.south) -- node[lbl, right=3pt] {ACID TX / pgx} (db.north);
-\draw[arrow] (agg.east) -- node[lbl, above=1pt] {Outbox Relay} (redpanda.west);
-
-% Client Gateway & Auth
-\draw[arrow] (clients.north) -- node[lbl, right=2pt] {Bearer Auth} (clientapi.south);
-\draw[arrow] (clientapi.north) -- node[lbl, left=2pt] {Verify JWT} (auth.south);
-\draw[arrow] (clientapi.east) -- node[lbl, above right=-1pt] {Internal REST} (agg.south west);
-
-% Redpanda Event Stream Distribution
-\draw[thick, itbblue!90] (redpanda.south) -- ++(0,-0.3) -| (10.2, 1.0);
-\draw[arrow] (10.2, 3.2) -- (dash.west);
-\draw[arrow] (10.2, 2.1) -- (notif.west);
-\draw[arrow] (10.2, 1.0) -- (dyn.west);
-
-\end{tikzpicture}%
-}
+\includegraphics[width=0.92\textwidth,height=0.76\textheight,keepaspectratio]{figures/arsitektur.pdf}
 \caption{Diagram Arsitektur Sistem Terdistribusi BNPB Milestone 1}
 \label{fig:arsitektur}
 \end{figure}
@@ -127,7 +19,7 @@ Sistem Koordinasi Kebencanaan BNPB dibangun menggunakan arsitektur \textit{event
 Setiap service memiliki batas tanggung jawab (\textit{bounded context}) yang didefinisikan secara tegas:
 \begin{itemize}
     \item \textbf{\texttt{mock-bmkg}:} Mensimulasikan data gempa bumi (\texttt{SeismicEvent}) dan peringatan tsunami (\texttt{TsunamiWarning}). Menegakkan header autentikasi \texttt{X-BMKG-Key} dan merespons dengan latensi rendah (50--150 ms).
-    \item \textbf{\texttt{mock-pvmbg}:} Mensimulasikan laporan vulkanik (\texttt{VolcanicReport}). Menegakkan Bearer token, latensi tinggi (500 ms--3 s), simulasi pemadaman (\texttt{POST /admin/outage}), dan perubahan skema aditif (\texttt{POST /admin/schema-version}).
+    \item \textbf{\texttt{mock-pvmbg}:} Mensimulasikan laporan vulkanik (\texttt{VolcanicReport}). Menegakkan Bearer token, latensi tinggi (500 ms--3 s, dapat dikonfigurasi lewat \texttt{PVMBG\_DELAY\_MIN\_MS} dan \texttt{PVMBG\_DELAY\_MAX\_MS}), simulasi pemadaman (\texttt{POST /admin/outage}), dan perubahan skema aditif (\texttt{POST /admin/schema-version}).
     \item \textbf{\texttt{aggregator}:} Melakukan ingesti hulu berkala secara paralel, normalisasi ke \texttt{HazardEvent}, pengayaan koordinat via katalog statis, persistensi transaksional PostgreSQL, penandaan status degradasi, dan \textit{Transactional Outbox Relay}.
     \item \textbf{\texttt{auth}:} Mengelola direktori klien, menerbitkan token akses JWT berumur 60 detik dengan klaim \textit{scope} terisolasi, serta menangani rotasi \textit{refresh token} dengan deteksi pembatalan \textit{replay}.
     \item \textbf{\texttt{client-api}:} Gerbang HTTP publik hilir. Bertanggung jawab memvalidasi JWT dan klaim scope, menyaring atribut mentah untuk Media, serta mempropagasi \texttt{X-Correlation-ID} ke Aggregator.
@@ -154,7 +46,7 @@ Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi T
 \section{Alur Permintaan, Data, dan Event}
 Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 \begin{enumerate}
-    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
+    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 3 detik (nilai bawaan \texttt{POLL\_INTERVAL\_SECS}) dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
     \item \textbf{Normalisasi \& Transaksi:} Data dipetakan ke \texttt{HazardEvent}. Melalui satu transaksi ACID (\texttt{SaveHazardWithOutbox}), Aggregator menyimpan entitas ke \texttt{hazards} sekaligus mencatat baris baru pada \texttt{outbox\_events}.
     \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandainya sebagai terkirim (\textit{marked as sent}).
     \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.
@@ -185,7 +77,7 @@ Database & PostgreSQL 16 (JSONB) & Menjamin transaksi ACID penuh untuk pola Tran
 \addlinespace[2pt]
 Komunikasi & HTTP/REST \& JSON & Standar industri yang transparan, mudah di-debug, mendukung interoperabilitas universal, dan menyederhanakan penegakan kontrak OpenAPI antarservice. \\
 \addlinespace[2pt]
-Message Broker & Redpanda 24.1 (API Kafka) & Kompatibel penuh dengan ekosistem Kafka tanpa ketergantungan JVM atau Zookeeper, latensi deterministik berbasis C++/Raft, serta konsumsi sumber daya ringan dalam container. \\
+Message Broker & Redpanda 24.1 (API Kafka) & Kompatibel dengan API Kafka tanpa ketergantungan JVM atau Zookeeper, berbasis C++/Raft dalam satu biner, serta menyediakan utilitas \texttt{rpk} yang dipakai untuk inisialisasi topik. \\
 \addlinespace[2pt]
 Autentikasi & JWT HS256 \& Refresh Token & Memungkinkan verifikasi klaim hak akses (\textit{scope}) secara terdesentralisasi di sisi Client API tanpa panggilan jaringan berulang ke Auth Service, dengan rotasi berkala untuk keamanan. \\
 \addlinespace[2pt]

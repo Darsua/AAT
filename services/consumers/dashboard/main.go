@@ -199,6 +199,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	startHealthServer(ctx, getEnv("PORT", "8085"))
+
 	log.Printf(
 		"[dashboard] consuming topic=%s group=%s brokers=%s",
 		config.Topic,

@@ -30,29 +30,26 @@ We adopt **PostgreSQL 16 (Alpine)** as our canonical storage engine, utilizing a
 The course specification explicitly requires a rigorous comparative evaluation of storage alternatives to justify the persistence architecture.
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion["Ingestion Flow"]
-        Input["Incoming Agency Event\n(BMKG / PVMBG)"]
-        Transform["Canonical Harmonization &\nStatic Volcano Lookup"]
-    end
+sequenceDiagram
+    autonumber
+    participant Ing as aggregator (ingestion)
+    participant DB as canonical-db
+    participant Rel as aggregator (outbox relay)
+    participant RP as redpanda
 
-    subgraph AtomicTx["Single PostgreSQL ACID Transaction"]
-        Hazards["INSERT INTO hazards\n(Strict Envelope + JSONB attributes)"]
-        Outbox["INSERT INTO outbox_events\n(payload: HazardEvent JSON, published: false)"]
+    Ing->>DB: One transaction:<br/>UPSERT hazards,<br/>INSERT outbox_events (published = false)
+    loop every 500 ms
+        Rel->>DB: Phase 1, claim (short transaction)<br/>FOR UPDATE SKIP LOCKED, claim_expires_at = now + 30 s
+        DB-->>Rel: claimed rows
+        alt payload cannot be parsed
+            Rel->>DB: quarantine (event_type = hazard_event_quarantined)
+        else payload valid
+            Rel->>RP: Phase 2, publish (no transaction held)<br/>key = hazard_id, header X-Correlation-ID
+            RP-->>Rel: ack
+            Rel->>DB: Phase 3, complete (short transaction)<br/>UPDATE published = true WHERE id AND payload unchanged
+        end
     end
-
-    subgraph AsyncRelay["Asynchronous Background Relay"]
-        RelayWorker["Outbox Relay Worker\n(SELECT ... FOR UPDATE SKIP LOCKED)"]
-        Redpanda["Redpanda Broker\n(Topic: bnpb.hazard-events)"]
-        MarkDone["UPDATE outbox_events\nSET published = true"]
-    end
-
-    Input --> Transform
-    Transform --> AtomicTx
-    Hazards --- Outbox
-    AtomicTx --> RelayWorker
-    RelayWorker -->|1. Produce| Redpanda
-    Redpanda -->|2. ACK| MarkDone
+    Note over Rel,DB: On a publish error nothing is marked. The row is claimed again once the 30 s lease expires.
 ```
 
 ### Comparative Matrix
@@ -60,10 +57,10 @@ flowchart TD
 | Evaluation Criteria | PostgreSQL 16 + JSONB (Chosen) | Pure Document Store: MongoDB 7.0 (Rejected) | Strict Normalized SQL: MySQL 8 (Rejected) |
 | :--- | :--- | :--- | :--- |
 | **P1: Dynamic Additive Schema** | **Native**. Unknown fields unmarshal directly into `attributes JSONB` without DDL migrations. | **Native**. BSON documents natively accept dynamic additive attributes. | **Fails**. Any new field (`confidence_level`) requires `ALTER TABLE` or triggers SQL column errors. |
-| **Multi-Document ACID Transactions** | **Native & Lightweight**. Standard `BEGIN ... COMMIT` handles `hazards` + `outbox_events` atomically. | **Complex & Fragile**. Multi-document transactions strictly require a **Replica Set**. Standalone single nodes crash with transaction errors. | **Native**. Standard ACID transaction support. |
+| **Multi-Document ACID Transactions** | **Native & Lightweight**. Standard `BEGIN ... COMMIT` handles `hazards` + `outbox_events` atomically. | **Complex & Fragile**. Multi-document transactions require a **Replica Set** (a single-member set is enough). A standalone `mongod` rejects them. | **Native**. Standard ACID transaction support. |
 | **Relational Reference Enrichment** | **Native & Indexed**. Fast B-Tree lookup on `volcano_references(volcano_id)`. | **Requires Aggregation**. Must use `$lookup` aggregation pipelines or dual-query client joins. | **Native & Indexed**. Standard foreign key / join semantics. |
-| **Idle Memory Footprint** | **~22–28 MB** (PostgreSQL Alpine container). | **~350–650 MB** (WiredTiger engine pre-allocates substantial cache). | ~180–300 MB (InnoDB buffer pool defaults). |
-| **Docker Compose Ergonomics** | **Zero Setup**. Single lightweight container with standard `/docker-entrypoint-initdb.d/`. | **High Friction**. Requires complex init script to initiate replica set (`rs.initiate()`) before transactions work. | Moderate. Requires table migrations and health check scripts. |
+| **Idle Memory Footprint** | **47.7 MiB** (measured, `postgres:16-alpine` in the running stack). | 76.2 MiB (measured, `mongo:7.0`, empty, default settings). | 385 MiB (measured, `mysql:8.0`, default settings). |
+| **Docker Compose Ergonomics** | **Zero Setup**. Single lightweight container with standard `/docker-entrypoint-initdb.d/`. | **High Friction**. Requires starting `mongod` with `--replSet` and running `rs.initiate()` before transactions work. | Moderate. Requires table migrations and health check scripts. |
 | **Indexing Flexibility** | GIN indexes on `attributes`, B-Tree indexes on timestamp, severity, and type. | Compound B-tree and multi-key indexes. | B-Tree indexes on fixed columns only; JSON columns cannot be natively foreign-keyed. |
 
 ---
@@ -71,12 +68,12 @@ flowchart TD
 ## Detailed Rationale for Choices & Rejections
 
 ### Why Pure Document Store (MongoDB) Was Rejected
-1. **Multi-Document Transaction Constraint**: The Transactional Outbox pattern requires an atomic transaction spanning two logical collections (`hazards` and `outbox_events`). In MongoDB, **multi-document ACID transactions are strictly forbidden on standalone instances**; attempting to execute `session.startTransaction()` on a standalone mongod instance results in:
+1. **Multi-Document Transaction Constraint**: The Transactional Outbox pattern requires an atomic transaction spanning two logical collections (`hazards` and `outbox_events`). In MongoDB, **multi-document ACID transactions are not available on standalone instances**. Tested on `mongo:7.0` (see `docs/adr-audit.md`, section E6): a transaction command sent to a standalone mongod fails with:
    ```
    MongoServerError: Transaction numbers are only allowed on a replica set member or mongos
    ```
-   To run transactions in Docker Compose, one must configure a multi-node replica set or execute a custom bash sidecar running `rs.initiate()`. This introduces significant operational brittleness during automated grading runs.
-2. **Memory Footprint**: MongoDB's WiredTiger storage engine aggressively pre-allocates memory for internal caches, routinely consuming 400 MB to 1 GB RAM even at complete idle. In a setup running eight concurrent containers, this wastes scarce host resources.
+   A replica set with a single member is sufficient (the same test committed a two-document transaction after `rs.initiate()` on one node), so no multi-node cluster is needed. It still requires `--replSet` and an `rs.initiate()` step (a sidecar or init script) before the application can start, and a node started with `--replSet` rejects writes until that step has run. This adds an ordering dependency to Docker Compose startup that PostgreSQL does not have.
+2. **Memory Footprint**: *Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [`docs/adr-audit.md`](../adr-audit.md), section E. Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.* An empty `mongo:7.0` container idled at 76.2 MiB (1.18 GB image, ready in 1.2 s), which is about 1.6x the PostgreSQL figure rather than a large multiple. Memory is therefore **not** a deciding argument against MongoDB; the transaction constraint above and the join-free reference lookup below are.
 3. **Volcano Reference Lookups**: Relational joins for volcano coordinates (`VLC-001` → latitude/longitude) are awkward in document models and require multi-stage `$lookup` aggregation pipelines instead of simple, indexed SQL lookups.
 
 ### Why Strict Normalized Relational SQL Was Rejected
@@ -102,9 +99,9 @@ PostgreSQL 16 combines the structural rigor of relational databases with the sch
 
 -- 1. Hazards Table
 CREATE TABLE IF NOT EXISTS hazards (
-    hazard_id VARCHAR(64) PRIMARY KEY,
+    hazard_id VARCHAR(128) PRIMARY KEY,
     source VARCHAR(32) NOT NULL,
-    source_ref_id VARCHAR(64) NOT NULL,
+    source_ref_id VARCHAR(128) NOT NULL,
     hazard_type VARCHAR(32) NOT NULL,
     severity VARCHAR(32) NOT NULL,
     area_name TEXT NOT NULL,
@@ -119,6 +116,7 @@ CREATE TABLE IF NOT EXISTS hazards (
 -- Indexes for hazards query performance
 CREATE INDEX IF NOT EXISTS idx_hazards_occurred_at ON hazards(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_type_occurred ON hazards(hazard_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hazards_severity_occurred ON hazards(severity, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_attributes_gin ON hazards USING gin(attributes);
 
 -- 2. Volcano References Table
@@ -145,13 +143,22 @@ ON CONFLICT (volcano_id) DO UPDATE SET
 -- 3. Transactional Outbox Table
 CREATE TABLE IF NOT EXISTS outbox_events (
     id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(64) NOT NULL UNIQUE,
+    event_id VARCHAR(128) NOT NULL UNIQUE,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     published BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at TIMESTAMPTZ
+    published_at TIMESTAMPTZ,
+    claim_expires_at TIMESTAMPTZ
 );
+
+-- Idempotent column addition and alterations for existing volumes
+ALTER TABLE hazards ALTER COLUMN hazard_id TYPE VARCHAR(128);
+ALTER TABLE hazards ALTER COLUMN source_ref_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ALTER COLUMN event_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;
@@ -161,77 +168,24 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 
 ## Transactional Outbox Worker Loop
 
-The outbox worker inside `services/aggregator` guarantees **at-least-once message delivery** without dual-write failure:
+The outbox relay (`services/aggregator/internal/worker/outbox_relay.go`, with the claim and completion queries in `internal/repository/hazard_repo.go`, `RelayOutboxBatch`) guarantees **at-least-once message delivery** without dual-write failure. A tick (default 500 ms) runs three phases so that no database lock is held while talking to the broker:
 
-```go
-func (r *OutboxRelay) Run(ctx context.Context) {
-    ticker := time.NewTicker(500 * time.Millisecond)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            r.flushBatch(ctx)
-        }
-    }
-}
-
-func (r *OutboxRelay) flushBatch(ctx context.Context) {
-    tx, err := r.db.Begin(ctx)
-    if err != nil {
-        return
-    }
-    defer tx.Rollback(ctx)
-
-    // Lock up to 50 unpublished records, skipping any currently locked by other workers
-    rows, err := tx.Query(ctx, `
-        SELECT id, event_id, payload 
-        FROM outbox_events 
-        WHERE published = FALSE 
-        ORDER BY id ASC 
-        LIMIT 50 
-        FOR UPDATE SKIP LOCKED
-    `)
-    if err != nil {
-        return
-    }
-    defer rows.Close()
-
-    var publishedIDs []int64
-    for rows.Next() {
-        var id int64
-        var eventID string
-        var payload []byte
-        if err := rows.Scan(&id, &eventID, &payload); err != nil {
-            continue
-        }
-
-        // Produce to Redpanda
-        msg := kafka.Message{
-            Key:   []byte(eventID),
-            Value: payload,
-            Time:  time.Now(),
-        }
-        if err := r.kafkaWriter.WriteMessages(ctx, msg); err != nil {
-            log.Printf("[OUTBOX] Failed to write message %s: %v", eventID, err)
-            break // Stop batch and retry on next tick
-        }
-        publishedIDs = append(publishedIDs, id)
-    }
-
-    if len(publishedIDs) > 0 {
-        _, _ = tx.Exec(ctx, `
-            UPDATE outbox_events 
-            SET published = TRUE, published_at = NOW() 
-            WHERE id = ANY($1)
-        `, publishedIDs)
-        _ = tx.Commit(ctx)
-    }
-}
-```
+1. **Claim (short transaction)**: select up to 50 unpublished rows whose lease is empty or expired and set a 30-second lease on them.
+   ```sql
+   WITH claimable AS (
+       SELECT id FROM outbox_events
+       WHERE published = FALSE AND (claim_expires_at IS NULL OR claim_expires_at < NOW())
+       ORDER BY id ASC LIMIT $1
+       FOR UPDATE SKIP LOCKED
+   )
+   UPDATE outbox_events o
+   SET claim_expires_at = NOW() + INTERVAL '30 seconds'
+   FROM claimable c WHERE o.id = c.id
+   RETURNING o.id, o.event_id, o.event_type, o.payload, o.correlation_id, o.published, o.created_at, o.published_at;
+   ```
+2. **Publish (outside any transaction)**: for each row the relay reads `hazard_id` from the payload and writes a Kafka message with `Key = hazard_id`, `Value = payload` and an `X-Correlation-ID` header (falling back to `outbox-relay-<id>`). Rows whose payload is malformed or lacks `hazard_id` are quarantined instead of published. If the broker write fails, the lease is cleared (`claim_expires_at = NULL`) and the batch is retried on the next tick.
+3. **Complete (short transaction)**: published rows are set to `published = TRUE` only if the payload is unchanged (`WHERE id = $1 AND payload = $2::jsonb`), so a row whose payload was replaced mid-flight is not marked as published; quarantined rows are marked `published = TRUE` with `event_type = 'hazard_event_quarantined'`; any other claimed rows have their lease cleared.
 
 This architecture ensures zero dual-write vulnerabilities:
-* If the aggregator service crashes immediately after inserting a hazard, the outbox record is already safely committed in Postgres and will be dispatched as soon as the aggregator restarts.
-* If Redpanda is down, the outbox worker retries with backoff while the database remains healthy and capable of accepting queries.
+* If the aggregator crashes immediately after inserting a hazard, the outbox record is already committed in Postgres and is dispatched after restart. A crash between publish and completion leaves the lease to expire after 30 seconds, after which the row is re-sent (hence the at-least-once guarantee and the mandatory idempotent consumers in [ADR 002](002-message-broker-redpanda.md)).
+* If Redpanda is down, the relay retries on every tick (fixed interval, no exponential backoff) while the database remains healthy and capable of accepting queries.

@@ -135,7 +135,7 @@
   *Deliverable:* Verified zero cascading failure when `aggregator` or `canonical-db` restarts; automatic connection pool recovery and self-healing. Output captured in [`docs/evidence/p4/storage_restart.log`](evidence/p4/storage_restart.log).
 - [x] **`B-08`** — **Run sustained load test with ≥50 parallel connections for 60 seconds** (01 Oct)  
   *Script:* [`scripts/load_test.js`](../scripts/load_test.js)  
-  *Deliverable:* k6 load test results: 50 VUs, 60s duration, 29,514 requests (~491 req/s), p95 latency = 1.75ms (threshold < 300ms), p99 = 3.07ms, error rate = 0.43% (threshold < 1%). Output captured in [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log).
+  *Deliverable:* k6 load test results: 50 gateway VUs plus 5 direct PVMBG VUs, 60s duration, PVMBG delay fixed at 3 s, 29,434 requests (~474 req/s), BMKG-only p95 latency = 3.43ms (threshold < 300ms), p99 = 6.48ms, error rate = 0.00% (threshold < 1%). Output captured in [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log).
 
 #### Member C (Jenka) — P3 & P5 Evidence & Observability
 - [x] **`C-07`** — **Run cross-credential, scope, refresh, and secret checks** (03–05 Oct)
@@ -181,7 +181,7 @@ Use this matrix to track and link evidence artifacts for the final report:
 | **`P1-02`** | P1 | Live Schema Evolution | `POST :8082/admin/schema-version` | `confidence_level` appears dynamically; Aggregator captures it in `attributes` | Aldoy | Verified ✅ | [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log) |
 | **`P1-03`** | P1 | Unknown Field Policy | Compare before/after DB attributes | Dynamic fields forwarded without crash or schema migration | Aldoy | Verified ✅ | [`docs/evidence/p1/demo_p1.log`](evidence/p1/demo_p1.log) |
 | **`P2-01`** | P2 | Latency Isolation | PVMBG delay = 3s; query BMKG | BMKG queries respond with p95 < 300ms regardless of PVMBG slowness | Darrel | Verified ✅ | [`docs/evidence/p2/`](evidence/p2/) |
-| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, error rate < 1%, p95 < 300ms (p95=1.75ms, 491 req/s) | Darrel | Verified ✅ | [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log) |
+| **`P2-02`** | P2 | Sustained Load Test | `make load-test` (k6) | 50 VUs, 60s sustained, PVMBG fixed at 3 s, error rate < 1%, p95 < 300ms (BMKG-only p95=3.43ms, 474 req/s) | Darrel | Verified ✅ | [`docs/evidence/p2/load_test.log`](evidence/p2/load_test.log) |
 | **`P2-03`** | P2 | PVMBG Outage Simulation | `make demo-p2` | BMKG stays normal; PVMBG flagged as stale (`meta.degraded = true`) | Darrel | Verified ✅ | [`docs/evidence/p2/demo_p2.log`](evidence/p2/demo_p2.log) |
 | **`P3-01`** | P3 | Cross-Domain Credential Rejection | `scripts/test_cross_credential.sh` | BMKG key on PVMBG returns 401/403; PVMBG token on BMKG returns 401/403 | Jenka | Verified ✅ | [`docs/evidence/p3/cross_credential.log`](evidence/p3/cross_credential.log) |
 | **`P3-02`** | P3 | Media Authorization (RBAC) | `scripts/test_auth_scopes.sh` | Summary fields return 200; `fields=all` strictly rejected with 403 Forbidden | Jenka | Verified ✅ | [`docs/evidence/p3/auth_scopes.log`](evidence/p3/auth_scopes.log) |

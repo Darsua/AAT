@@ -87,6 +87,8 @@ services:
     environment:
       PORT: 8082
       PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
+      PVMBG_DELAY_MIN_MS: ${PVMBG_DELAY_MIN_MS:-500}
+      PVMBG_DELAY_MAX_MS: ${PVMBG_DELAY_MAX_MS:-3000}
     networks:
       - bnpb-internal
       - bnpb-public
@@ -138,11 +140,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-60}
       AUTH_MEDIA_CLIENT_ID: ${AUTH_MEDIA_CLIENT_ID:-test-media-client}
-      AUTH_MEDIA_CLIENT_SECRET: ${AUTH_MEDIA_CLIENT_SECRET:-secret123}
+      AUTH_MEDIA_CLIENT_SECRET: ${AUTH_MEDIA_CLIENT_SECRET:-media-secret-2026}
       AUTH_FIELD_CLIENT_ID: ${AUTH_FIELD_CLIENT_ID:-test-field-client}
-      AUTH_FIELD_CLIENT_SECRET: ${AUTH_FIELD_CLIENT_SECRET:-secret123}
+      AUTH_FIELD_CLIENT_SECRET: ${AUTH_FIELD_CLIENT_SECRET:-field-secret-2026}
       AUTH_INTERNAL_CLIENT_ID: ${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}
-      AUTH_INTERNAL_CLIENT_SECRET: ${AUTH_INTERNAL_CLIENT_SECRET:-secret123}
+      AUTH_INTERNAL_CLIENT_SECRET: ${AUTH_INTERNAL_CLIENT_SECRET:-internal-secret-2026}
     networks:
       - bnpb-internal
       - bnpb-public
@@ -178,6 +180,7 @@ services:
     build: ./services/consumers/dashboard
     environment:
       REDPANDA_BROKERS: redpanda:9092
+      PORT: 8085
       CONSUMER_GROUP: ${CONSUMER_GROUP_DASHBOARD:-bnpb-dashboard-group}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
     depends_on:
@@ -187,12 +190,18 @@ services:
         condition: service_completed_successfully
     networks:
       - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8085/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   notifier-consumer:
     build: ./services/consumers/notifier
     environment:
       REDPANDA_BROKERS: redpanda:9092
+      PORT: 8086
       CONSUMER_GROUP: ${CONSUMER_GROUP_NOTIFIER:-bnpb-notifier-group}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
     depends_on:
@@ -202,6 +211,11 @@ services:
         condition: service_completed_successfully
     networks:
       - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8086/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
 volumes:

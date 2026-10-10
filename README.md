@@ -48,59 +48,58 @@ The platform continuously ingests, harmonizes, enriches, and broadcasts critical
 The system strictly adheres to microservices decoupling principles. Direct function calls and shared business logic libraries across services are explicitly prohibited. Communication occurs exclusively over HTTP/REST (synchronous query path) and Redpanda/Kafka (asynchronous pub-sub event fan-out).
 
 ```mermaid
-flowchart TD
-    subgraph ExternalSources["Instansi Sumber (Upstream Mocks - Aldoy / Member A)"]
-        BMKG["mock-bmkg:8081\n(50-150ms latency, X-BMKG-Key)\nGET /seismic-events\nGET /tsunami-warnings"]
-        PVMBG["mock-pvmbg:8082\n(500ms-3s latency, Bearer Token)\nGET /volcanic-reports\nPOST /admin/schema-version\nPOST /admin/outage"]
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
+flowchart TB
+    CLI["Clients<br/>Media, field teams, command centre"]:::actor
+
+    subgraph GW["Access layer"]
+        direction LR
+        AUTH["auth :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
+        CAPI["client-api :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
     end
 
-    subgraph BNPBCore["BNPB Core Infrastructure"]
-        subgraph Persistence["Canonical Persistence & Relay (Darrel / Member B)"]
-            Aggregator["aggregator:8083 (Internal Network Only)\n- Polling Workers (BMKG & PVMBG)\n- Canonical Harmonization\n- Static Volcano Enrichment\n- Transactional Outbox Worker\n- Internal API: GET /internal/hazards"]
-            Postgres[("canonical-db:5432 (Internal Network Only)\nPostgreSQL 16 Alpine\n- hazards (Strict Envelope + JSONB attributes)\n- volcano_references (Static Catalog)\n- outbox_events (Guaranteed Relay)")]
-        end
+    AGG["aggregator :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
 
-        subgraph EventBroker["Event Fan-Out (Redpanda / Kafka API)"]
-            Broker[("redpanda:9092 / 19092\nTopic: bnpb.hazard-events\n- Committed Offset Management\n- Log Compaction & Replay")]
-            Init["redpanda-init (one-shot)\nTopic Bootstrap: 3 Partitions"]
-        end
-
-        subgraph SecurityGateway["Access Control & Gateway (Jenka / Member C)"]
-            Auth["auth:8084\nPOST /auth/token (60s TTL)\nPOST /auth/refresh (Rotation)"]
-            ClientAPI["client-api:8080 (Public Facade)\nGET /api/v1/hazards\nGET /api/v1/hazards/{id}\n- Scope Validation\n- Media Raw Field Projection Filter (403)\n- X-Correlation-ID Forwarding"]
-        end
+    subgraph UP["Upstream agencies (simulated)"]
+        direction LR
+        BMKG["mock-bmkg :8081<br/>X-BMKG-Key"]:::ext
+        PVMBG["mock-pvmbg :8082<br/>Bearer token"]:::ext
     end
 
-    subgraph DownstreamSubscribers["Downstream Event Consumers (Jenka / Member C)"]
-        Dashboard["dashboard-consumer\nGroup: bnpb-dashboard-group"]
-        Notifier["notifier-consumer\nGroup: bnpb-notifier-group"]
-        ThirdParty["evaluator-third-party\nGroup: bnpb-third-party-group\n(Dynamic Subscriber)"]
+    DB[("canonical-db :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
+
+    subgraph BUS["Event bus"]
+        direction LR
+        INIT["redpanda-init<br/>one-shot topic bootstrap"]:::broker
+        RP[["redpanda :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
     end
 
-    subgraph ExternalClients["Downstream Public & Agency Clients"]
-        Media["Media & Public Pers\nScope: hazards:read:summary\n(Summary Fields Only, 403 on Raw)"]
-        Field["Field Teams (BASARNAS / Pemda)\nScope: hazards:read:all\n(Full Telemetry, 60s TTL + Refresh)"]
-        InternalOps["BNPB Pusat Command Center\nScope: hazards:read:all"]
+    subgraph CON["Event consumers"]
+        direction LR
+        DASH["dashboard-consumer<br/>bnpb-dashboard-group"]:::cons
+        NOTI["notifier-consumer<br/>bnpb-notifier-group"]:::cons
+        AUDIT["evaluator (test script)<br/>bnpb-evaluator-audit-group"]:::cons
     end
 
-    %% Initialization Flow
-    Init -.->|Bootstrap Topic & Partitions| Broker
+    CLI -->|"1. POST /auth/token"| AUTH
+    CLI -->|"2. Bearer JWT"| CAPI
+    CAPI -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+    AGG -->|"GET every 3 s"| BMKG
+    AGG -->|"GET every 3 s"| PVMBG
+    AGG <-->|"SQL transaction"| DB
+    AGG -->|"publish claimed outbox events<br/>key = hazard_id"| RP
+    INIT -.->|"create topic"| RP
+    RP --> DASH
+    RP --> NOTI
+    RP -.->|"new group, no aggregator change"| AUDIT
 
-    %% Ingestion Flow
-    BMKG -->|HTTP Polling every 3s| Aggregator
-    PVMBG -->|HTTP Polling every 3s| Aggregator
-    Aggregator <-->|ACID Read / Write| Postgres
-    Aggregator -->|Transactional Outbox Relay| Broker
-
-    %% Event Streaming Flow
-    Broker -->|Pull Log Streams| Dashboard
-    Broker -->|Pull Log Streams| Notifier
-    Broker -.->|Dynamic Subscription| ThirdParty
-
-    %% Client Query Flow
-    ExternalClients -->|HTTP Bearer Auth| ClientAPI
-    ClientAPI -->|JWT Signature & Scope Verification| Auth
-    ClientAPI -->|Internal HTTP GET with X-Correlation-ID| Aggregator
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -109,14 +108,14 @@ flowchart TD
 
 | Service Name | Directory | Container Port | Host Port | Network Scope | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`client-api`** | `services/client-api/` | `8080` | `8080:8080` | Public (`bnpb-public`) | Public API Gateway. Enforces JWT scopes, redacts raw telemetry for media, propagates `X-Correlation-ID`. |
+| **`client-api`** | `services/client-api/` | `8080` | `8080:8080` | Public (`bnpb-public`) | Public API Gateway. Enforces JWT scopes, redacts raw telemetry for media, propagates `X-Correlation-ID`, logs the latency of its outbound call to the Aggregator. |
 | **`mock-bmkg`** | `services/mock-bmkg/` | `8081` | `8081:8081` | Public / Internal | Upstream mock for BMKG. Injects 50–150ms simulated latency, requires `X-BMKG-Key`. |
-| **`mock-pvmbg`** | `services/mock-pvmbg/` | `8082` | `8082:8082` | Public / Internal | Upstream mock for PVMBG. Injects 500ms–3s latency, requires Bearer token, supports schema/outage admin toggles. |
-| **`aggregator`** | `services/aggregator/` | `8083` | `127.0.0.1:8083` | Host Loopback / Internal (`bnpb-internal`) | Core orchestrator. Polls sources, performs static volcano joins, writes to Postgres + Outbox, exposes `/internal/hazards`. Loopback bound to localhost for safe inspection without exposing to external network. |
+| **`mock-pvmbg`** | `services/mock-pvmbg/` | `8082` | `8082:8082` | Public / Internal | Upstream mock for PVMBG. Injects 500ms–3s latency (configurable with `PVMBG_DELAY_MIN_MS` / `PVMBG_DELAY_MAX_MS`), requires Bearer token, supports schema/outage admin toggles. |
+| **`aggregator`** | `services/aggregator/` | `8083` | *None* (see note) | Internal Only (`bnpb-internal`) | Core orchestrator. Polls sources, performs static volcano joins, writes to Postgres + Outbox, exposes `/internal/hazards`. Reachable only from containers on `bnpb-internal`: that network is `internal: true`, so the `127.0.0.1:8083` mapping in `docker-compose.yml` is not published (`docker ps` shows `8083/tcp` only). |
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
-| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | *None* | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
+| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | `8085` / `8086` (`GET /health` only) | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
 
 ---
 
@@ -125,15 +124,15 @@ flowchart TD
 All foundational architectural decisions are codified in central ADRs under [`docs/adr/`](docs/adr/):
 
 * **[ADR 001: Standardizing Microservices Implementation on Go](docs/adr/001-service-language-all-go.md)**  
-  *Justification for standardizing all 6 services on Go 1.22 instead of Python/FastAPI or a polyglot stack. Container efficiency (<25MB images, <100MB total idle memory), native concurrency handling 50 sustained connections without GIL/event-loop starvation, and zero multi-runtime friction via `go.work`.*
+  *Justification for standardizing all 6 logical services on Go 1.22 instead of Python/FastAPI or a polyglot stack. The seven Go containers measured 24.4–32.6 MB per image and 55.8 MiB total idle memory, while the 50-VU load test remained within the Milestone 1 thresholds.*
 * **[ADR 002: Selecting Redpanda as Kafka-Compatible Message Broker for Event Fan-Out](docs/adr/002-message-broker-redpanda.md)**  
-  *Justification for Redpanda and pure Go `segmentio/kafka-go` over Apache Kafka (JVM bloat, slow startup), RabbitMQ, and NATS JetStream. Details consumer group offset tracking, at-least-once delivery, and consumer downtime recovery.*
+  *Justification for Redpanda and pure Go `segmentio/kafka-go`, based on Kafka protocol compatibility, a single native broker binary, and the `rpk` tooling used by this project. Details consumer group offset tracking, at-least-once delivery, and consumer downtime recovery.*
 * **[ADR 003: Canonical Data Storage using PostgreSQL 16 with JSONB and Transactional Outbox](docs/adr/003-canonical-storage-postgres-jsonb.md)**  
   *Mandatory 3-way comparative evaluation (PostgreSQL + JSONB vs. MongoDB vs. Strict SQL). Details why MongoDB was rejected (multi-document transactions strictly require replica sets) and why strict relational was rejected (violates P1 live schema changes). Details the Transactional Outbox pattern eliminating dual-write hazards.*
 * **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](docs/adr/004-internal-communication-rest.md)**  
-  *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), sub-millisecond bridge network latency, and interface-driven decoupling (`HazardService`).*
+  *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), measured Milestone 1 latency, and interface-driven decoupling (`HazardService`); no direct gRPC comparison was benchmarked.*
 * **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
-  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.* **[Ini perubahan mendasar, so make sure again ^^]**
+  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside deterministic identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.*
 
 ---
 
@@ -268,10 +267,12 @@ make demo-p2
 
 **Executing the 50-Connection Sustained Load Test**:
 ```bash
-make load-test
-# or: k6 run scripts/load_test.js
+# Fix the PVMBG delay at 3 s (Problem 2 criterion 1), then run the test
+PVMBG_DELAY_MIN_MS=3000 PVMBG_DELAY_MAX_MS=3000 docker compose up -d mock-pvmbg
+AUTH_INTERNAL_CLIENT_SECRET=internal-secret-2026 PVMBG_TOKEN=pvmbg-bearer-token-2026 make load-test
+# or: k6 run scripts/load_test.js (with the same environment variables)
 ```
-*Evaluates 50 Virtual Users (VUs) sustaining requests against `http://localhost:8080/api/v1/hazards` for 60 seconds. Verifies p95 latency < 300ms and error rate < 1% per IF4031 M1 spec.*
+*Runs three scenarios for 60 seconds: 25 VUs on `GET /api/v1/hazards?type=SEISMIC` (BMKG-only), 25 VUs on `type=VOLCANIC`, and 5 VUs calling `mock-pvmbg` directly so the 3 s upstream stays busy. Verifies p95 latency < 300ms for both gateway scenarios and error rate < 1% per IF4031 M1 spec. Omit `PVMBG_TOKEN` to skip the direct PVMBG scenario. Set `PVMBG_DELAY_MIN_MS`/`PVMBG_DELAY_MAX_MS` back to the defaults (`500`/`3000`) afterwards with `docker compose up -d mock-pvmbg`.*
 
 **Manual Outage Simulation**:
 ```bash
@@ -333,7 +334,7 @@ not substitute mock tokens or fabricated HTTP responses.
 # 1. Acquire Media Token
 MEDIA_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"test-media-client","client_secret":"secret123","requested_scope":"media"}' | jq -r .access_token)
+  -d '{"client_id":"test-media-client","client_secret":"media-secret-2026","requested_scope":"media"}' | jq -r .access_token)
 
 # 2. Media queries summary fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=summary"
@@ -344,7 +345,7 @@ curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/
 # 4. Acquire Field Token
 FIELD_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"test-field-client","client_secret":"secret123","requested_scope":"field"}' | jq -r .access_token)
+  -d '{"client_id":"test-field-client","client_secret":"field-secret-2026","requested_scope":"field"}' | jq -r .access_token)
 
 # 5. Field queries raw fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=all"
@@ -444,17 +445,19 @@ docker compose run --rm \
 | `BMKG_API_KEY` | `bmkg-secret-key-2026` | API key required in `X-BMKG-Key` header for BMKG access. |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` | Internal URL for polling PVMBG mock. |
 | `PVMBG_TOKEN` | `pvmbg-bearer-token-2026` | Bearer token required for PVMBG mock access. |
+| `PVMBG_DELAY_MIN_MS` | `500` | Lower bound of the random PVMBG response delay in milliseconds. |
+| `PVMBG_DELAY_MAX_MS` | `3000` | Upper bound of the random PVMBG response delay in milliseconds. Set both bounds to `3000` for a fixed 3 s delay. |
 | `POLL_INTERVAL_SECS` | `3` | Frequency (in seconds) at which Aggregator polls upstream mocks. |
 | `AUTH_URL` | `http://auth:8084` | Internal URL for Auth service. |
 | `AGGREGATOR_URL` | `http://aggregator:8083` | Internal URL for Aggregator service queries. |
 | `JWT_SECRET` | `super-secret-jwt-key-2026` | Shared HMAC-SHA256 secret for signing and verifying JWTs. |
 | `JWT_TTL_SECONDS` | `60` | Expiration lifetime for issued JWT access tokens. |
 | `AUTH_MEDIA_CLIENT_ID` | `test-media-client` | Client identity for Media role authentication. |
-| `AUTH_MEDIA_CLIENT_SECRET` | `secret123` | Shared secret for Media client authentication. |
+| `AUTH_MEDIA_CLIENT_SECRET` | `media-secret-2026` | Shared secret for Media client authentication. |
 | `AUTH_FIELD_CLIENT_ID` | `test-field-client` | Client identity for Field responder role authentication. |
-| `AUTH_FIELD_CLIENT_SECRET` | `secret123` | Shared secret for Field responder client authentication. |
+| `AUTH_FIELD_CLIENT_SECRET` | `field-secret-2026` | Shared secret for Field responder client authentication. |
 | `AUTH_INTERNAL_CLIENT_ID` | `test-internal-client` | Client identity for Internal operations role authentication. |
-| `AUTH_INTERNAL_CLIENT_SECRET` | `secret123` | Shared secret for Internal operations client authentication. |
+| `AUTH_INTERNAL_CLIENT_SECRET` | `internal-secret-2026` | Shared secret for Internal operations client authentication. |
 
 ---
 

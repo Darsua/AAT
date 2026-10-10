@@ -12,40 +12,42 @@
 
 The `aggregator` service is the central ingestion and event-sourcing engine in the BNPB disaster management platform. It operates strictly on the internal private network (not exposed to the public internet).
 
-```
- +--------------------+       +--------------------+
- |  mock-bmkg (:8081) |       | mock-pvmbg (:8082) |
- +--------------------+       +--------------------+
-           \                           /
-      HTTP  \                         /  HTTP
-   (Poller)  \                       /  (Poller)
-              v                     v
-       +------------------------------------+
-       |          Aggregator (:8083)        |
-       |  - Upstream Poller Workers         |
-       |  - Normalization Engine            |
-       |  - Transactional Outbox Relay      |
-       +------------------------------------+
-              |                      ^
-   ACID Write |                      | Internal Read
-   (Event +   |                      | (Proxied by client-api)
-    Outbox)   v                      |
-       +--------------+     +--------------------+
-       |  PostgreSQL  |     | client-api (:8080) |
-       +--------------+     +--------------------+
-              |
-         Outbox Poll
-              |
-              v
-       +------------------------------------+
-       |  Redpanda / Kafka (:9092)          |
-       |  Topic: bnpb.hazard-events         |
-       +------------------------------------+
-              /                       \
-             v                         v
-   +---------------------+   +--------------------+
-   | Dashboard Consumer  |   | Notifier Consumer  |
-   +---------------------+   +--------------------+
+```mermaid
+flowchart TD
+    BM["mock-bmkg :8081"]:::ext
+    PV["mock-pvmbg :8082"]:::ext
+
+    subgraph AGG["aggregator :8083"]
+        direction TB
+        POLL["Pollers<br/>exponential backoff, max 30 s"]:::svc
+        NORM["Normaliser<br/>canonical HazardEvent"]:::svc
+        REPO["Repository<br/>one transaction: hazards + outbox_events"]:::svc
+        RELAY["Outbox relay"]:::svc
+        API["GET /internal/hazards"]:::svc
+        POLL --> NORM --> REPO
+    end
+
+    DB[("PostgreSQL")]:::store
+    RP[["redpanda<br/>bnpb.hazard-events"]]:::broker
+    CAPI["client-api :8080"]:::svc
+    CONS["dashboard-consumer<br/>notifier-consumer"]:::cons
+
+    BM -->|"HTTP"| POLL
+    PV -->|"HTTP"| POLL
+    REPO <-->|"ACID write"| DB
+    DB -->|"unpublished rows"| RELAY
+    RELAY -->|"publish"| RP
+    RP --> CONS
+    CAPI -->|"internal read"| API
+    API --> DB
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -55,7 +57,7 @@ The `aggregator` service is the central ingestion and event-sourcing engine in t
 1. **Upstream Ingestion & Polling Workers:**
    - Periodically poll `mock-bmkg:8081/seismic-events` (using header `X-BMKG-Key`) and `/tsunami-warnings`.
    - Periodically poll `mock-pvmbg:8082/volcanic-reports` (using `Authorization: Bearer <token>`).
-   - Implement exponential backoff, jitter, and circuit breaking against PVMBG latency and outages.
+   - Implement exponential backoff (maximum 30 s) and a small random jitter on the poll interval against PVMBG latency and outages. A status tracker marks a source stale (`stale_since`) after failures; there is no circuit breaker.
    - Handle schema drift gracefully when PVMBG toggles schema versions.
 
 2. **Deduplication & Canonical Normalization:**
@@ -142,11 +144,14 @@ Shared contract between the Aggregator publisher and all downstream consumers:
 Mounted automatically from [`migrations/001_init.sql`](migrations/001_init.sql):
 
 ```sql
--- 1. Canonical Hazards Table (Envelope + JSONB Attributes)
+-- Migration 001_init.sql: Core Aggregator schema and volcano reference seed data
+-- Database target: PostgreSQL 16 Alpine
+
+-- 1. Hazards Table
 CREATE TABLE IF NOT EXISTS hazards (
-    hazard_id VARCHAR(64) PRIMARY KEY,
+    hazard_id VARCHAR(128) PRIMARY KEY,
     source VARCHAR(32) NOT NULL,
-    source_ref_id VARCHAR(64) NOT NULL,
+    source_ref_id VARCHAR(128) NOT NULL,
     hazard_type VARCHAR(32) NOT NULL,
     severity VARCHAR(32) NOT NULL,
     area_name TEXT NOT NULL,
@@ -158,11 +163,13 @@ CREATE TABLE IF NOT EXISTS hazards (
     CONSTRAINT uq_source_ref UNIQUE (source, source_ref_id)
 );
 
+-- Indexes for hazards query performance
 CREATE INDEX IF NOT EXISTS idx_hazards_occurred_at ON hazards(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_type_occurred ON hazards(hazard_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hazards_severity_occurred ON hazards(severity, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_attributes_gin ON hazards USING gin(attributes);
 
--- 2. Volcano Reference Catalog (Static Coordinates Enrichment)
+-- 2. Volcano References Table
 CREATE TABLE IF NOT EXISTS volcano_references (
     volcano_id VARCHAR(32) PRIMARY KEY,
     volcano_name TEXT NOT NULL,
@@ -170,17 +177,40 @@ CREATE TABLE IF NOT EXISTS volcano_references (
     longitude DOUBLE PRECISION NOT NULL
 );
 
--- 3. Transactional Outbox (Guarantees At-Least-Once Delivery to Redpanda)
+-- Seed data for 6 Indonesian volcanoes
+INSERT INTO volcano_references (volcano_id, volcano_name, latitude, longitude) VALUES
+    ('VLC-001', 'Gunung Merapi', -7.5407, 110.4456),
+    ('VLC-002', 'Gunung Anak Krakatau', -6.1020, 105.4230),
+    ('VLC-003', 'Gunung Semeru', -8.1077, 112.9224),
+    ('VLC-004', 'Gunung Marapi', -0.3811, 100.4739),
+    ('VLC-005', 'Gunung Sinabung', 3.1694, 98.3925),
+    ('VLC-006', 'Gunung Ruang', 2.3014, 125.3697)
+ON CONFLICT (volcano_id) DO UPDATE SET
+    volcano_name = EXCLUDED.volcano_name,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude;
+
+-- 3. Transactional Outbox Table
 CREATE TABLE IF NOT EXISTS outbox_events (
     id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(64) NOT NULL UNIQUE,
+    event_id VARCHAR(128) NOT NULL UNIQUE,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     published BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at TIMESTAMPTZ
+    published_at TIMESTAMPTZ,
+    claim_expires_at TIMESTAMPTZ
 );
 
+-- Idempotent column addition and alterations for existing volumes
+ALTER TABLE hazards ALTER COLUMN hazard_id TYPE VARCHAR(128);
+ALTER TABLE hazards ALTER COLUMN source_ref_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ALTER COLUMN event_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
+
+-- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;
 ```
 
@@ -230,6 +260,7 @@ go run cmd/server/main.go
 ### Build & Run with Docker
 ```bash
 docker build -t bnpb/aggregator:latest services/aggregator/
+# Standalone run only. Under docker compose the service sits on the internal-only network `bnpb-internal`, so its `ports:` entry is not published to the host.
 docker run -p 8083:8083 \
   -e DATABASE_URL="postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable" \
   -e REDPANDA_BROKERS="redpanda:9092" \
@@ -238,11 +269,15 @@ docker run -p 8083:8083 \
 
 ### Verification Endpoints
 ```bash
+# Standalone run (go run or docker run -p): host access works
 # 1. Health check
 curl -i http://localhost:8083/health
 
 # 2. Query internal hazards
 curl -i http://localhost:8083/internal/hazards
+
+# Under docker compose, call it from inside the network instead:
+docker compose exec client-api wget -qO- http://aggregator:8083/health
 ```
 
 ---
@@ -252,7 +287,7 @@ curl -i http://localhost:8083/internal/hazards
 - [x] Wire `pgxpool.New(ctx, databaseURL)` with connection pooling configurations (MaxConns: 25, MinConns: 5).
 - [x] Implement database migrations (auto-migrate or migrate tool).
 - [x] Implement BMKG poller worker (`internal/worker/poller.go`).
-- [x] Implement PVMBG poller worker with circuit breaker and schema adapter (`internal/worker/poller.go`).
+- [x] Implement PVMBG poller worker with status tracker (healthy flag and `stale_since`, no circuit breaker) and schema adapter (`internal/worker/poller.go`).
 - [x] Implement atomic ingestion repository inserting into `hazards` and `outbox_events` (`internal/repository/hazard_repo.go`).
 - [x] Implement outbox publisher loop using `kafka-go.Writer` streaming to `bnpb.hazard-events` (`internal/worker/outbox_relay.go`).
 - [x] Implement `GET /internal/hazards` handler querying PostgreSQL with optional pagination & filtering (`internal/api/hazard_handler.go`).

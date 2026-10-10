@@ -15,28 +15,24 @@ The BNPB platform uses an asynchronous Publish-Subscribe model backed by Redpand
 > [!IMPORTANT]
 > **Message envelope (frozen, see `services/aggregator/README.md` §3.5):** the Kafka message **key** is the `hazard_id` string, and the message **value** is the canonical `HazardEvent` JSON object exactly as defined in `contracts/hazard_event.json` — no wrapper or envelope object around it. Unmarshal the raw message value directly into your `HazardEvent` struct. An optional `X-Correlation-ID` header may be present for tracing.
 
-```
-       +------------------------------------+
-       |         aggregator (:8083)         |
-       |     Transactional Outbox Relay     |
-       +------------------------------------+
-                         |
-                         | Publishes Hazard Events
-                         v
-       +------------------------------------+
-       |      Redpanda / Kafka (:9092)      |
-       |     Topic: bnpb.hazard-events      |
-       +------------------------------------+
-                   /            \
-                  /              \
-       bnpb-dashboard-group    bnpb-notifier-group
-                /                  \
-               v                    v
-+------------------------+   +------------------------+
-|   Dashboard Consumer   |   |   Notifier Consumer    |
-| - Live incident stats  |   | - Urgent alert filters |
-| - Geo analytics        |   | - SMS/Push/Dispatches  |
-+------------------------+   +------------------------+
+```mermaid
+flowchart TD
+    AGG["aggregator :8083<br/>transactional outbox relay"]:::svc
+    RP[["redpanda :9092<br/>topic bnpb.hazard-events"]]:::broker
+    DASH["dashboard-consumer<br/>live incident statistics<br/>geo analytics"]:::cons
+    NOTI["notifier-consumer<br/>urgent alert filters<br/>dispatch signals"]:::cons
+
+    AGG -->|"publish hazard events"| RP
+    RP -->|"group bnpb-dashboard-group"| DASH
+    RP -->|"group bnpb-notifier-group"| NOTI
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -117,7 +113,7 @@ docker compose start <your-consumer-1>
 docker compose logs -f <your-consumer-1>
 ```
 
-### Step 6: Verify Recovery & Zero Data Loss
+### Step 6: Verify Recovery & No Skipped Messages
 1. Confirm the consumer reconnects with its original `GroupID`.
 2. Confirm it resumes reading from the **last committed offset** (no messages skipped).
 3. Confirm all backlogged events are processed and committed.
@@ -144,6 +140,7 @@ cd services/consumers/dashboard
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-dashboard-group"
+export PORT="8085"   # health endpoint: GET /health
 go run .
 
 # In a separate terminal, run second consumer (e.g. notifier)
@@ -151,6 +148,7 @@ cd services/consumers/notifier
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-notifier-group"
+export PORT="8086"   # health endpoint: GET /health
 go run .
 ```
 

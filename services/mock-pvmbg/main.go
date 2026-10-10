@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -64,6 +65,13 @@ func main() {
 	}
 
 	svc := newService(data)
+	minDelay := envMillis("PVMBG_DELAY_MIN_MS", 500)
+	maxDelay := envMillis("PVMBG_DELAY_MAX_MS", 3000)
+	if maxDelay < minDelay {
+		log.Fatalf("PVMBG_DELAY_MAX_MS (%s) must not be lower than PVMBG_DELAY_MIN_MS (%s)", maxDelay, minDelay)
+	}
+	svc.delay = func() { time.Sleep(randomDuration(minDelay, maxDelay)) }
+	log.Printf("PVMBG response delay configured: min=%s max=%s", minDelay, maxDelay)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go svc.runGenerator(ctx)
@@ -301,6 +309,19 @@ func randomDuration(minimum, maximum time.Duration) time.Duration {
 		return minimum
 	}
 	return minimum + time.Duration(rand.Int63n(int64(maximum-minimum)+1))
+}
+
+// envMillis reads a non-negative integer number of milliseconds from the environment.
+func envMillis(name string, fallbackMS int) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return time.Duration(fallbackMS) * time.Millisecond
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		log.Fatalf("%s must be a non-negative integer number of milliseconds, got %q", name, raw)
+	}
+	return time.Duration(value) * time.Millisecond
 }
 
 func getenv(name, fallback string) string {

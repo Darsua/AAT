@@ -1,0 +1,7 @@
+stateDiagram-v2
+    direction LR
+    [*] --> Closed
+    Closed --> Open: consecutive failures > threshold (e.g. 5)
+    Open --> HalfOpen: cooldown expires (e.g. 30 s)
+    HalfOpen --> Closed: probe succeeds
+    HalfOpen --> Open: probe fails
