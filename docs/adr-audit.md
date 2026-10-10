@@ -26,12 +26,6 @@ Commit perbaikan:
 
 Temuan paling berat: ADR 005 mengklaim UUIDv7 padahal ID bersifat deterministik (F12), ADR 003 memuat SQL dan kode relay outbox yang usang (F4 sampai F6), dan hampir semua angka sumber daya di ADR 001 sampai 003 tidak cocok dengan pengukuran (O1 dan O3). Salah satunya mengubah alasan pemilihan: Redpanda tidak lebih hemat memori daripada Kafka KRaft dalam pengukuran ini (352 MiB berbanding 297 MiB).
 
---- | :--- |
-| Salah dan sudah diperbaiki | 13 |
-| Belum diperbaiki (tidak bisa dibuktikan atau kosmetik) | 8 (satu dicabut: O5; satu ditambah: O9) |
-
-Temuan paling berat: ADR 005 mengklaim UUIDv7 padahal ID bersifat deterministik (F12), dan ADR 003 memuat SQL dan kode relay outbox yang sudah usang (F4 sampai F6).
-
 ---
 
 ## A. Sudah diperbaiki
