@@ -10,7 +10,13 @@ Solusi dirancang melalui integrasi dua pilar arsitektur:
     \item \textbf{Penyimpanan Kanonis Fleksibel (Hybrid Relational + JSONB):} Skema tabel \texttt{hazards} memadukan kolom relasional bertipe kuat untuk dimensi pencarian umum (\texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{occurred\_at}) dengan kolom \texttt{attributes JSONB} untuk atribut spesifik instansi. Ketika PVMBG memperkenalkan field \texttt{confidence\_level}, data langsung disimpan berdampingan dengan data lama tanpa memerlukan instruksi \texttt{ALTER TABLE} maupun penguncian tabel.
     \item \textbf{Kepemilikan Tunggal (\textit{Single Ownership}):} Port 5432 database hanya terhubung ke Aggregator di jaringan internal. Client API dilarang keras melakukan koneksi SQL langsung, melainkan mengambil data melalui antarmuka HTTP internal Aggregator (\texttt{:8083/internal/hazards}).
 \end{enumerate}
-\clearpage
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth,keepaspectratio]{figures/adr003-outbox.pdf}
+\caption{Mekanisme Pola \textit{Transactional Outbox} pada Basis Data Kanonis}
+\label{fig:outbox_pattern}
+\end{figure}
 \subsection{Alasan Keputusan dan Trade-Off}
 Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsitektur penyimpanan:
 

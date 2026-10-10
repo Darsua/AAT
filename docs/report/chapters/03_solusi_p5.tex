@@ -20,7 +20,16 @@ Untuk mengatasi permasalahan tersebut, perancangan sistem menerapkan pola arsite
         \item \texttt{bnpb-evaluator-audit-group} / Konsumen Eksternal: Konsumen ketiga (misalnya audit atau portal pemda) yang dapat mendaftar dan membaca aliran data secara independen.
     \end{itemize}
     Masing-masing kelompok konsumen mengelola posisi penunjuk pembacaan (\textit{committed offset}) secara terpisah pada metadata Redpanda (\texttt{\_\_consumer\_offsets}). Kecepatan konsumsi maupun gangguan pada satu grup tidak berdampak sama sekali terhadap grup lainnya.
-    \pagebreak
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth,keepaspectratio]{figures/consumers-fanout.pdf}
+\caption{Distribusi Aliran Kejadian Kanonis (\textit{Fan-out}) ke Kelompok Konsumen Terisolasi}
+\label{fig:consumers_fanout}
+\end{figure}
+
+\begin{enumerate}[resume]
     \item \textbf{Consumer Downtime Resilience dan Backlog Recovery:}
     Apabila suatu layanan konsumen (misalnya \textit{Dashboard}) mengalami kegagalan proses atau dihentikan (\textit{downtime}), Redpanda tetap menyimpan pesan-pesan baru yang diterbitkan produser ke dalam \textit{append-only log} pada disk broker. Nilai \textit{consumer lag} untuk grup tersebut akan bertambah secara proporsional. Sementara itu, konsumen lain (\textit{Notifier}) tetap memproses pesan baru secara \textit{real-time} tanpa terganggu. Ketika layanan yang mati dihidupkan kembali, konsumen membaca ulang konfigurasi \textit{committed offset} terakhirnya dan segera mengejar ketertinggalan (\textit{catch-up backlog}) hingga nilai \textit{lag} kembali ke nol.
     \item \textbf{Manual Offset Commit Discipline:}

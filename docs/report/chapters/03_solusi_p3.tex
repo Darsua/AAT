@@ -16,6 +16,13 @@ Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berla
     \item \textbf{Rotasi Refresh Token Sekali Pakai (Single-Use Token Rotation):} Klien Tim Lapangan memperoleh \textit{refresh token} kriptografis acak 32-byte. Saat token akses kedaluwarsa setelah 60 detik, klien memanggil \mbox{\texttt{POST /auth/refresh}}. Auth Service memvalidasi refresh token, mencabut (\textit{burn}) token lama, dan menerbitkan pasangan token baru. Jika token lama digunakan kembali (\textit{replay attack}), sistem secara otomatis membatalkan seluruh sesi refresh terkait.
 \end{enumerate}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth,keepaspectratio]{figures/auth-flow.pdf}
+\caption{Alur Autentikasi Klien, Pembatasan Hak Akses (RBAC), dan Rotasi Refresh Token}
+\label{fig:auth_flow}
+\end{figure}
+
 \subsection{Alasan Keputusan dan Trade-Off}
 \begin{itemize}
     \item \textbf{JWT Terdesentralisasi vs Token Referensi Terpusat:} Verifikasi JWT secara lokal di Client API mengeliminasi latensi jaringan panggilan balik (\textit{network hop}) ke Auth Service pada setiap permintaan data, dengan \textit{trade-off} token akses yang telah terbit tidak dapat dicabut seketika sebelum masa berlakunya habis (dimitigasi dengan TTL pendek 60 detik).
