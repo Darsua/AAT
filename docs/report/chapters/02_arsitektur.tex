@@ -38,7 +38,7 @@ Gambar~\ref{fig:komunikasi_http} memperlihatkan jalur permintaan sinkron. Client
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth,height=0.52\textheight,keepaspectratio]{../diagrams/rendered/adr004-sequence.png}
-    \caption[Komunikasi HTTP antarservice]{Komunikasi HTTP antara klien, Client API, Aggregator, dan basis data (sumber: \texttt{adr004-sequence.mmd}).}
+    \caption[Komunikasi HTTP antarservice]{Komunikasi HTTP antara klien, Client API, Aggregator, dan basis data.}
     \label{fig:komunikasi_http}
 \end{figure}
 
@@ -64,7 +64,7 @@ Gambar~\ref{fig:alur_aggregator} menunjukkan pemisahan poller, normalizer, repos
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/aggregator-flow.png}
-    \caption[Alur pemrosesan data pada Aggregator]{Alur pengambilan, normalisasi, persistensi, dan distribusi event oleh Aggregator (sumber: \texttt{aggregator-flow.mmd}).}
+    \caption[Alur pemrosesan data pada Aggregator]{Alur pengambilan, normalisasi, persistensi, dan distribusi event oleh Aggregator.}
     \label{fig:alur_aggregator}
 \end{figure}
 
@@ -87,7 +87,7 @@ Tabel~\ref{tab:teknologi} merangkum tumpukan teknologi yang dipilih beserta just
 \endhead
 \bottomrule
 \endfoot
-Back-End & Go 1.22 & Dukungan konkurensi bawaan (\textit{goroutines} dan \textit{channels}) yang sangat efisien, konsumsi memori rendah, kompilasi cepat ke biner statis, dan menyeragamkan pengembangan seluruh service. \\
+Back-End & Go 1.22 & Dukungan konkurensi bawaan (\textit{goroutines} dan \textit{channels}) yang efisien, konsumsi memori rendah, kompilasi cepat ke biner statis, dan menyeragamkan pengembangan seluruh service. \\
 \addlinespace[2pt]
 Database & PostgreSQL 16 (JSONB) & Menjamin transaksi ACID penuh untuk pola Transactional Outbox, sekaligus menyediakan fleksibilitas kolom JSONB dengan pengindeksan GIN untuk menyimpan atribut dinamis tanpa migrasi DDL. \\
 \addlinespace[2pt]

@@ -173,7 +173,7 @@ func (n *Normalizer) ApplyTsunamiWarning(hazard *domain.HazardEvent, warning ada
 	return &updated
 }
 
-// deriveSeismicSeverity implements the graded severity derivation rules in spec §3.3.
+// deriveSeismicSeverity derives the canonical severity of a seismic event: the linked tsunami warning level when present, otherwise the magnitude thresholds 5.0 and 6.5.
 func deriveSeismicSeverity(magnitude float64, warning *adapter.TsunamiWarningDTO) domain.Severity {
 	if warning != nil {
 		lvl := strings.ToUpper(strings.TrimSpace(warning.ThreatLevel))
