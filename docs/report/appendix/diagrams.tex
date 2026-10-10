@@ -1,0 +1,93 @@
+\chapter{Diagram Pendukung Sistem}
+\label{chap:diagram_pendukung}
+
+Lampiran ini memuat diagram dari \path{docs/diagrams/}. Sumber kanonis disimpan sebagai berkas Mermaid (\texttt{.mmd}); gambar yang digunakan berasal dari \path{docs/diagrams/rendered/}. Diagram arsitektur ringkas telah dimuat pada Gambar~\ref{fig:arsitektur}. Varian lengkap bahasa Indonesia disertakan di bawah ini; varian bahasa Inggris menyajikan arsitektur yang sama.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/architecture.id.png}
+    \caption[Arsitektur lengkap sistem BNPB]{Arsitektur lengkap sistem BNPB (sumber: \texttt{architecture.id.mmd}).}
+    \label{fig:arsitektur_lengkap}
+\end{figure}
+
+\clearpage
+\section{Layanan Simulasi Hulu}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{../diagrams/rendered/mock-bmkg-context.png}
+    \caption[Konteks layanan simulasi BMKG]{Konteks layanan simulasi BMKG (sumber: \texttt{mock-bmkg-context.mmd}).}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.35\textheight,keepaspectratio]{../diagrams/rendered/mock-pvmbg-context.png}
+    \caption[Konteks layanan simulasi PVMBG]{Konteks layanan simulasi PVMBG dan kontrol pengujian (sumber: \texttt{mock-pvmbg-context.mmd}).}
+\end{figure}
+
+\clearpage
+\section{Autentikasi dan Akses Klien}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../diagrams/rendered/auth-flow.png}
+    \caption[Penerbitan dan verifikasi token]{Penerbitan token oleh Auth dan verifikasi lokal oleh Client API (sumber: \texttt{auth-flow.mmd}).}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.82\textheight,keepaspectratio]{../diagrams/rendered/clientapi-gateway.png}
+    \caption[Alur permintaan pada Client API]{Alur pemeriksaan JWT, scope, dan penerusan permintaan pada Client API (sumber: \texttt{clientapi-gateway.mmd}).}
+\end{figure}
+
+\clearpage
+\section{Agregasi dan Persistensi}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.76\textheight,keepaspectratio]{../diagrams/rendered/aggregator-flow.png}
+    \caption[Alur pemrosesan data pada Aggregator]{Alur pengambilan, normalisasi, persistensi, dan distribusi event oleh Aggregator (sumber: \texttt{aggregator-flow.mmd}).}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.75\textheight,keepaspectratio]{../diagrams/rendered/adr003-outbox.png}
+    \caption[Tiga fase relay Transactional Outbox]{Tiga fase relay Transactional Outbox: claim, publish, dan complete (sumber: \texttt{adr003-outbox.mmd}).}
+\end{figure}
+
+\clearpage
+\section{Komunikasi dan Distribusi Event}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/adr004-sequence.png}
+    \caption[Komunikasi HTTP antarservice]{Komunikasi HTTP antara klien, Client API, Aggregator, dan basis data (sumber: \texttt{adr004-sequence.mmd}).}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/adr002-fanout.png}
+    \caption[Fan-out dan penambahan konsumen]{Fan-out event melalui consumer group independen dan penambahan konsumen ketiga (sumber: \texttt{adr002-fanout.mmd}).}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../diagrams/rendered/consumers-fanout.png}
+    \caption[Konteks konsumen Dashboard dan Notifier]{Konteks konsumen Dashboard dan Notifier (sumber: \texttt{consumers-fanout.mmd}).}
+\end{figure}
+\noindent\textbf{Batas interpretasi:} Label \textit{geo analytics} dan \textit{dispatch signals} pada diagram menunjukkan arah pengembangan. Implementasi Milestone 1 menghitung statistik bencana dan mencetak notifikasi simulasi; analitik geografis dan pengiriman instruksi operasional belum diimplementasikan.
+
+\clearpage
+\section{Rencana Pengembangan Milestone 2}
+Diagram berikut merupakan rancangan pengembangan, bukan bukti fitur yang telah berjalan pada Milestone 1.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.64\textheight,keepaspectratio]{../diagrams/rendered/adr005-scaleout.png}
+    \caption[Rencana scale-out Milestone 2]{Baseline Milestone 1 dan rencana scale-out Milestone 2 (sumber: \texttt{adr005-scaleout.mmd}).}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.55\textheight,keepaspectratio]{../diagrams/rendered/adr005-breaker.png}
+    \caption[Rencana circuit breaker Milestone 2]{Rencana transisi keadaan circuit breaker untuk Milestone 2 (sumber: \texttt{adr005-breaker.mmd}).}
+\end{figure}

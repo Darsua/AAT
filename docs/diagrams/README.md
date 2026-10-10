@@ -4,6 +4,8 @@ All architecture and flow diagrams are written in [Mermaid](https://mermaid.js.o
 
 Rendering and synchronization helper scripts are intentionally not committed. Contributors may preview the `.mmd` files with any compatible Mermaid renderer, but must keep each embedded Markdown block identical to its canonical source.
 
+The report includes the compact architecture figure in Chapter 2 and the Indonesian full architecture plus service and ADR diagrams in Appendix B (`docs/report/appendix/diagrams.tex`). Appendix B uses the PNG files in `rendered/`; refresh them when their sources change. Milestone 2 diagrams are marked as plans.
+
 | Source | Used in |
 | :--- | :--- |
 | `architecture.en.mmd` | `README.md` |
