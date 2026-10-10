@@ -29,10 +29,10 @@ Seluruh orkestrasi kontainer (\textit{mock services}, basis data, broker Redpand
 
 \begin{enumerate}
     \item \textbf{Menjalankan Seluruh Platform:}
-    Eksekusi perintah berikut untuk membangun citra kontainer dan mengaktifkan 11 kontainer layanan di latar belakang:
+    Eksekusi perintah berikut untuk membangun citra kontainer dan mengaktifkan 10 layanan Compose di latar belakang (termasuk \texttt{redpanda-init} yang berjalan sekali lalu berhenti):
     \begin{lstlisting}[language=bash]
 make up
-# Ekuivalen dengan: docker compose up -d --build
+# Ekuivalen dengan: docker compose up -d
     \end{lstlisting}
     Tunggu sekitar 5--10 detik hingga kontainer \texttt{redpanda-init} selesai menginisialisasi partisi dan seluruh layanan berstatus \textit{healthy}.
 

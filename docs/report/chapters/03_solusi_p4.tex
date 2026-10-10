@@ -6,7 +6,7 @@ Permasalahan keempat (P4) menyasar dua kelemahan sistem monolitik terikat: kegag
 
 Solusi dirancang melalui integrasi dua pilar arsitektur:
 \begin{enumerate}
-    \item \textbf{Batas Layanan Mandiri (\textit{Service Decoupling}):} Setiap komponen dibungkus dalam container mandiri dengan siklus hidup terisolasi. Pembangunan ulang atau \textit{restart} pada container \texttt{aggregator} atau \texttt{canonical-db} tidak memicu kegagalan berantai (\textit{cascading failure}) pada \texttt{client-api}, \texttt{mock-bmkg}, maupun \texttt{mock-pvmbg}. Layanan hilir dilengkapi mekanisme \textit{graceful reconnect} otomatis terhadap koneksi basis data yang terputus sementara.
+    \item \textbf{Batas Layanan Mandiri (\textit{Service Decoupling}):} Setiap komponen dibungkus dalam container mandiri dengan siklus hidup terisolasi. Pembangunan ulang atau \textit{restart} pada container \texttt{aggregator} atau \texttt{canonical-db} tidak memicu kegagalan berantai (\textit{cascading failure}) pada \texttt{client-api}, \texttt{mock-bmkg}, maupun \texttt{mock-pvmbg}. Aggregator memulihkan kolam koneksi PostgreSQL secara otomatis setelah \texttt{canonical-db} dijalankan ulang.
     \item \textbf{Penyimpanan Kanonis Fleksibel (Hybrid Relational + JSONB):} Skema tabel \texttt{hazards} memadukan kolom relasional bertipe kuat untuk dimensi pencarian umum (\texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{occurred\_at}) dengan kolom \texttt{attributes JSONB} untuk atribut spesifik instansi. Ketika PVMBG memperkenalkan field \texttt{confidence\_level}, data langsung disimpan berdampingan dengan data lama tanpa memerlukan instruksi \texttt{ALTER TABLE} maupun penguncian tabel.
     \item \textbf{Kepemilikan Tunggal (\textit{Single Ownership}):} Port 5432 database hanya terhubung ke Aggregator di jaringan internal. Client API dilarang keras melakukan koneksi SQL langsung, melainkan mengambil data melalui antarmuka HTTP internal Aggregator (\texttt{:8083/internal/hazards}).
 \end{enumerate}
@@ -50,12 +50,11 @@ Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/tes
 
 \noindent\begin{minipage}{\linewidth}
 \begin{lstlisting}[language=SQL, caption={Hasil Kueri PostgreSQL Menunjukkan Koeksistensi Atribut Heterogen}]
-SELECT hazard_id, source, hazard_type, severity, attributes 
-FROM hazards ORDER BY occurred_at DESC LIMIT 2;
--- Record 1 (Evolved PVMBG):
--- attributes: {"confidence_level": 0.82, "ash_column_height_m": 350, "volcano_id": "VLC-002"}
--- Record 2 (Baseline BMKG):
--- attributes: {"depth_km": 36, "magnitude": 4.9, "potential_tsunami": true}
+-- Kueri LIMIT 3 pada tabel hazards (cuplikan, dipangkas)
+-- BMKG  SEISMIC  WASPADA: {"depth_km": 37, "magnitude": 5, "potential_tsunami": false}
+-- BMKG  SEISMIC  NORMAL : {"depth_km": 36, "magnitude": 4.9, "potential_tsunami": true}
+-- PVMBG VOLCANIC WASPADA: {"volcano_id": "VLC-002", "confidence_level": 0.82,
+--                          "eruption_count_24h": 8, "ash_column_height_m": 350}
 \end{lstlisting}
 \end{minipage}
 

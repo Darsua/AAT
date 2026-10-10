@@ -154,7 +154,7 @@ Sesuai prinsip arsitektur \textit{microservices} dan klausul wajib spesifikasi T
 \section{Alur Permintaan, Data, dan Event}
 Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 \begin{enumerate}
-    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 2 detik dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
+    \item \textbf{Pengambilan (Ingestion):} Poller mandiri Aggregator mengambil data \texttt{mock-bmkg} dan \texttt{mock-pvmbg} berkala tiap 3 detik (nilai bawaan \texttt{POLL\_INTERVAL\_SECS}) dengan jendela tumpang tindih (\textit{overlap}) 10 detik.
     \item \textbf{Normalisasi \& Transaksi:} Data dipetakan ke \texttt{HazardEvent}. Melalui satu transaksi ACID (\texttt{SaveHazardWithOutbox}), Aggregator menyimpan entitas ke \texttt{hazards} sekaligus mencatat baris baru pada \texttt{outbox\_events}.
     \item \textbf{Relay Outbox:} Goroutine latar belakang membaca baris outbox belum terkirim, mempublikasikannya ke Redpanda dengan header korelasi, lalu menandainya sebagai terkirim (\textit{marked as sent}).
     \item \textbf{Konsumsi \& Deduplikasi:} Konsumen \texttt{dashboard} dan \texttt{notifier} menarik pesan paralel, memeriksa tabel deduplikasi memori, memproses logika bisnis, dan melakukan \textit{manual offset commit}.

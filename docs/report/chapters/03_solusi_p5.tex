@@ -83,7 +83,7 @@ GROUP                 TOPIC               STATUS    TOTAL-LAG
 bnpb-dashboard-group  bnpb.hazard-events  Stable    0
 [PASS] Dashboard resumed committed offset; TOTAL-LAG returned to zero
 [Step 5] Dynamic 3rd consumer joined -> Events received -> [PASS]
-Results: 9 passed, 0 failed. Fan-Out & Recovery Verified!
+Results: 11 passed, 0 failed. Fan-Out & Recovery Verified!
 \end{lstlisting}
 \end{minipage}
 
@@ -109,8 +109,8 @@ Jawaban komprehensif atas aspek evaluasi Problem 5:
 
     \item \textbf{Semantik Pengiriman yang Berlaku (\textit{At-Least-Once Delivery}):}
     \begin{itemize}
-        \item Produser mengirimkan pesan dengan tingkat pengakuan \texttt{acks=all} (atau \texttt{acks=1}), memastikan pesan tercatat pada \textit{commit log} broker sebelum dianggap sukses.
-        \item Konsumen menonaktifkan \textit{auto-commit} (\texttt{CommitInterval: 0}), membaca pesan via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
+        \item Produser (outbox relay pada Aggregator) mengirimkan pesan dengan tingkat pengakuan \texttt{acks=1} (\texttt{kafka.RequireOne}), sehingga pesan telah dicatat oleh \textit{leader} partisi sebelum dianggap sukses.
+        \item Konsumen tidak memakai komit otomatis: pesan dibaca via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
         \item Jika terjadi kegagalan jaringan atau proses mati tiba-tiba, \textit{offset} belum terkomit sehingga pesan dikirim ulang (\textit{redeliver}) saat pulih, menjamin \textit{zero message loss}.
     \end{itemize}
 

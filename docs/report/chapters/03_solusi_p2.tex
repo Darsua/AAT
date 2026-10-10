@@ -4,9 +4,9 @@
 \subsection{Rancangan Solusi dan Mekanisme}
 Permasalahan kedua (P2) berfokus pada pencegahan tiga titik kegagalan utama dalam sistem terdistribusi saat berhadapan dengan beban tinggi dan gangguan penyedia data eksternal:
 \begin{enumerate}
-    \item \textbf{Pencegahan Head-of-Line Blocking:} Aggregator mengisolasi pemanggilan BMKG dan PVMBG ke \textit{goroutine} asinkron mandiri (\textit{timeout} 2 detik BMKG, 5 detik PVMBG). Kelambatan ekstrem atau penundaan (3 detik) PVMBG tidak menghambat penarikan data seismik BMKG.
-    \item \textbf{Pencegahan Resource Exhaustion:} Pada lapisan HTTP publik (\texttt{client-api}), konkurensi dibatasi oleh penyangga HTTP Go dan koneksi basis data \texttt{pgxpool} (\texttt{MaxConns = 50}), mencegah kehabisan soket dan memori saat lonjakan beban.
-    \item \textbf{Penerapan Graceful Degradation:} Aggregator menerapkan pelacak keandalan berbasis \textit{Circuit Breaker}. Jika PVMBG gagal beruntun ($\ge 3$) atau menghasilkan HTTP 503, sistem mengaktifkan status degradasi (\texttt{is\_degraded = true}). Respons klien tetap HTTP 200 berisi data BMKG terbaru dipadu \textit{snapshot} historis PVMBG beserta metadata penanda status.
+    \item \textbf{Pencegahan Head-of-Line Blocking:} Aggregator mengisolasi pemanggilan BMKG dan PVMBG ke \textit{goroutine} asinkron mandiri (batas waktu klien HTTP 10 detik; konteks tiap siklus polling 10 detik untuk BMKG dan 12 detik untuk PVMBG). Kelambatan ekstrem atau penundaan (3 detik) PVMBG tidak menghambat penarikan data seismik BMKG.
+    \item \textbf{Pencegahan Resource Exhaustion:} Pada lapisan HTTP publik (\texttt{client-api}), \texttt{client-api} meneruskan permintaan ke Aggregator melalui \texttt{http.Transport} dengan kolam koneksi terbatas (\texttt{MaxIdleConns = 100}, \texttt{MaxIdleConnsPerHost = 50}) dan batas waktu 5 detik, sedangkan Aggregator membatasi koneksi basis data melalui \texttt{pgxpool} (\texttt{MaxConns} bawaan 25, dapat diubah melalui \texttt{DB\_MAX\_CONNS}). Kedua batas ini mencegah kehabisan soket dan memori saat lonjakan beban.
+    \item \textbf{Penerapan Graceful Degradation:} Aggregator menerapkan pelacak status kesehatan hulu (\textit{status tracker}) pada setiap poller. Setiap siklus polling PVMBG yang gagal menandai hulu tersebut tidak sehat dan mencatat awal kegagalan sebagai \texttt{stale\_since}; poller kemudian menunda siklus berikutnya dengan \textit{exponential backoff} berjitter (maksimum 30 detik) dan memulihkan status secara otomatis begitu satu siklus berhasil. Respons klien tetap HTTP 200 berisi data BMKG terbaru dipadu \textit{snapshot} historis PVMBG beserta metadata penanda status.
 \end{enumerate}
 
 \subsection{Alasan Keputusan dan Trade-Off}
@@ -57,10 +57,10 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
 
 \textbf{Jawaban:}
 \begin{enumerate}
-    \item \textbf{Model Konkurensi Terpilih:} Sistem mengadopsi model konkurensi berbasis \textit{Communicating Sequential Processes (CSP)} yang diwujudkan melalui \textit{goroutines} dan \textit{buffered channels} di Go:
+    \item \textbf{Model Konkurensi Terpilih:} Sistem mengadopsi model konkurensi berbasis \textit{goroutines} di Go, dengan satu poller mandiri untuk setiap sumber hulu:
     \begin{itemize}
         \item \textit{Head-of-line blocking} dicegah dengan memisahkan goroutine penarik BMKG dan PVMBG secara asinkron; penundaan pada satu socket TCP upstream tidak menghambat pemrosesan socket lainnya.
-        \item \textit{Resource exhaustion} dicegah melalui pembatasan ukuran \textit{connection pool} PostgreSQL (\texttt{pgxpool.Config.MaxConns = 50}) dan pemanfaatan konkurensi ringan goroutine (hanya memakan memori $\approx 2$ KB per goroutine dibanding utas OS standar 2--8 MB).
+        \item \textit{Resource exhaustion} dicegah melalui pembatasan ukuran \textit{connection pool} PostgreSQL pada Aggregator (\texttt{pgxpool.Config.MaxConns}, bawaan 25) dan kolam koneksi HTTP pada Client API dan pemanfaatan konkurensi ringan goroutine (hanya memakan memori $\approx 2$ KB per goroutine dibanding utas OS standar 2--8 MB).
         \item \textit{Ketiadaan degradasi terkendali} dicegah dengan pencatatan state kesehatan penyedia data; saat kegagalan terdeteksi, Aggregator beralih menyajikan snapshot terakhir basis data kanonis dengan flag \texttt{meta.degraded = true}.
     \end{itemize}
     \item \textbf{Konfigurasi Load Testing:}

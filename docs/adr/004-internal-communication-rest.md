@@ -114,7 +114,6 @@ type QueryFilter struct {
 
 type HazardService interface {
     GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error)
-    GetHealth(ctx context.Context) (bool, error)
 }
 ```
 

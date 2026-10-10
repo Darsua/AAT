@@ -19,7 +19,7 @@ We select **Redpanda** (single-node development mode) as our message broker, int
 
 * **Broker Container**: `redpandadata/redpanda:v24.1.1` configured with single-node mode (`--overprovisioned`, `--smp 1`, `--memory 256M`).
 * **Topic**: `bnpb.hazard-events` (partitioned topic with durable commit log).
-* **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`.
+* **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`. The producer uses the `kafka.Hash` balancer on the message key, `RequiredAcks: kafka.RequireOne` (acks=1) and `MaxAttempts: 3`; consumers read with `FetchMessage`, commit manually with `CommitMessages`, and start from `kafka.FirstOffset` for a new group.
 * **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (currently `bnpb-dashboard-group` and `bnpb-notifier-group`, overridable via `CONSUMER_GROUP`; a third-party evaluator service would use its own, e.g. `group.evaluator`).
 * **Message Envelope** (frozen contract between producer and consumers, detailed in `services/aggregator/README.md` §3.5): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
 
