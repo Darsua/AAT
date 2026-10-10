@@ -74,7 +74,7 @@ Evaluators assess services by executing tests, inspecting containers, and runnin
 * Every payload is human-readable JSON. There is no need to install specialized binary decoding tools (`grpcurl`), mount `.proto` files, or maintain reflection servers.
 
 ### 4. Low Latency on Docker Bridge Network
-HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleConnsPerHost: 50`) adds little latency on the Docker bridge network: in the Milestone 1 load test through the full client-api to aggregator path, p95 latency was 1.75 ms and p99 3.07 ms (`docs/evidence/p2/load_test.log`). For the Milestone 1 scale (50 sustained concurrent requests), the overhead of HTTP/1.1 compared to gRPC binary framing is negligible (microseconds), while saving substantial architectural complexity.
+HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleConnsPerHost: 50`) met the project latency target: in the Milestone 1 load test through the full client-api to aggregator path, p95 latency was 1.75 ms and p99 3.07 ms (`docs/evidence/p2/load_test.log`). This demonstrates that HTTP/1.1 is sufficient for the measured 50-VU workload. No direct benchmark against a gRPC implementation was performed.
 
 ---
 

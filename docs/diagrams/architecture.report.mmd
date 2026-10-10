@@ -36,7 +36,7 @@ flowchart TB
     AGG -->|"GET tiap 3 detik"| BMKG
     AGG -->|"GET tiap 3 detik"| PVMBG
     AGG <-->|"transaksi SQL"| DB
-    DB -->|"relay outbox"| RP
+    AGG -->|"publikasi event outbox"| RP
     INIT -.->|"buat topik"| RP
     RP --> DASH
     RP --> NOTI

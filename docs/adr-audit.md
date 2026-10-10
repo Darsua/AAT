@@ -97,7 +97,7 @@ Kode contoh di ADR (baris 181 sampai 237) tidak mencerminkan implementasi.
 ### F10. ADR 004: klaim benchmark tidak berdasar dan angka pool bertentangan
 - **Klaim lama** (baris 76): benchmark menunjukkan RTT sub-milidetik "<0.6 ms" dengan `MaxIdleConnsPerHost: 100`.
 - **Fakta:** tidak ada benchmark atau berkas yang memuat angka 0,6 ms di repo [proof: grep `0\.6 ?ms|sub-millisecond` di luar `docs/adr` tidak menghasilkan baris]. Selain itu `MaxIdleConnsPerHost` adalah 50, bukan 100, di kode [proof: `services/client-api/main.go:144-145`] dan di blok kode ADR yang sama.
-- **Perbaikan:** klaim diganti angka terukur: p95 1,75 ms dan p99 3,07 ms pada uji beban jalur penuh [proof: `docs/evidence/p2/load_test.log:205-206`], serta nilai pool 100 dan 50 (`05bea3d`).
+- **Perbaikan:** klaim diganti angka terukur: p95 1,75 ms dan p99 3,07 ms pada uji beban jalur penuh [proof: `docs/evidence/p2/load_test.log:205-206`], serta nilai pool 100 dan 50 (`05bea3d`). Tinjauan lanjutan juga menghapus klaim sisa bahwa selisih terhadap gRPC berada pada orde mikrodetik karena proyek tidak menjalankan benchmark pembanding gRPC.
 
 ### F11. ADR 004: antarmuka `HazardService` memuat `GetHealth`
 - **Klaim lama:** antarmuka punya `GetHazards` dan `GetHealth`.
@@ -331,11 +331,13 @@ Keputusan yang tersisa untuk Anda:
 | O10: ditambah pembanding port `client-api` | Bukti bahwa perbedaan ada pada jaringan, bukan pada Docker secara umum |
 | D: perintah hitung layanan dibatasi ke blok `services:` | Perintah lama menghasilkan 14 baris (10 layanan, 2 volume, 2 jaringan) dan dapat disalahbaca sebagai 14 layanan [proof: `grep -nE` sesi ini] |
 | D: perintah `diff` F5 dan O9 dijalankan ulang | Keduanya tidak menghasilkan selisih (ADR 003 dan README aggregator kini identik dengan migrasi) [proof: `diff` sesi ini] |
-| Skrip uji MongoDB disimpan di `docs/evidence/adr-audit/mongo_tx_test.sh` | Agar E6 dapat diulang |
+| Skrip uji MongoDB disimpan di `docs/evidence/adr-audit/mongo_tx_test.sh` | Mengulang skenario A, B, dan C pada E6; skenario A' diperiksa secara manual |
+| Klaim P5 `zero message loss` dan latensi fan-out absolut dikoreksi | `acks=1` pada broker single-node bukan jaminan kehilangan nol; benchmark fan-out khusus tidak dilakukan |
+| Ringkasan ADR pada README disinkronkan | Angka ukuran image, alasan Redpanda, hasil HTTP, dan identifier disesuaikan dengan ADR yang telah diaudit |
 
 ## H. Diagram: dibuat ulang dengan Mermaid (10 Oktober)
 
-Seluruh diagram dibuat ulang dengan Mermaid, sumbernya di `docs/diagrams/*.mmd` dan sinkronisasinya diperiksa oleh `docs/diagrams/check_sync.py` (12 blok Markdown, semuanya `ok`) [proof: keluaran `check_sync.py` sesi ini]. Hasil render dilihat langsung sebagai gambar sebelum di-commit.
+Seluruh diagram dibuat ulang dengan Mermaid dan sumber kanonisnya disimpan di `docs/diagrams/*.mmd`. Dua belas blok Mermaid pada Markdown telah dibandingkan dengan sumbernya dan cocok pada tinjauan terakhir. Helper render dan sinkronisasi sengaja tidak disertakan; berkas `.mmd` menjadi bukti sumber diagram, sedangkan artefak gambar dapat dibuat dengan renderer Mermaid yang kompatibel.
 
 ### H1. Diagram yang tadinya salah terhadap kode
 
@@ -344,6 +346,7 @@ Seluruh diagram dibuat ulang dengan Mermaid, sumbernya di `docs/diagrams/*.mmd` 
 | README (arsitektur) | `ClientAPI -->|JWT Signature & Scope Verification| Auth` | `client-api` memverifikasi JWT secara lokal dan tidak memanggil auth | [proof: `services/client-api/main.go:581-583`] |
 | README (arsitektur) | Grup `bnpb-third-party-group` | Nama itu tidak ada di repo; grup konsumen ketiga di skrip bernama `bnpb-evaluator-audit-group` | [proof: `scripts/test_consumer_recovery.sh:26`, grep `third-party` hanya menemukan ADR 002] |
 | README (arsitektur) | "Log Compaction & Replay" pada topik | Tidak ada konfigurasi kompaksi di compose maupun kode | [proof: grep `compact|cleanup.policy` pada `docker-compose.yml`, `.env.example`, `services` kosong] |
+| README dan varian arsitektur | Panah langsung `DB --> Redpanda` | Outbox disimpan di PostgreSQL, tetapi proses relay pada Aggregator yang mempublikasikan event ke Redpanda | [proof: `services/aggregator/internal/worker/outbox_relay.go:74-124`] |
 | ADR 002 | `group.evaluator`, "Committed Offset: 42" | Nama grup dan offset karangan; diganti nama dari skrip dan keterangan "new group" | [proof: `test_consumer_recovery.sh:26`] |
 | ADR 002 (teks baris 23) | contoh `group.evaluator` | diganti `bnpb-evaluator-audit-group` | sama |
 | ADR 003 | Satu transaksi `SELECT ... FOR UPDATE SKIP LOCKED`, produce, lalu `UPDATE` | Tiga fase dengan lease 30 detik, publish di luar transaksi, karantina | [proof: `hazard_repo.go:402-430`, `outbox_relay.go:46`] (lihat F6) |
@@ -352,7 +355,7 @@ Seluruh diagram dibuat ulang dengan Mermaid, sumbernya di `docs/diagrams/*.mmd` 
 | Laporan Gambar 2.1 | Panah `Verify JWT` dari client-api ke Auth; grup `dashboard` dan `notifier` | Verifikasi lokal; grup sebenarnya `bnpb-dashboard-group` dan `bnpb-notifier-group` | [proof: `client-api/main.go:581-583`, `dashboard/main.go:23`, `notifier/main.go:22`] |
 
 ### H2. Cakupan
-- README, ADR 002 sampai 005 (enam diagram), lima README layanan yang tadinya diagram ASCII (`aggregator`, `auth`, `client-api`, `consumers`, `mock-bmkg`, `mock-pvmbg`), dan Gambar 2.1 laporan (tadinya TikZ).
+- README, ADR 002 sampai 005 (enam diagram), enam README layanan yang tadinya diagram ASCII (`aggregator`, `auth`, `client-api`, `consumers`, `mock-bmkg`, `mock-pvmbg`), dan Gambar 2.1 laporan (tadinya TikZ).
 - Gambar 2.1 memakai varian ringkas (`architecture.report.mmd`) agar teks terbaca pada lebar halaman. Varian lengkap ada di `architecture.id.mmd`.
 - Laporan menjadi 33 halaman [proof: `pdfinfo docs/report/main.pdf`].
 

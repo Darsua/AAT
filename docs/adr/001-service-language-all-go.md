@@ -64,7 +64,7 @@ By compiling static binaries (`CGO_ENABLED=0 GOOS=linux`) into minimal Alpine ru
 
 ### 2. Native Concurrency Under 50 Sustained Connections
 Problem 2 and Problem 4 evaluate system resilience under concurrent load (including a 50-connection sustained benchmark).
-* Go implements native M:N user-space goroutine scheduling with 2 KB initial stack allocations. A pool of 50 or 500 concurrent connections produces virtually zero context-switch overhead or memory strain.
+* Go implements native M:N user-space goroutine scheduling with small initial goroutine stacks. In the measured Milestone 1 test, the HTTP path sustained 50 VUs for 60 seconds with p95 latency of 1.75 ms, p99 of 3.07 ms, and a 0.43% error rate. No 500-connection benchmark was performed.
 * In Python/FastAPI, concurrency depends on `asyncio` running on a single OS thread (constrained by the Global Interpreter Lock). Any un-awaited blocking operation (e.g., intensive JSON serialization, synchronous cryptographic signing, or DNS resolution) starves the event loop, causing p99 latency spikes.
 
 ### 3. Unified Developer Tooling and Zero Multi-Runtime Friction

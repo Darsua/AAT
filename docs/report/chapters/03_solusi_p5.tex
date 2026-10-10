@@ -48,8 +48,8 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
 \clearpage
 \noindent\textbf{Trade-Off Arsitektural:}
 \begin{itemize}
-    \item \textbf{Kelebihan:} \textit{Zero coupling} antara produser dan konsumen; latensi \textit{end-to-end} sub-milidetik untuk \textit{fan-out}; ketahanan data tinggi terhadap kegagalan komponen hilir (\textit{fault isolation}); penambahan konsumen baru sepenuhnya bersifat non-intrusif.
-    \item \textbf{Konsekuensi Negatif:} Diperlukan pengelolaan infrastruktur broker pesan tambahan (\textit{cluster health}, partisi, dan kuota disk); konsistensi data berubah menjadi \textit{eventual consistency} (sistem hilir memiliki selisih latensi beberapa milidetik dibandingkan basis data \textit{Aggregator}); konsumen wajib menangani potensi duplikasi pesan akibat semantik \textit{at-least-once}.
+    \item \textbf{Kelebihan:} Produser tidak bergantung pada identitas atau ketersediaan konsumen; broker mengisolasi gangguan komponen hilir (\textit{fault isolation}); dan konsumen baru dapat ditambahkan tanpa mengubah produser.
+    \item \textbf{Konsekuensi Negatif:} Diperlukan pengelolaan infrastruktur broker pesan tambahan (\textit{cluster health}, partisi, dan kuota disk); data pada sistem hilir bersifat \textit{eventually consistent} dan dapat tertunda ketika terdapat backlog; konsumen wajib menangani potensi duplikasi pesan akibat semantik \textit{at-least-once}. Latensi \textit{fan-out} belum diukur secara khusus pada Milestone 1.
 \end{itemize}
 
 \subsection{Batasan yang Disadari}
@@ -111,12 +111,12 @@ Jawaban komprehensif atas aspek evaluasi Problem 5:
     \begin{itemize}
         \item Produser (outbox relay pada Aggregator) mengirimkan pesan dengan tingkat pengakuan \texttt{acks=1} (\texttt{kafka.RequireOne}), sehingga pesan telah dicatat oleh \textit{leader} partisi sebelum dianggap sukses.
         \item Konsumen tidak memakai komit otomatis: pesan dibaca via \texttt{reader.FetchMessage}, lalu memanggil \texttt{reader.CommitMessages} secara manual tepat setelah pemrosesan dan deduplikasi selesai.
-        \item Jika terjadi kegagalan jaringan atau proses mati tiba-tiba, \textit{offset} belum terkomit sehingga pesan dikirim ulang (\textit{redeliver}) saat pulih, menjamin \textit{zero message loss}.
+        \item Jika terjadi kegagalan jaringan atau proses mati sebelum komit, \textit{offset} belum tersimpan sehingga pesan dapat dikirim ulang (\textit{redeliver}) saat pulih. Kombinasi transactional outbox, retry, retensi broker, dan komit manual mendukung semantik \textit{at-least-once} selama basis data dan log broker tetap tersedia; rancangan single-node dengan \texttt{acks=1} bukan jaminan absolut \textit{zero message loss}.
     \end{itemize}
 
     \item \textbf{Konsekuensi bagi Consumer dan Perlunya Sifat Idempoten:}
     \begin{itemize}
-        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) niscaya terjadi saat \textit{timeout} atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana terhitung ganda (\textit{double count}) pada Dashboard dan memicu banjir notifikasi berulang (\textit{alert fatigue}) pada Notifier.
+        \item \textbf{Kebutuhan Idempotensi:} Dalam semantik \textit{at-least-once}, pengiriman ganda (\textit{duplicate delivery}) dapat terjadi saat \textit{timeout}, retry, atau partisi \textit{rebalance}. Tanpa idempotensi, metrik bencana dapat terhitung ganda (\textit{double count}) pada Dashboard dan memicu notifikasi berulang (\textit{alert fatigue}) pada Notifier.
         \item \textbf{Strategi Mitigasi (\textit{Event Identity}):} Setiap bencana membawa identitas global deterministik (\texttt{hazard\_id}). Pada prototipe saat ini, konsumen mengelola set \texttt{processed[hazard\_id]} dalam memori dengan perlindungan \texttt{sync.Mutex} untuk mengabaikan duplikasi sebelum komit. Pada skala multi-replika produksi, hal ini disikapi via operasi atomik (Redis \texttt{SETNX}) atau integritas basis data relasional (\texttt{ON CONFLICT DO NOTHING}).
     \end{itemize}
 \end{enumerate}

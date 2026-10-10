@@ -1,6 +1,8 @@
 # Diagrams
 
-All architecture and flow diagrams are written in [Mermaid](https://mermaid.js.org/). The `.mmd` files here are the sources. The same text is embedded in the Markdown files listed in `check_sync.py`, so GitHub renders them directly.
+All architecture and flow diagrams are written in [Mermaid](https://mermaid.js.org/). The committed `.mmd` files are the canonical sources and evidence for the diagrams. Matching Mermaid blocks are embedded in the relevant Markdown files so GitHub can render them directly.
+
+Rendering and synchronization helper scripts are intentionally not committed. Contributors may preview the `.mmd` files with any compatible Mermaid renderer, but must keep each embedded Markdown block identical to its canonical source.
 
 | Source | Used in |
 | :--- | :--- |
@@ -21,11 +23,11 @@ All architecture and flow diagrams are written in [Mermaid](https://mermaid.js.o
 
 - Colour classes (`svc`, `store`, `broker`, `ext`, `cons`, `actor`, `plan`) are declared at the bottom of each flowchart. `plan` (dashed grey) means not implemented.
 - Labels carry real service names, ports, routes and consumer group names from `docker-compose.yml` and the code. Update a diagram whenever those change.
-- Text is English except the report figure, which is Indonesian.
+- Text is English except the Indonesian architecture variant and report figure.
 
 ## Editing
 
 1. Edit the `.mmd` file.
 2. Paste the same text into the matching Markdown block.
-3. Run `python3 docs/diagrams/check_sync.py` to confirm every block equals its source.
-4. Run `docs/diagrams/render.sh` to refresh `rendered/` and the report PDF, then `make report`.
+3. Compare the source and embedded block before committing.
+4. If the diagram is used by the report, refresh the corresponding figure with a compatible Mermaid renderer and run `make report`.

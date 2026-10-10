@@ -1,33 +1,34 @@
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TB
     CLI["Clients<br/>Media, field teams, command centre"]:::actor
 
     subgraph GW["Access layer"]
         direction LR
-        AUTH["<b>auth</b> :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
-        CAPI["<b>client-api</b> :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
+        AUTH["auth :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
+        CAPI["client-api :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
     end
 
-    AGG["<b>aggregator</b> :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
+    AGG["aggregator :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
 
     subgraph UP["Upstream agencies (simulated)"]
         direction LR
-        BMKG["<b>mock-bmkg</b> :8081<br/>X-BMKG-Key"]:::ext
-        PVMBG["<b>mock-pvmbg</b> :8082<br/>Bearer token"]:::ext
+        BMKG["mock-bmkg :8081<br/>X-BMKG-Key"]:::ext
+        PVMBG["mock-pvmbg :8082<br/>Bearer token"]:::ext
     end
 
-    DB[("<b>canonical-db</b> :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
+    DB[("canonical-db :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
 
     subgraph BUS["Event bus"]
         direction LR
         INIT["redpanda-init<br/>one-shot topic bootstrap"]:::broker
-        RP[["<b>redpanda</b> :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
+        RP[["redpanda :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
     end
 
     subgraph CON["Event consumers"]
         direction LR
-        DASH["<b>dashboard-consumer</b><br/>bnpb-dashboard-group"]:::cons
-        NOTI["<b>notifier-consumer</b><br/>bnpb-notifier-group"]:::cons
-        AUDIT["<b>evaluator</b> (test script)<br/>bnpb-evaluator-audit-group"]:::cons
+        DASH["dashboard-consumer<br/>bnpb-dashboard-group"]:::cons
+        NOTI["notifier-consumer<br/>bnpb-notifier-group"]:::cons
+        AUDIT["evaluator (test script)<br/>bnpb-evaluator-audit-group"]:::cons
     end
 
     CLI -->|"1. POST /auth/token"| AUTH
@@ -36,7 +37,7 @@ flowchart TB
     AGG -->|"GET every 3 s"| BMKG
     AGG -->|"GET every 3 s"| PVMBG
     AGG <-->|"SQL transaction"| DB
-    DB -->|"outbox relay (aggregator)<br/>key = hazard_id"| RP
+    AGG -->|"publish claimed outbox events<br/>key = hazard_id"| RP
     INIT -.->|"create topic"| RP
     RP --> DASH
     RP --> NOTI

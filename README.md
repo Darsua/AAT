@@ -48,36 +48,37 @@ The platform continuously ingests, harmonizes, enriches, and broadcasts critical
 The system strictly adheres to microservices decoupling principles. Direct function calls and shared business logic libraries across services are explicitly prohibited. Communication occurs exclusively over HTTP/REST (synchronous query path) and Redpanda/Kafka (asynchronous pub-sub event fan-out).
 
 ```mermaid
+%%{init: {"htmlLabels": false, "flowchart": {"htmlLabels": false}}}%%
 flowchart TB
     CLI["Clients<br/>Media, field teams, command centre"]:::actor
 
     subgraph GW["Access layer"]
         direction LR
-        AUTH["<b>auth</b> :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
-        CAPI["<b>client-api</b> :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
+        AUTH["auth :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
+        CAPI["client-api :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
     end
 
-    AGG["<b>aggregator</b> :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
+    AGG["aggregator :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
 
     subgraph UP["Upstream agencies (simulated)"]
         direction LR
-        BMKG["<b>mock-bmkg</b> :8081<br/>X-BMKG-Key"]:::ext
-        PVMBG["<b>mock-pvmbg</b> :8082<br/>Bearer token"]:::ext
+        BMKG["mock-bmkg :8081<br/>X-BMKG-Key"]:::ext
+        PVMBG["mock-pvmbg :8082<br/>Bearer token"]:::ext
     end
 
-    DB[("<b>canonical-db</b> :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
+    DB[("canonical-db :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
 
     subgraph BUS["Event bus"]
         direction LR
         INIT["redpanda-init<br/>one-shot topic bootstrap"]:::broker
-        RP[["<b>redpanda</b> :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
+        RP[["redpanda :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
     end
 
     subgraph CON["Event consumers"]
         direction LR
-        DASH["<b>dashboard-consumer</b><br/>bnpb-dashboard-group"]:::cons
-        NOTI["<b>notifier-consumer</b><br/>bnpb-notifier-group"]:::cons
-        AUDIT["<b>evaluator</b> (test script)<br/>bnpb-evaluator-audit-group"]:::cons
+        DASH["dashboard-consumer<br/>bnpb-dashboard-group"]:::cons
+        NOTI["notifier-consumer<br/>bnpb-notifier-group"]:::cons
+        AUDIT["evaluator (test script)<br/>bnpb-evaluator-audit-group"]:::cons
     end
 
     CLI -->|"1. POST /auth/token"| AUTH
@@ -86,7 +87,7 @@ flowchart TB
     AGG -->|"GET every 3 s"| BMKG
     AGG -->|"GET every 3 s"| PVMBG
     AGG <-->|"SQL transaction"| DB
-    DB -->|"outbox relay (aggregator)<br/>key = hazard_id"| RP
+    AGG -->|"publish claimed outbox events<br/>key = hazard_id"| RP
     INIT -.->|"create topic"| RP
     RP --> DASH
     RP --> NOTI
@@ -123,15 +124,15 @@ flowchart TB
 All foundational architectural decisions are codified in central ADRs under [`docs/adr/`](docs/adr/):
 
 * **[ADR 001: Standardizing Microservices Implementation on Go](docs/adr/001-service-language-all-go.md)**  
-  *Justification for standardizing all 6 services on Go 1.22 instead of Python/FastAPI or a polyglot stack. Container efficiency (<25MB images, <100MB total idle memory), native concurrency handling 50 sustained connections without GIL/event-loop starvation, and zero multi-runtime friction via `go.work`.*
+  *Justification for standardizing all 6 logical services on Go 1.22 instead of Python/FastAPI or a polyglot stack. The seven Go containers measured 24.4–32.6 MB per image and 55.8 MiB total idle memory, while the 50-VU load test remained within the Milestone 1 thresholds.*
 * **[ADR 002: Selecting Redpanda as Kafka-Compatible Message Broker for Event Fan-Out](docs/adr/002-message-broker-redpanda.md)**  
-  *Justification for Redpanda and pure Go `segmentio/kafka-go` over Apache Kafka (JVM bloat, slow startup), RabbitMQ, and NATS JetStream. Details consumer group offset tracking, at-least-once delivery, and consumer downtime recovery.*
+  *Justification for Redpanda and pure Go `segmentio/kafka-go`, based on Kafka protocol compatibility, a single native broker binary, and the `rpk` tooling used by this project. Details consumer group offset tracking, at-least-once delivery, and consumer downtime recovery.*
 * **[ADR 003: Canonical Data Storage using PostgreSQL 16 with JSONB and Transactional Outbox](docs/adr/003-canonical-storage-postgres-jsonb.md)**  
   *Mandatory 3-way comparative evaluation (PostgreSQL + JSONB vs. MongoDB vs. Strict SQL). Details why MongoDB was rejected (multi-document transactions strictly require replica sets) and why strict relational was rejected (violates P1 live schema changes). Details the Transactional Outbox pattern eliminating dual-write hazards.*
 * **[ADR 004: Internal Service-to-Service Communication via HTTP/REST with Decoupled Abstractions](docs/adr/004-internal-communication-rest.md)**  
-  *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), sub-millisecond bridge network latency, and interface-driven decoupling (`HazardService`).*
+  *Justification for HTTP/REST between Client API and Aggregator. Explains protocol homogeneity, seamless dynamic JSON attributes (P1), terminal operability (`curl`), measured Milestone 1 latency, and interface-driven decoupling (`HazardService`); no direct gRPC comparison was benchmarked.*
 * **[ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap](docs/adr/005-stateless-architecture-and-m2-readiness.md)**  
-  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside UUIDv7 identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.* **[Ini perubahan mendasar, so make sure again ^^]**
+  *Roadmap documenting the stateless request path, explicit Milestone 1 process-local state, and the externalization steps required for horizontal scaling, alongside deterministic identifiers, DB-level idempotency (`UNIQUE(source, source_ref_id)`), caching, and circuit breakers.*
 
 ---
 
