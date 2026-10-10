@@ -290,6 +290,17 @@ Waktu mencakup overhead `docker start`, jadi bukan waktu proses semata.
 - Pembanding Python dan pihak ketiga memakai pengaturan bawaan dan tidak mewakili konfigurasi produksi.
 - Di sesi ini saya mengubah state mesin Anda: menyalakan layanan Docker, membuat `.env` (diabaikan git), mem-build image, dan menjalankan 9 kontainer. Setelah pengukuran, stack dimatikan dengan `docker compose down` dan `docker ps` menampilkan nol kontainer berjalan. Image hasil build dan image pembanding masih ada di cache Docker. Tiga kontainer berstatus Exited (`agitated_curran`, `upbeat_wozniak`, `condescending_greider`, image sama, umur 2 hari) bukan dari sesi ini dan tidak disentuh.
 
+### E6. Uji transaksi MongoDB 7.0 (`mongo:7.0`, skrip sesi ini)
+
+| Skenario | Hasil |
+| :--- | :--- |
+| A. mongod standalone, transaksi lewat `mongosh` | Gagal: "This MongoDB deployment does not support retryable writes" (pesan dari sisi sesi `mongosh`, bukan pesan transaksi) |
+| A'. mongod standalone, perintah `insert` mentah dengan `txnNumber` dan `startTransaction: true` | Gagal: `MongoServerError: Transaction numbers are only allowed on a replica set member or mongos` (sama persis dengan kutipan ADR 003) |
+| B. `--replSet rs0` sebelum `rs.initiate()` | Gagal: `NotWritablePrimary | not primary` |
+| C. replica set **satu anggota** setelah `rs.initiate()` | Berhasil: transaksi dua dokumen `TX_OK` |
+
+Kesimpulan: klaim "memerlukan replica set" benar dan teks error di ADR benar apa adanya (A'). Klaim "multi-node replica set" salah: satu anggota cukup (C). Ketergantungan `rs.initiate()` sebelum transaksi juga nyata (B). ADR 003 diperbaiki sesuai ini. Batas: satu sampel, hanya MongoDB 7.0, tanpa uji driver Go.
+
 ## F. Status akhir
 
 | Kategori | Jumlah | Rincian |
@@ -303,4 +314,3 @@ Waktu mencakup overhead `docker start`, jadi bukan waktu proses semata.
 Keputusan yang tersisa untuk Anda:
 1. Baris `ports: "127.0.0.1:8083:8083"` pada aggregator di `docker-compose.yml` tidak berpengaruh (O10). Boleh dihapus atau dibiarkan.
 2. Angka pada E4 dan pembanding Python berasal dari satu sampel dan pengaturan bawaan. Jika ADR dijadikan dasar nilai, ulangi pengukuran beberapa kali dengan perintah di bagian D.
-3. Klaim ADR 003 bahwa MongoDB memerlukan replica set untuk transaksi multi-dokumen tidak diuji di sesi ini {unverified}.

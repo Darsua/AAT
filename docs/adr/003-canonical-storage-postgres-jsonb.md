@@ -60,10 +60,10 @@ flowchart TD
 | Evaluation Criteria | PostgreSQL 16 + JSONB (Chosen) | Pure Document Store: MongoDB 7.0 (Rejected) | Strict Normalized SQL: MySQL 8 (Rejected) |
 | :--- | :--- | :--- | :--- |
 | **P1: Dynamic Additive Schema** | **Native**. Unknown fields unmarshal directly into `attributes JSONB` without DDL migrations. | **Native**. BSON documents natively accept dynamic additive attributes. | **Fails**. Any new field (`confidence_level`) requires `ALTER TABLE` or triggers SQL column errors. |
-| **Multi-Document ACID Transactions** | **Native & Lightweight**. Standard `BEGIN ... COMMIT` handles `hazards` + `outbox_events` atomically. | **Complex & Fragile**. Multi-document transactions strictly require a **Replica Set**. Standalone single nodes crash with transaction errors. | **Native**. Standard ACID transaction support. |
+| **Multi-Document ACID Transactions** | **Native & Lightweight**. Standard `BEGIN ... COMMIT` handles `hazards` + `outbox_events` atomically. | **Complex & Fragile**. Multi-document transactions require a **Replica Set** (a single-member set is enough). A standalone `mongod` rejects them. | **Native**. Standard ACID transaction support. |
 | **Relational Reference Enrichment** | **Native & Indexed**. Fast B-Tree lookup on `volcano_references(volcano_id)`. | **Requires Aggregation**. Must use `$lookup` aggregation pipelines or dual-query client joins. | **Native & Indexed**. Standard foreign key / join semantics. |
 | **Idle Memory Footprint** | **47.7 MiB** (measured, `postgres:16-alpine` in the running stack). | 76.2 MiB (measured, `mongo:7.0`, empty, default settings). | 385 MiB (measured, `mysql:8.0`, default settings). |
-| **Docker Compose Ergonomics** | **Zero Setup**. Single lightweight container with standard `/docker-entrypoint-initdb.d/`. | **High Friction**. Requires complex init script to initiate replica set (`rs.initiate()`) before transactions work. | Moderate. Requires table migrations and health check scripts. |
+| **Docker Compose Ergonomics** | **Zero Setup**. Single lightweight container with standard `/docker-entrypoint-initdb.d/`. | **High Friction**. Requires starting `mongod` with `--replSet` and running `rs.initiate()` before transactions work. | Moderate. Requires table migrations and health check scripts. |
 | **Indexing Flexibility** | GIN indexes on `attributes`, B-Tree indexes on timestamp, severity, and type. | Compound B-tree and multi-key indexes. | B-Tree indexes on fixed columns only; JSON columns cannot be natively foreign-keyed. |
 
 ---
@@ -71,11 +71,11 @@ flowchart TD
 ## Detailed Rationale for Choices & Rejections
 
 ### Why Pure Document Store (MongoDB) Was Rejected
-1. **Multi-Document Transaction Constraint**: The Transactional Outbox pattern requires an atomic transaction spanning two logical collections (`hazards` and `outbox_events`). In MongoDB, **multi-document ACID transactions are strictly forbidden on standalone instances**; attempting to execute `session.startTransaction()` on a standalone mongod instance results in:
+1. **Multi-Document Transaction Constraint**: The Transactional Outbox pattern requires an atomic transaction spanning two logical collections (`hazards` and `outbox_events`). In MongoDB, **multi-document ACID transactions are not available on standalone instances**. Tested on `mongo:7.0` (see `docs/adr-audit.md`, section E6): a transaction command sent to a standalone mongod fails with:
    ```
    MongoServerError: Transaction numbers are only allowed on a replica set member or mongos
    ```
-   To run transactions in Docker Compose, one must configure a multi-node replica set or execute a custom bash sidecar running `rs.initiate()`. This introduces significant operational brittleness during automated grading runs.
+   A replica set with a single member is sufficient (the same test committed a two-document transaction after `rs.initiate()` on one node), so no multi-node cluster is needed. It still requires `--replSet` and an `rs.initiate()` step (a sidecar or init script) before the application can start, and a node started with `--replSet` rejects writes until that step has run. This adds an ordering dependency to Docker Compose startup that PostgreSQL does not have.
 2. **Memory Footprint**: *Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [`docs/adr-audit.md`](../adr-audit.md), section E. Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.* An empty `mongo:7.0` container idled at 76.2 MiB (1.18 GB image, ready in 1.2 s), which is about 1.6x the PostgreSQL figure rather than a large multiple. Memory is therefore **not** a deciding argument against MongoDB; the transaction constraint above and the join-free reference lookup below are.
 3. **Volcano Reference Lookups**: Relational joins for volcano coordinates (`VLC-001` → latitude/longitude) are awkward in document models and require multi-stage `$lookup` aggregation pipelines instead of simple, indexed SQL lookups.
 
