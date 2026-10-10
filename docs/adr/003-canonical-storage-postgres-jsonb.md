@@ -62,7 +62,7 @@ flowchart TD
 | **P1: Dynamic Additive Schema** | **Native**. Unknown fields unmarshal directly into `attributes JSONB` without DDL migrations. | **Native**. BSON documents natively accept dynamic additive attributes. | **Fails**. Any new field (`confidence_level`) requires `ALTER TABLE` or triggers SQL column errors. |
 | **Multi-Document ACID Transactions** | **Native & Lightweight**. Standard `BEGIN ... COMMIT` handles `hazards` + `outbox_events` atomically. | **Complex & Fragile**. Multi-document transactions strictly require a **Replica Set**. Standalone single nodes crash with transaction errors. | **Native**. Standard ACID transaction support. |
 | **Relational Reference Enrichment** | **Native & Indexed**. Fast B-Tree lookup on `volcano_references(volcano_id)`. | **Requires Aggregation**. Must use `$lookup` aggregation pipelines or dual-query client joins. | **Native & Indexed**. Standard foreign key / join semantics. |
-| **Idle Memory Footprint** | **~22–28 MB** (PostgreSQL Alpine container). | **~350–650 MB** (WiredTiger engine pre-allocates substantial cache). | ~180–300 MB (InnoDB buffer pool defaults). |
+| **Idle Memory Footprint** | **47.7 MiB** (measured, `postgres:16-alpine` in the running stack). | 76.2 MiB (measured, `mongo:7.0`, empty, default settings). | 385 MiB (measured, `mysql:8.0`, default settings). |
 | **Docker Compose Ergonomics** | **Zero Setup**. Single lightweight container with standard `/docker-entrypoint-initdb.d/`. | **High Friction**. Requires complex init script to initiate replica set (`rs.initiate()`) before transactions work. | Moderate. Requires table migrations and health check scripts. |
 | **Indexing Flexibility** | GIN indexes on `attributes`, B-Tree indexes on timestamp, severity, and type. | Compound B-tree and multi-key indexes. | B-Tree indexes on fixed columns only; JSON columns cannot be natively foreign-keyed. |
 
@@ -76,7 +76,7 @@ flowchart TD
    MongoServerError: Transaction numbers are only allowed on a replica set member or mongos
    ```
    To run transactions in Docker Compose, one must configure a multi-node replica set or execute a custom bash sidecar running `rs.initiate()`. This introduces significant operational brittleness during automated grading runs.
-2. **Memory Footprint**: MongoDB's WiredTiger storage engine aggressively pre-allocates memory for internal caches, routinely consuming 400 MB to 1 GB RAM even at complete idle. In a setup running eight concurrent containers, this wastes scarce host resources.
+2. **Memory Footprint**: *Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [`docs/adr-audit.md`](../adr-audit.md), section E. Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.* An empty `mongo:7.0` container idled at 76.2 MiB (1.18 GB image, ready in 1.2 s), which is about 1.6x the PostgreSQL figure rather than a large multiple. Memory is therefore **not** a deciding argument against MongoDB; the transaction constraint above and the join-free reference lookup below are.
 3. **Volcano Reference Lookups**: Relational joins for volcano coordinates (`VLC-001` → latitude/longitude) are awkward in document models and require multi-stage `$lookup` aggregation pipelines instead of simple, indexed SQL lookups.
 
 ### Why Strict Normalized Relational SQL Was Rejected

@@ -52,13 +52,15 @@ Deploying ten containers (seven Go service containers covering the six logical m
 
 | Metric | Monoglot Go 1.22 | Polyglot (Go + Python) | Monoglot Python (FastAPI) |
 | :--- | :--- | :--- | :--- |
-| **Compiled Binary Size** | ~12–18 MB per service | Mixed | N/A (requires Python runtime) |
-| **Docker Image Size** | **< 25 MB** (Alpine 3.20 base) | ~180–250 MB (Python) | ~180–250 MB per service |
-| **Idle Memory per Service** | **~10–16 MB** | ~110–160 MB (Python) | ~110–160 MB |
-| **Total Idle Memory (6 Services)** | **< 100 MB combined** | ~450–600 MB | **~800 MB – 1.1 GB** |
-| **Cold Startup Time** | **< 50 ms** | 1.2–2.5 s (Python) | 1.2–2.5 s |
+| **Compiled Binary Size** | 5.1–11.2 MB per service (measured) | Mixed | N/A (requires Python runtime) |
+| **Docker Image Size** | **24.4–32.6 MB** (Alpine 3.20 base; measured, 4 of 7 images are above 25 MB) | 178 MB base (`python:3.12-slim`), 224 MB with FastAPI + Uvicorn (measured) | ~224 MB or more per service |
+| **Idle Memory per Service** | **1.8–16.6 MiB** (measured, 7 containers) | ~32 MiB for a hello-world FastAPI app (measured; real services with dependencies not measured) | ~32 MiB or more |
+| **Total Idle Memory** | **55.8 MiB** for the 7 Go service containers (measured) | Not measured (6 hello-world instances would be about 190 MiB) | Not measured |
+| **Cold Startup Time** | **233–515 ms** from `docker start` to `/health` 200 (measured; includes container start) | 929 ms for hello-world FastAPI measured the same way | 929 ms or more |
 
-By compiling static binaries (`CGO_ENABLED=0 GOOS=linux`) into minimal Alpine runtime containers, the entire six-service compute layer idles at under 100 MB RAM total. This leaves virtually all system memory available for PostgreSQL's buffer cache and Redpanda's high-throughput ring buffers.
+*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [`docs/adr-audit.md`](../adr-audit.md), section E. Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
+
+By compiling static binaries (`CGO_ENABLED=0 GOOS=linux`) into minimal Alpine runtime containers, the seven Go service containers idle at about 56 MiB RAM in total (measured), leaving most system memory for PostgreSQL and Redpanda. The footprint advantage over Python is real (roughly 4x on idle memory, 8 MiB average versus 32 MiB, and 7x to 9x on image size, for a hello-world comparison) but it is not decisive on its own: the host used here has 13.5 GiB of RAM.
 
 ### 2. Native Concurrency Under 50 Sustained Connections
 Problem 2 and Problem 4 evaluate system resilience under concurrent load (including a 50-connection sustained benchmark).
@@ -91,9 +93,9 @@ Problem 2 and Problem 4 evaluate system resilience under concurrent load (includ
 ### Alternative A: Full Python (FastAPI / Uvicorn)
 * **Description**: Write all services in Python 3.12 using FastAPI, Pydantic v2, and Uvicorn.
 * **Why Rejected**:
-  * **Memory Bloat**: Baseline memory consumption for six FastAPI/Uvicorn containers exceeds 900 MB idle, approaching resource limits on evaluation virtual machines.
+  * **Memory Footprint**: A hello-world FastAPI/Uvicorn container idles at about 32 MiB (measured), so six instances would use roughly 190 MiB before application dependencies. This is several times the Go footprint but well within the limits of a developer or grading machine, so memory is a secondary argument.
   * **Event Loop Bottlenecks**: Heavy polling loops, hashing operations in `auth`, and JSON deserialization in `aggregator` compete on the single-threaded asyncio loop.
-  * **Deployment Complexity**: Container images balloon to 200 MB+ due to Python interpreter runtimes, wheel caching, and dependencies.
+  * **Deployment Complexity**: Container images are about 224 MB for FastAPI + Uvicorn on `python:3.12-slim` (measured) versus 24–33 MB for the Go images, plus a Python runtime and dependency installation step in every build.
 
 ### Alternative B: Polyglot Architecture (Go Aggregator + Python Mocks/Clients)
 * **Description**: Implement data-intensive services (`aggregator`) in Go, and lighter facade services (`mock-bmkg`, `mock-pvmbg`, `auth`, `client-api`) in Python.

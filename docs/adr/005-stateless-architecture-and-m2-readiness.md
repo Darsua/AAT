@@ -70,6 +70,8 @@ Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) D
 
 ## Milestone 2 Evolution Path
 
+> **Status: plan only.** Nothing in this section is implemented in Milestone 1. Items here (replicas behind a load balancer, Redis read-through cache, circuit breaker, six partitions) are design intentions to be validated when Milestone 2 starts; they are not claims about the current code.
+
 ### 1. Multi-Instance Horizontal Scaling
 * **`client-api` Scaling**:
   * Because `client-api` is 100% stateless, scaling from 1 to N instances requires only setting `deploy.replicas: N` in Docker Compose or Kubernetes, fronted by an Nginx or Envoy reverse proxy with round-robin routing.
@@ -125,8 +127,8 @@ Problem 2 introduces external provider outages (e.g., PVMBG downtime).
 ### 4. Topic Partitioning & High Throughput
 In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the one-shot `redpanda-init` Compose service. For Milestone 2:
 * Increase partitions from 3 to 6.
-* Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`).
-* Guarantees strict chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
+* Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`). Note that Milestone 1 keys by `hazard_id`, which orders updates per hazard (see [ADR 002](002-message-broker-redpanda.md)); changing the key changes the ordering guarantee from per hazard to per category or area, so this trade-off must be re-evaluated before the change.
+* Would give chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
 
 ---
 
