@@ -4,7 +4,7 @@
 **Target Project Completion:** **08 October 2026** (Internal target buffer)  
 **Hard Submission Deadline:** **10 October 2026, 23:59 WIB** (Extended from 09 Oct per Spec Changelog [1])  
 **Demonstration:** H+1 after deadline  
-**Last Updated:** **09 October 2026**
+**Last Updated:** **10 October 2026**
 
 ---
 
@@ -16,8 +16,8 @@
 | **Phase 2: Build** | 23–25 Sep | Independent service skeletons, database schema, auth models, broker topics | All mocks, DB, Auth, and Aggregator running | **COMPLETED ✅** |
 | **Phase 3: Integration** | 28 Sep–05 Oct | Ingestion polling, canonical mapping, outbox relay, client facade, consumers | End-to-end event flow from mocks to consumers (Monday exit) | **COMPLETED ✅** |
 | **Phase 4: Validation** | 03–06 Oct | Automated P1–P5 test scenarios, ≥50 conn load test, in-person rehearsal | All acceptance criteria evidenced (Tuesday in-person alignment) | **COMPLETED ✅** |
-| **Phase 5: Closeout** | 06–10 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **IN PROGRESS** |
-| **Buffer Window** | 09–10 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 10 Oct 23:59 WIB deadline | **PLANNED** |
+| **Phase 5: Closeout** | 06–10 Oct | Final PDF report, AI declaration form, clean-checkout QA, release tagging | `milestone-1` git tag pushed; report PDF ready | **COMPLETED ✅** |
+| **Buffer Window** | 09–10 Oct | Final submission packaging, dry runs, and submission buffer | Zero code edits; form submitted ahead of 10 Oct 23:59 WIB deadline | **COMPLETED ✅** |
 
 ---
 
@@ -164,9 +164,9 @@
   *Deliverable:* RBAC security design, token lifecycle documentation, and pub-sub recovery architecture.
 - [x] **`ALL-02`** *(All)* — **Finalize README, runbook, .env.example, and AI declaration** (07–08 Oct)  
   *Deliverable:* Root [`README.md`](../README.md) verified against rubric; signed ITB AI Declaration Form attached.
-- [ ] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (08–10 Oct)  
+- [x] **`ALL-03`** *(All)* — **Clean-checkout QA, final commit, and milestone-1 tag** (08–10 Oct)  
   *Deliverable:* Pristine `git checkout` test in clean directory; tag `milestone-1` pushed to GitHub.
-- [ ] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-day buffer** (09–10 Oct)  
+- [x] **`ALL-04`** *(All)* — **Prepare final submission package and handoff with one-day buffer** (09–10 Oct)  
   *Deliverable:* Final PDF report, GitHub repository link, and submission form ready ahead of hard deadline.
 
 ---
