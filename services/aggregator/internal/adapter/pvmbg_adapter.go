@@ -99,7 +99,7 @@ func (a *PVMBGAdapter) FetchVolcanicReports(ctx context.Context, since *time.Tim
 		req.Header.Set("X-Correlation-ID", corrID)
 	}
 
-	resp, err := a.httpClient.Do(req)
+	resp, err := doLogged(ctx, a.httpClient, req, "pvmbg")
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to execute PVMBG request: %w", ErrUpstreamUnavailable, err)
 	}

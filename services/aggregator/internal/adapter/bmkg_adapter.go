@@ -75,7 +75,7 @@ func (a *BMKGAdapter) FetchSeismicEvents(ctx context.Context, since *time.Time) 
 		req.Header.Set("X-Correlation-ID", corrID)
 	}
 
-	resp, err := a.httpClient.Do(req)
+	resp, err := doLogged(ctx, a.httpClient, req, "bmkg")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute BMKG seismic request: %w", err)
 	}
@@ -114,7 +114,7 @@ func (a *BMKGAdapter) FetchTsunamiWarnings(ctx context.Context, since *time.Time
 		req.Header.Set("X-Correlation-ID", corrID)
 	}
 
-	resp, err := a.httpClient.Do(req)
+	resp, err := doLogged(ctx, a.httpClient, req, "bmkg")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute BMKG tsunami request: %w", err)
 	}

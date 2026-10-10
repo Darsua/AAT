@@ -330,11 +330,16 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 	}
 	req.Header.Set(correlationHead, correlationIDFromContext(ctx))
 
+	started := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q error=%q duration_ms=%d",
+			correlationIDFromContext(ctx), req.Method, req.URL.Path, err, time.Since(started).Milliseconds())
 		return nil, err
 	}
 	defer resp.Body.Close()
+	log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q status=%d duration_ms=%d",
+		correlationIDFromContext(ctx), req.Method, req.URL.Path, resp.StatusCode, time.Since(started).Milliseconds())
 
 	if resp.StatusCode != http.StatusOK {
 		var payload errorResponse
