@@ -9,6 +9,13 @@ Permasalahan kedua (P2) berfokus pada pencegahan tiga titik kegagalan utama dala
     \item \textbf{Penerapan Graceful Degradation:} Aggregator menerapkan pelacak status kesehatan hulu (\textit{status tracker}) pada setiap poller. Setiap siklus polling PVMBG yang gagal menandai hulu tersebut tidak sehat dan mencatat awal kegagalan sebagai \texttt{stale\_since}; poller kemudian menunda siklus berikutnya dengan \textit{exponential backoff} berjitter (maksimum 30 detik) dan memulihkan status secara otomatis begitu satu siklus berhasil. Respons klien tetap HTTP 200 berisi data BMKG terbaru dipadu \textit{snapshot} historis PVMBG beserta metadata penanda status.
 \end{enumerate}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth,keepaspectratio]{figures/aggregator-flow.pdf}
+\caption{Alur Konkurensi Ingesti Goroutine Terisolasi dan Penanganan Degradasi pada Aggregator}
+\label{fig:aggregator_flow}
+\end{figure}
+
 \subsection{Alasan Keputusan dan Trade-Off}
 Dalam menangani konkurensi dan degradasi, kelompok mengevaluasi trade-off berikut:
 \begin{itemize}

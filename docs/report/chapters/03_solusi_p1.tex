@@ -10,6 +10,13 @@ Untuk mengatasi permasalahan tersebut tanpa mengharuskan \textit{redeploy} atau 
     \item \textbf{Persistensi Tanpa Migrasi DDL:} Nilai \texttt{attributes} disimpan ke dalam kolom PostgreSQL bertipe \texttt{JSONB}. Dengan pendekatan ini, penambahan field baru dari hulu tidak memerlukan eksekusi \texttt{ALTER TABLE} maupun penguncian tabel (\textit{table lock}).
 \end{enumerate}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.68\textwidth,keepaspectratio]{figures/mock-pvmbg-context.pdf}
+\caption{Struktur Layanan Simulasi PVMBG dengan Pengendali Evolusi Skema Dinamis}
+\label{fig:mock_pvmbg_context}
+\end{figure}
+
 \subsection{Alasan Keputusan dan Trade-Off}
 Dalam menentukan mekanisme evolusi skema, kelompok mempertimbangkan beberapa alternatif:
 \begin{itemize}
