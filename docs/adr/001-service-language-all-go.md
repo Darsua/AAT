@@ -112,14 +112,19 @@ Problem 2 and Problem 4 evaluate system resilience under concurrent load (includ
 * **Challenge**: Problem 1 requires `mock-pvmbg` to dynamically introduce new fields (e.g., `confidence_level: 0.95`) at runtime without crashing downstream services or dropping unknown attributes. Go's strict static typing could reject unrecognized fields if using rigid structs.
 * **Mitigation**: We separate the canonical payload into a **strongly-typed envelope** and a **dynamic attributes container**:
   ```go
+  // Excerpt of services/aggregator/internal/domain/models.go
   type HazardEvent struct {
-      HazardID     string                 `json:"hazard_id"`
-      Source       string                 `json:"source"`
-      HazardType   string                 `json:"hazard_type"`
-      Severity     string                 `json:"severity"`
-      AreaName     string                 `json:"area_name"`
-      OccurredAt   time.Time              `json:"occurred_at"`
-      Attributes   map[string]interface{} `json:"attributes"` // Dynamic schemaless bag
+      HazardID    string         `json:"hazard_id"`
+      Source      Source         `json:"source"`
+      HazardType  HazardType     `json:"hazard_type"`
+      Severity    Severity       `json:"severity"`
+      AreaName    string         `json:"area_name"`
+      OccurredAt  time.Time      `json:"occurred_at"`
+      IngestedAt  time.Time      `json:"ingested_at"`
+      SourceRefID string         `json:"source_ref_id"`
+      Latitude    *float64       `json:"latitude,omitempty"`
+      Longitude   *float64       `json:"longitude,omitempty"`
+      Attributes  map[string]any `json:"attributes"` // Dynamic schemaless bag
   }
   ```
   Unknown additive fields from upstream providers unmarshal seamlessly into `Attributes` and persist directly into PostgreSQL's `JSONB` column, combining strict type safety on queryable indexes with dynamic flexibility for live schema evolution.

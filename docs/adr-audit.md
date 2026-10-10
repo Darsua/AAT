@@ -22,7 +22,7 @@ Commit perbaikan:
 | Salah dan sudah diperbaiki (F1 sampai F13) | 13 |
 | Diperbaiki setelah diukur atau diputuskan (O1, O3, O4, O6, O7, O8) | 6 |
 | Dicabut karena bukan kesalahan (O5) | 1 |
-| Masih terbuka (O2, O9) | 2 |
+| Diperbaiki kemudian (O2, O9, O10) | 3 |
 
 Temuan paling berat: ADR 005 mengklaim UUIDv7 padahal ID bersifat deterministik (F12), ADR 003 memuat SQL dan kode relay outbox yang usang (F4 sampai F6), dan hampir semua angka sumber daya di ADR 001 sampai 003 tidak cocok dengan pengukuran (O1 dan O3). Salah satunya mengubah alasan pemilihan: Redpanda tidak lebih hemat memori daripada Kafka KRaft dalam pengukuran ini (352 MiB berbanding 297 MiB).
 
@@ -139,12 +139,9 @@ Hasil pengukuran ada di bagian E. Perbandingan dengan klaim lama (baris 53 sampa
 - **Catatan:** pembanding Python adalah aplikasi hello-world, bukan layanan BNPB yang ditulis ulang, jadi angkanya batas bawah. Keunggulan Go tetap ada (memori ~4x, image 7x sampai 9x lebih kecil) tetapi tidak sebesar klaim lama.
 - **Perbaikan:** tabel dan paragraf ADR 001 diganti angka terukur dan klaim "memory bloat" dilunakkan.
 
-### O2. ADR 001: cuplikan `HazardEvent` tidak lengkap (MASIH TERBUKA)
-- **Klaim** (baris 113): struct dengan enam field bertipe `string` dan satu `Attributes`.
-- **Fakta:** struct asli bertipe `Source`, `HazardType`, `Severity`, dan memuat `IngestedAt`, `SourceRefID`, `Latitude`, `Longitude` (pointer, `omitempty`) [proof: `services/aggregator/internal/domain/models.go:36-51`].
-- **Pembanding kontrak:** `contracts/hazard_event.json` mendefinisikan 11 properti: `hazard_id`, `source`, `source_ref_id`, `hazard_type`, `severity`, `area_name`, `latitude`, `longitude`, `attributes`, `occurred_at`, `ingested_at` [proof: hasil `python3` membaca `contracts/hazard_event.json`], sedangkan struct di ADR hanya tujuh.
-- **Dampak:** rendah. Mekanisme `Attributes` yang dijelaskan benar.
-- **Rekomendasi:** ganti dengan cuplikan asli atau tandai sebagai versi ringkas.
+### O2. ADR 001: cuplikan `HazardEvent` tidak lengkap (DIPERBAIKI)
+- **Temuan:** struct di ADR hanya tujuh field bertipe `string`, sedangkan struct asli bertipe `Source`, `HazardType`, `Severity` dan memuat `IngestedAt`, `SourceRefID`, `Latitude`, `Longitude` [proof: `services/aggregator/internal/domain/models.go:36-51`]. Kontrak mendefinisikan 11 properti [proof: `contracts/hazard_event.json`, dibaca dengan `python3`].
+- **Perbaikan:** cuplikan ADR 001 diganti dengan 11 field asli dan diberi label "Excerpt of `models.go`".
 
 ### O3. ADR 002 dan 003: angka perbandingan teknologi (DIPERBAIKI setelah diukur)
 Semua image dijalankan dengan pengaturan bawaan di mesin yang sama (bagian E).
@@ -182,10 +179,16 @@ Semua image dijalankan dengan pengaturan bawaan di mesin yang sama (bagian E).
 ### O8. ADR 005: rencana Milestone 2 (DIPERBAIKI: diberi label rencana)
 - Bagian "Milestone 2 Evolution Path" kini diawali catatan "Status: plan only". Catatan kunci partisi juga ditambahkan: M1 memakai kunci `hazard_id` (urutan per kejadian), sedangkan rencana M2 mengubahnya menjadi per kategori atau area sehingga jaminan urutan berubah.
 
-### O9. Temuan baru: README aggregator memuat SQL usang yang sama dengan ADR 003
-- `services/aggregator/README.md` bagian 4 menampilkan tabel `hazards` dengan `hazard_id VARCHAR(64)` dan `source_ref_id VARCHAR(64)` [proof: `services/aggregator/README.md:147`], padahal migrasi memakai `VARCHAR(128)` [proof: `services/aggregator/migrations/001_init.sql:63-64`].
-- **Dampak:** rendah. Bukan ADR, tetapi README menyatakan dirinya "mounted automatically from migrations/001_init.sql".
-- **Rekomendasi:** ganti cuplikan dengan isi migrasi, atau tautkan saja.
+### O9. README aggregator memuat SQL usang yang sama dengan ADR 003 (DIPERBAIKI)
+- **Temuan:** `diff` antara blok SQL README dan `migrations/001_init.sql` menunjukkan perbedaan: `VARCHAR(64)` di README versus `VARCHAR(128)` di migrasi untuk `hazard_id`, `source_ref_id`, `event_id`; kolom `correlation_id` dan `claim_expires_at`, indeks `idx_hazards_severity_occurred`, data seed enam gunung, dan `ALTER TABLE` idempoten tidak ada di README [proof: keluaran `diff` sesi ini].
+- **Klaim lain yang salah di README yang sama:** "circuit breaking" dan "circuit breaker" (kode tidak punya; hanya status tracker, lihat `internal/status/tracker.go`) [proof: `grep -rniE "circuit|jitter" services/aggregator` hanya menemukan komentar dan `randomJitter` di `poller.go:77`].
+- **Perbaikan:** blok SQL diganti isi `001_init.sql` apa adanya; klaim circuit breaker diganti deskripsi status tracker; pool 25/5 sudah benar [proof: `config.go:32,37`].
+
+### O10. Port host 8083 aggregator tidak terbuka (DIPERBAIKI di dokumentasi)
+- **Gejala:** `curl http://127.0.0.1:8083/health` menghasilkan kode 000, sedangkan `127.0.0.1:8080/health` menghasilkan 200 [proof: keluaran curl sesi ini].
+- **Sebab:** compose mendefinisikan `127.0.0.1:8083:8083` [proof: `docker-compose.yml:123`], tetapi aggregator hanya terhubung ke `bnpb-internal` yang bertanda `internal: true` [proof: `docker-compose.yml:211-213`; `docker network inspect bnpb-aat_bnpb-internal --format '{{.Internal}}'` = `true`]. Docker tidak mempublikasikan port pada jaringan internal: `docker inspect` menunjukkan `NetworkSettings.Ports` = `{"8083/tcp":null}` dan `docker ps` hanya menampilkan `8083/tcp`.
+- **Dampak:** perilaku sesuai desain isolasi (P4: aggregator tidak terjangkau dari luar). Yang salah adalah dokumentasi: README utama baris 115 menyebut "Host Loopback" dan README aggregator menyarankan `curl localhost:8083`. Laporan sudah menulis "port 8083 internal" [proof: `docs/report/chapters/02_arsitektur.tex:7`], jadi tidak perlu diubah.
+- **Perbaikan:** README utama dan README aggregator dikoreksi. Baris `ports:` di `docker-compose.yml` tidak diubah karena tidak berpengaruh; menghapusnya adalah keputusan Anda.
 
 ## C. Klaim yang diperiksa dan cocok
 
