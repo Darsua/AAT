@@ -20,7 +20,7 @@ We select **Redpanda** (single-node development mode) as our message broker, int
 * **Broker Container**: `redpandadata/redpanda:v24.1.1` configured with single-node mode (`--overprovisioned`, `--smp 1`, `--memory 256M`).
 * **Topic**: `bnpb.hazard-events` (partitioned topic with durable commit log).
 * **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`.
-* **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (e.g., `group.dashboard`, `group.notifier`, `group.third-party`).
+* **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (currently `bnpb-dashboard-group` and `bnpb-notifier-group`, overridable via `CONSUMER_GROUP`; a third-party evaluator service would use its own, e.g. `group.evaluator`).
 * **Message Envelope** (frozen contract between producer and consumers, detailed in `services/aggregator/README.md` §3.5): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
 
 ```mermaid
@@ -34,8 +34,8 @@ flowchart LR
     end
 
     subgraph ConsumersLayer["Downstream Consumers (Member C)"]
-        CG1["Consumer: Dashboard\nGroup: group.dashboard\n[Committed Offset: 42]"]
-        CG2["Consumer: Notifier\nGroup: group.notifier\n[Committed Offset: 42]"]
+        CG1["Consumer: Dashboard\nGroup: bnpb-dashboard-group\n[Committed Offset: 42]"]
+        CG2["Consumer: Notifier\nGroup: bnpb-notifier-group\n[Committed Offset: 42]"]
         CG3["Consumer: Evaluator 3rd Service\nGroup: group.evaluator\n[New Group: Replays from Offset 0]"]
     end
 
@@ -77,7 +77,7 @@ In contrast, `segmentio/kafka-go` is written in 100% pure Go:
 ### 3. Native Offset Management for Seamless Problem 5 Scenarios
 Kafka's log-centric architecture is ideally suited for Problem 5:
 * **Decoupled Consumer State**: Consumers maintain their own cursor position (`committed offset`) in the broker's `__consumer_offsets` topic. If `services/consumers/notifier` goes down for 30 seconds while `services/aggregator` ingests 10 new seismic alerts, the messages remain persistently stored in `bnpb.hazard-events`. When `notifier` boots back up, it asks Redpanda for its last committed offset and immediately receives all 10 unread messages in order.
-* **Dynamic 3rd Consumer Addition**: Adding a new downstream consumer requires zero changes to the publisher. A new consumer simply connects with `group_id: "evaluator-audit-service"` and `auto_offset_reset: "earliest"`. Redpanda creates a new consumer cursor and replays the entire event log without impacting `group.dashboard` or `group.notifier`.
+* **Dynamic 3rd Consumer Addition**: Adding a new downstream consumer requires zero changes to the publisher. A new consumer simply connects with `group_id: "evaluator-audit-service"` and `auto_offset_reset: "earliest"`. Redpanda creates a new consumer cursor and replays the entire event log without impacting `bnpb-dashboard-group` or `bnpb-notifier-group`.
 
 ---
 

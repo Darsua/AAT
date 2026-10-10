@@ -48,7 +48,7 @@ AAT/
 ## Rationale
 
 ### 1. Container Resource Efficiency & Footprint
-Deploying eight containers (six Go microservices, PostgreSQL 16, and Redpanda) simultaneously on a developer machine or grading environment imposes strict RAM and CPU budgets.
+Deploying ten containers (seven Go service containers covering the six logical microservices, with `consumers` running as separate `dashboard-consumer` and `notifier-consumer` containers; plus PostgreSQL 16, Redpanda, and the one-shot `redpanda-init` topic provisioner) simultaneously on a developer machine or grading environment imposes strict RAM and CPU budgets.
 
 | Metric | Monoglot Go 1.22 | Polyglot (Go + Python) | Monoglot Python (FastAPI) |
 | :--- | :--- | :--- | :--- |

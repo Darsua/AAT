@@ -102,9 +102,9 @@ PostgreSQL 16 combines the structural rigor of relational databases with the sch
 
 -- 1. Hazards Table
 CREATE TABLE IF NOT EXISTS hazards (
-    hazard_id VARCHAR(64) PRIMARY KEY,
+    hazard_id VARCHAR(128) PRIMARY KEY,
     source VARCHAR(32) NOT NULL,
-    source_ref_id VARCHAR(64) NOT NULL,
+    source_ref_id VARCHAR(128) NOT NULL,
     hazard_type VARCHAR(32) NOT NULL,
     severity VARCHAR(32) NOT NULL,
     area_name TEXT NOT NULL,
@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS hazards (
 -- Indexes for hazards query performance
 CREATE INDEX IF NOT EXISTS idx_hazards_occurred_at ON hazards(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_type_occurred ON hazards(hazard_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hazards_severity_occurred ON hazards(severity, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_hazards_attributes_gin ON hazards USING gin(attributes);
 
 -- 2. Volcano References Table
@@ -145,13 +146,22 @@ ON CONFLICT (volcano_id) DO UPDATE SET
 -- 3. Transactional Outbox Table
 CREATE TABLE IF NOT EXISTS outbox_events (
     id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(64) NOT NULL UNIQUE,
+    event_id VARCHAR(128) NOT NULL UNIQUE,
     event_type VARCHAR(64) NOT NULL,
     payload JSONB NOT NULL,
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     published BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    published_at TIMESTAMPTZ
+    published_at TIMESTAMPTZ,
+    claim_expires_at TIMESTAMPTZ
 );
+
+-- Idempotent column addition and alterations for existing volumes
+ALTER TABLE hazards ALTER COLUMN hazard_id TYPE VARCHAR(128);
+ALTER TABLE hazards ALTER COLUMN source_ref_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ALTER COLUMN event_id TYPE VARCHAR(128);
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;
@@ -161,77 +171,24 @@ CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE pub
 
 ## Transactional Outbox Worker Loop
 
-The outbox worker inside `services/aggregator` guarantees **at-least-once message delivery** without dual-write failure:
+The outbox relay (`services/aggregator/internal/worker/outbox_relay.go`, with the claim and completion queries in `internal/repository/hazard_repo.go`, `RelayOutboxBatch`) guarantees **at-least-once message delivery** without dual-write failure. A tick (default 500 ms) runs three phases so that no database lock is held while talking to the broker:
 
-```go
-func (r *OutboxRelay) Run(ctx context.Context) {
-    ticker := time.NewTicker(500 * time.Millisecond)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            r.flushBatch(ctx)
-        }
-    }
-}
-
-func (r *OutboxRelay) flushBatch(ctx context.Context) {
-    tx, err := r.db.Begin(ctx)
-    if err != nil {
-        return
-    }
-    defer tx.Rollback(ctx)
-
-    // Lock up to 50 unpublished records, skipping any currently locked by other workers
-    rows, err := tx.Query(ctx, `
-        SELECT id, event_id, payload 
-        FROM outbox_events 
-        WHERE published = FALSE 
-        ORDER BY id ASC 
-        LIMIT 50 
-        FOR UPDATE SKIP LOCKED
-    `)
-    if err != nil {
-        return
-    }
-    defer rows.Close()
-
-    var publishedIDs []int64
-    for rows.Next() {
-        var id int64
-        var eventID string
-        var payload []byte
-        if err := rows.Scan(&id, &eventID, &payload); err != nil {
-            continue
-        }
-
-        // Produce to Redpanda
-        msg := kafka.Message{
-            Key:   []byte(eventID),
-            Value: payload,
-            Time:  time.Now(),
-        }
-        if err := r.kafkaWriter.WriteMessages(ctx, msg); err != nil {
-            log.Printf("[OUTBOX] Failed to write message %s: %v", eventID, err)
-            break // Stop batch and retry on next tick
-        }
-        publishedIDs = append(publishedIDs, id)
-    }
-
-    if len(publishedIDs) > 0 {
-        _, _ = tx.Exec(ctx, `
-            UPDATE outbox_events 
-            SET published = TRUE, published_at = NOW() 
-            WHERE id = ANY($1)
-        `, publishedIDs)
-        _ = tx.Commit(ctx)
-    }
-}
-```
+1. **Claim (short transaction)**: select up to 50 unpublished rows whose lease is empty or expired and set a 30-second lease on them.
+   ```sql
+   WITH claimable AS (
+       SELECT id FROM outbox_events
+       WHERE published = FALSE AND (claim_expires_at IS NULL OR claim_expires_at < NOW())
+       ORDER BY id ASC LIMIT $1
+       FOR UPDATE SKIP LOCKED
+   )
+   UPDATE outbox_events o
+   SET claim_expires_at = NOW() + INTERVAL '30 seconds'
+   FROM claimable c WHERE o.id = c.id
+   RETURNING o.id, o.event_id, o.event_type, o.payload, o.correlation_id, o.published, o.created_at, o.published_at;
+   ```
+2. **Publish (outside any transaction)**: for each row the relay reads `hazard_id` from the payload and writes a Kafka message with `Key = hazard_id`, `Value = payload` and an `X-Correlation-ID` header (falling back to `outbox-relay-<id>`). Rows whose payload is malformed or lacks `hazard_id` are quarantined instead of published. If the broker write fails, the lease is cleared (`claim_expires_at = NULL`) and the batch is retried on the next tick.
+3. **Complete (short transaction)**: published rows are set to `published = TRUE` only if the payload is unchanged (`WHERE id = $1 AND payload = $2::jsonb`), so a row whose payload was replaced mid-flight is not marked as published; quarantined rows are marked `published = TRUE` with `event_type = 'hazard_event_quarantined'`; any other claimed rows have their lease cleared.
 
 This architecture ensures zero dual-write vulnerabilities:
-* If the aggregator service crashes immediately after inserting a hazard, the outbox record is already safely committed in Postgres and will be dispatched as soon as the aggregator restarts.
-* If Redpanda is down, the outbox worker retries with backoff while the database remains healthy and capable of accepting queries.
+* If the aggregator crashes immediately after inserting a hazard, the outbox record is already committed in Postgres and is dispatched after restart. A crash between publish and completion leaves the lease to expire after 30 seconds, after which the row is re-sent (hence the at-least-once guarantee and the mandatory idempotent consumers in [ADR 002](002-message-broker-redpanda.md)).
+* If Redpanda is down, the relay retries on every tick (fixed interval, no exponential backoff) while the database remains healthy and capable of accepting queries.
