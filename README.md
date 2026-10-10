@@ -29,7 +29,7 @@ The platform continuously ingests, harmonizes, enriches, and broadcasts critical
   - [Problem 4 (P4): Independent Container Rebuild & Restart Resilience](#problem-4-p4-independent-container-rebuild--restart-resilience)
   - [Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer](#problem-5-p5-pub-sub-fan-out-consumer-downtime-recovery--dynamic-3rd-consumer)
 - [9. Configuration Reference (`.env.example`)](#9-configuration-reference-envexample)
-- [10. Project Management & Service Guides](#10-project-management--service-guides)
+- [10. Service Guides](#10-service-guides)
 
 ---
 
@@ -205,18 +205,17 @@ Automated test scripts under [`scripts/`](scripts/) and Makefile targets provide
 
 ### Evaluator Quick Verification Matrix
 
-| Problem | Focus Area | Make Target | Direct Script / Command | Key Verification Criterion | Target Ports | Tracker Reference |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Problem 1 (P1)** | Dynamic Schema Evolution | `make demo-p1` | `./scripts/test_schema_change.sh` | Additive `confidence_level` dynamically ingested into Postgres JSONB without restart/migrations. | `8082`, `8080` | [`P1-01..P1-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
-| **Problem 2 (P2)** | Outage Handling & Concurrency | `make demo-p2`<br>`make load-test` | `./scripts/test_outage.sh`<br>`k6 run scripts/load_test.js` | BMKG stays healthy during PVMBG outage (`degraded: true`); 50 VUs sustained with p95 < 300ms. | `8082`, `8081`, `8080` | [`P2-01..P2-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
-| **Problem 3 (P3)** | Scoped RBAC & Token Lifecycle | `make demo-p3` | `./scripts/test_cross_credential.sh`<br>`./scripts/test_auth_scopes.sh` | Media role gets `403 Forbidden` on raw fields / `fields=all`; 60s TTL token refresh rotation works. | `8084`, `8080`, `8081`, `8082` | [`P3-01..P3-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
-| **Problem 4 (P4)** | Container Isolation & Rebuild | — | `docker compose restart aggregator`<br>`docker compose up -d --build client-api` | Zero cascading failures; clean DB reconnection on restart; schema coexistence in DB. | `8083`, `8080`, `5432` | [`P4-01..P4-02`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
-| **Problem 5 (P5)** | Pub-Sub Fan-Out & Recovery | `make demo-p5` | `./scripts/test_consumer_recovery.sh` | Independent consumer group replay from offset after downtime; dynamic 3rd consumer addition. | `19092` | [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5) |
+| Problem | Focus Area | Make Target | Direct Script / Command | Key Verification Criterion | Target Ports |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Problem 1 (P1)** | Dynamic Schema Evolution | `make demo-p1` | `./scripts/test_schema_change.sh` | Additive `confidence_level` dynamically ingested into Postgres JSONB without restart/migrations. | `8082`, `8080` |
+| **Problem 2 (P2)** | Outage Handling & Concurrency | `make demo-p2`<br>`make load-test` | `./scripts/test_outage.sh`<br>`k6 run scripts/load_test.js` | BMKG stays healthy during PVMBG outage (`degraded: true`); 50 VUs sustained with p95 < 300ms. | `8082`, `8081`, `8080` |
+| **Problem 3 (P3)** | Scoped RBAC & Token Lifecycle | `make demo-p3` | `./scripts/test_cross_credential.sh`<br>`./scripts/test_auth_scopes.sh` | Media role gets `403 Forbidden` on raw fields / `fields=all`; 60s TTL token refresh rotation works. | `8084`, `8080`, `8081`, `8082` |
+| **Problem 4 (P4)** | Container Isolation & Rebuild | — | `docker compose restart aggregator`<br>`docker compose up -d --build client-api` | Zero cascading failures; clean DB reconnection on restart; schema coexistence in DB. | `8083`, `8080`, `5432` |
+| **Problem 5 (P5)** | Pub-Sub Fan-Out & Recovery | `make demo-p5` | `./scripts/test_consumer_recovery.sh` | Independent consumer group replay from offset after downtime; dynamic 3rd consumer addition. | `19092` |
 
 ---
 
 ### Problem 1 (P1): Dynamic Live Schema Evolution
-**Evidence Tracker Reference:** [`P1-01..P1-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify that PVMBG can introduce an additive field (`confidence_level: 0.95`) at runtime, and that the Aggregator persists it into PostgreSQL's `attributes JSONB` column without schema breaking, crashes, or migrations.
 
 ```bash
@@ -254,7 +253,6 @@ make demo-p1
 ---
 
 ### Problem 2 (P2): Upstream Outage Simulation & 50-Connection Load Test
-**Evidence Tracker Reference:** [`P2-01..P2-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Simulate an unexpected outage of PVMBG (`mock-pvmbg`). Verify that:
 1. BMKG seismic reports continue to ingest and query normally (fault isolation).
 2. Volcanic queries gracefully return cached/stale data with `degraded: true` and `stale_since` timestamp.
@@ -298,7 +296,6 @@ curl -s -X POST http://localhost:8082/admin/outage \
 ---
 
 ### Problem 3 (P3): Scoped Access Control, Media 403 & 60s TTL Token Refresh
-**Evidence Tracker Reference:** [`P3-01..P3-03`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify Role-Based Access Control (RBAC):
 1. **Media Role**: Accessing summary fields returns `200 OK`. Requesting raw telemetry (`fields=all`) strictly returns **`403 Forbidden`**.
 2. **Field / Internal Role**: Accessing full telemetry (`fields=all`) returns `200 OK`.
@@ -359,7 +356,6 @@ curl -s -X POST http://localhost:8084/auth/refresh \
 ---
 
 ### Problem 4 (P4): Independent Container Rebuild & Restart Resilience
-**Evidence Tracker Reference:** [`P4-01..P4-02`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 **Goal**: Verify zero tight coupling by demonstrating that any single container can be stopped, restarted, or rebuilt without cascading crashes across dependent services.
 
 ```bash
@@ -380,7 +376,6 @@ docker compose logs --tail=20 aggregator
 ---
 
 ### Problem 5 (P5): Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
-**Evidence Tracker Reference:** [`P5-01..P5-04`](docs/tracker.md#3-demonstration--evidence-matrix-p1p5)  
 The Compose services use the fixed names `dashboard-consumer` and
 `notifier-consumer`, with independent groups `bnpb-dashboard-group` and
 `bnpb-notifier-group`.
@@ -461,13 +456,9 @@ docker compose run --rm \
 
 ---
 
-## 10. Project Management & Service Guides
+## 10. Service Guides
 
-### 10.1 Project Management & Guardrails
-* [Master Team Project Tracker & Evidence Matrix](docs/tracker.md) — 38-task breakdown, Gantt timeline, and grading evidence mapping.
-* [AI Agent Operating Guidelines & Guardrails](AGENTS.md) — Non-negotiable course rules, RACI ownership, and verification checklist.
-
-### 10.2 Service Developer Guides
+### 10.1 Service Developer Guides
 For localized developer instructions, internal contracts, and implementation checklists:
 * [Aggregator & Persistence Developer Guide](services/aggregator/README.md) (Member B — Darrel)
 * [Auth Service Developer Guide](services/auth/README.md) (Member C — Jenka)
