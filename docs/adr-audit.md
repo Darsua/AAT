@@ -17,6 +17,9 @@ Commit perbaikan:
 | `df2151f` | Angka terukur di ADR 001 sampai 003, O4, O6, O7, O8, dokumen audit ini |
 | `b1b2290` | O2, O9, O10 (ADR 001, README aggregator, README utama) |
 | `0630e4a` | Pembersihan baris sisa di ringkasan audit |
+| `73ac07c` | Bagian D dan F audit |
+| `20355da` | Klaim MongoDB diuji; ADR 003 diperbaiki; bagian E6 |
+| (commit ini) | Perbaikan dokumen audit (lihat bagian G) |
 
 ## Ringkasan
 
@@ -133,11 +136,11 @@ Hasil pengukuran ada di bagian E. Perbandingan dengan klaim lama (baris 53 sampa
 | Startup Python | 1,2 sampai 2,5 s | 929 ms (hello-world) | Tidak |
 | Total 6 layanan Python | 800 MB sampai 1,1 GB | tidak diukur (6 x 32 MiB = ~190 MiB hello-world) | Tidak |
 
-- **Catatan:** pembanding Python adalah aplikasi hello-world, bukan layanan BNPB yang ditulis ulang, jadi angkanya batas bawah. Keunggulan Go tetap ada (memori ~4x, image 7x sampai 9x lebih kecil) tetapi tidak sebesar klaim lama.
+- **Catatan:** pembanding Python adalah aplikasi hello-world, bukan layanan BNPB yang ditulis ulang, jadi angkanya batas bawah. Keunggulan Go tetap ada (rata-rata 55,8 / 7 = 8,0 MiB per layanan berbanding 31,7 MiB, sekitar 4x; image 224 / 32,6 = 6,9x sampai 224 / 24,4 = 9,2x lebih kecil) tetapi tidak sebesar klaim lama.
 - **Perbaikan:** tabel dan paragraf ADR 001 diganti angka terukur dan klaim "memory bloat" dilunakkan.
 
 ### O2. ADR 001: cuplikan `HazardEvent` tidak lengkap (DIPERBAIKI)
-- **Temuan:** struct di ADR hanya tujuh field bertipe `string`, sedangkan struct asli bertipe `Source`, `HazardType`, `Severity` dan memuat `IngestedAt`, `SourceRefID`, `Latitude`, `Longitude` [proof: `services/aggregator/internal/domain/models.go:36-51`]. Kontrak mendefinisikan 11 properti [proof: `contracts/hazard_event.json`, dibaca dengan `python3`].
+- **Temuan:** struct di ADR hanya tujuh field (lima `string`, satu `time.Time`, satu `map`), tanpa tipe `Source`, `HazardType`, `Severity`, sedangkan struct asli bertipe `Source`, `HazardType`, `Severity` dan memuat `IngestedAt`, `SourceRefID`, `Latitude`, `Longitude` [proof: `services/aggregator/internal/domain/models.go:36-51`]. Kontrak mendefinisikan 11 properti [proof: `contracts/hazard_event.json`, dibaca dengan `python3`].
 - **Perbaikan:** cuplikan ADR 001 diganti dengan 11 field asli dan diberi label "Excerpt of `models.go`".
 
 ### O3. ADR 002 dan 003: angka perbandingan teknologi (DIPERBAIKI setelah diukur)
@@ -156,7 +159,7 @@ Semua image dijalankan dengan pengaturan bawaan di mesin yang sama (bagian E).
 | MongoDB 7.0, memori idle | 350 sampai 650 MB | 76,2 MiB | Tidak |
 | MySQL 8.0, memori idle | 180 sampai 300 MB | 385,2 MiB | Tidak |
 
-- **Dampak pada alasan keputusan:** argumen memori melawan Kafka dan MongoDB tidak berlaku. Redpanda memakai lebih banyak memori daripada Kafka dalam pengukuran ini. Alasan yang tetap sah: kompatibilitas protokol Kafka, biner tunggal tanpa JVM, `rpk` dipakai oleh `redpanda-init` [proof: `docker-compose.yml:32,42-45`], dan untuk MongoDB kebutuhan replica set untuk transaksi multi-dokumen {unverified, klaim tentang perilaku MongoDB tidak diuji di sesi ini}.
+- **Dampak pada alasan keputusan:** argumen memori melawan Kafka dan MongoDB tidak berlaku. Redpanda memakai lebih banyak memori daripada Kafka dalam pengukuran ini (352,4 MiB dengan `--memory 256M` berbanding 296,6 MiB). Alasan yang tetap sah: kompatibilitas protokol Kafka, biner tunggal tanpa JVM, `rpk` dipakai oleh `redpanda-init` [proof: `docker-compose.yml:32,42-45`], dan untuk MongoDB kebutuhan replica set untuk transaksi multi-dokumen. Klaim terakhir diuji dan benar, kecuali frasa "multi-node" yang salah karena satu anggota cukup [proof: bagian E6].
 - **Perbaikan:** tabel dan paragraf ADR 002 dan 003 diganti angka terukur, alasan Kafka dan MongoDB ditulis ulang, dan judul poin 1 ADR 002 diubah menjadi "Without a JVM Runtime".
 
 ### O4. ADR 002: nama image Redpanda (DIPERBAIKI)
@@ -183,7 +186,7 @@ Semua image dijalankan dengan pengaturan bawaan di mesin yang sama (bagian E).
 
 ### O10. Port host 8083 aggregator tidak terbuka (DIPERBAIKI di dokumentasi)
 - **Gejala:** `curl http://127.0.0.1:8083/health` menghasilkan kode 000, sedangkan `127.0.0.1:8080/health` menghasilkan 200 [proof: keluaran curl sesi ini].
-- **Sebab:** compose mendefinisikan `127.0.0.1:8083:8083` [proof: `docker-compose.yml:123`], tetapi aggregator hanya terhubung ke `bnpb-internal` yang bertanda `internal: true` [proof: `docker-compose.yml:211-213`; `docker network inspect bnpb-aat_bnpb-internal --format '{{.Internal}}'` = `true`]. Docker tidak mempublikasikan port pada jaringan internal: `docker inspect` menunjukkan `NetworkSettings.Ports` = `{"8083/tcp":null}` dan `docker ps` hanya menampilkan `8083/tcp`.
+- **Sebab:** compose mendefinisikan `127.0.0.1:8083:8083` [proof: `docker-compose.yml:123`], tetapi aggregator hanya terhubung ke `bnpb-internal` yang bertanda `internal: true` [proof: `docker-compose.yml:211-213`; `docker network inspect bnpb-aat_bnpb-internal --format '{{.Internal}}'` = `true`]. Docker tidak mempublikasikan port pada jaringan internal: `docker inspect` menunjukkan `NetworkSettings.Ports` = `{"8083/tcp":null}` dan `docker ps` hanya menampilkan `8083/tcp`, sedangkan `client-api` (jaringan publik) menampilkan `0.0.0.0:8080->8080/tcp` [proof: keluaran `docker ps` dan `docker inspect` sesi ini].
 - **Dampak:** perilaku sesuai desain isolasi (P4: aggregator tidak terjangkau dari luar). Yang salah adalah dokumentasi: README utama baris 115 menyebut "Host Loopback" dan README aggregator menyarankan `curl localhost:8083`. Laporan sudah menulis "port 8083 internal" [proof: `docs/report/chapters/02_arsitektur.tex:7`], jadi tidak perlu diubah.
 - **Perbaikan:** README utama dan README aggregator dikoreksi. Baris `ports:` di `docker-compose.yml` tidak diubah karena tidak berpengaruh; menghapusnya adalah keputusan Anda.
 
@@ -205,8 +208,8 @@ Semua image dijalankan dengan pengaturan bawaan di mesin yang sama (bagian E).
 ## D. Cara memverifikasi ulang
 
 ```bash
-# Daftar layanan compose (F1)
-grep -nE '^  [a-z0-9-]+:$' docker-compose.yml
+# Daftar layanan compose (F1): 10 layanan; grep penuh menghasilkan 14 baris karena menyertakan 2 volume dan 2 jaringan
+sed -n '/^services:/,/^volumes:/p' docker-compose.yml | grep -cE '^  [a-z0-9-]+:$'
 # Kunci pesan dan header relay (F4, F6)
 grep -nE 'Key:|X-Correlation-ID|quarantin' services/aggregator/internal/worker/outbox_relay.go
 # Rumus hazard_id (F12)
@@ -218,6 +221,8 @@ diff <(awk '/^```sql/{f=1;next} /^```/{f=0} f' services/aggregator/README.md) se
 # Port aggregator tidak dipublikasikan (O10)
 docker compose up -d && docker ps --format '{{.Names}} {{.Ports}}' | grep aggregator
 docker network inspect bnpb-aat_bnpb-internal --format '{{.Internal}}'
+# Uji transaksi MongoDB (E6), perlu image mongo:7.0
+bash docs/evidence/adr-audit/mongo_tx_test.sh
 # Ukur ulang sumber daya (O1, bagian E1 sampai E3)
 docker compose up -d --build && sleep 120 && docker stats --no-stream --format '{{.Name}} {{.MemUsage}}'
 docker images --format '{{.Repository}} {{.Size}}' | grep bnpb
@@ -314,3 +319,16 @@ Kesimpulan: klaim "memerlukan replica set" benar dan teks error di ADR benar apa
 Keputusan yang tersisa untuk Anda:
 1. Baris `ports: "127.0.0.1:8083:8083"` pada aggregator di `docker-compose.yml` tidak berpengaruh (O10). Boleh dihapus atau dibiarkan.
 2. Angka pada E4 dan pembanding Python berasal dari satu sampel dan pengaturan bawaan. Jika ADR dijadikan dasar nilai, ulangi pengukuran beberapa kali dengan perintah di bagian D.
+
+## G. Perbaikan dokumen audit ini (10 Oktober, setelah tinjauan ulang)
+
+| Perbaikan | Alasan |
+| :--- | :--- |
+| Tag `{unverified}` untuk MongoDB di O3 dihapus dan diganti rujukan ke E6 | Klaim sudah diuji |
+| O2: "tujuh field bertipe string" dikoreksi | Dari tujuh field, lima `string`, satu `time.Time`, satu `map` |
+| O1: rumus "~4x" dan "7x sampai 9x" ditulis eksplisit | Angka sebelumnya tanpa perhitungan |
+| O3: pasangan 352,4 versus 296,6 MiB disebut di kalimat dampak | Temuan utama tadinya hanya ada di tabel |
+| O10: ditambah pembanding port `client-api` | Bukti bahwa perbedaan ada pada jaringan, bukan pada Docker secara umum |
+| D: perintah hitung layanan dibatasi ke blok `services:` | Perintah lama menghasilkan 14 baris (10 layanan, 2 volume, 2 jaringan) dan dapat disalahbaca sebagai 14 layanan [proof: `grep -nE` sesi ini] |
+| D: perintah `diff` F5 dan O9 dijalankan ulang | Keduanya tidak menghasilkan selisih (ADR 003 dan README aggregator kini identik dengan migrasi) [proof: `diff` sesi ini] |
+| Skrip uji MongoDB disimpan di `docs/evidence/adr-audit/mongo_tx_test.sh` | Agar E6 dapat diulang |
