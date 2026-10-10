@@ -48,59 +48,57 @@ The platform continuously ingests, harmonizes, enriches, and broadcasts critical
 The system strictly adheres to microservices decoupling principles. Direct function calls and shared business logic libraries across services are explicitly prohibited. Communication occurs exclusively over HTTP/REST (synchronous query path) and Redpanda/Kafka (asynchronous pub-sub event fan-out).
 
 ```mermaid
-flowchart TD
-    subgraph ExternalSources["Instansi Sumber (Upstream Mocks - Aldoy / Member A)"]
-        BMKG["mock-bmkg:8081\n(50-150ms latency, X-BMKG-Key)\nGET /seismic-events\nGET /tsunami-warnings"]
-        PVMBG["mock-pvmbg:8082\n(500ms-3s latency, Bearer Token)\nGET /volcanic-reports\nPOST /admin/schema-version\nPOST /admin/outage"]
+flowchart TB
+    CLI["Clients<br/>Media, field teams, command centre"]:::actor
+
+    subgraph GW["Access layer"]
+        direction LR
+        AUTH["<b>auth</b> :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
+        CAPI["<b>client-api</b> :8080<br/>GET /api/v1/hazards<br/>verifies JWT locally<br/>scope filter, X-Correlation-ID"]:::svc
     end
 
-    subgraph BNPBCore["BNPB Core Infrastructure"]
-        subgraph Persistence["Canonical Persistence & Relay (Darrel / Member B)"]
-            Aggregator["aggregator:8083 (Internal Network Only)\n- Polling Workers (BMKG & PVMBG)\n- Canonical Harmonization\n- Static Volcano Enrichment\n- Transactional Outbox Worker\n- Internal API: GET /internal/hazards"]
-            Postgres[("canonical-db:5432 (Internal Network Only)\nPostgreSQL 16 Alpine\n- hazards (Strict Envelope + JSONB attributes)\n- volcano_references (Static Catalog)\n- outbox_events (Guaranteed Relay)")]
-        end
+    AGG["<b>aggregator</b> :8083<br/>poll, normalise, enrich<br/>transactional outbox relay"]:::svc
 
-        subgraph EventBroker["Event Fan-Out (Redpanda / Kafka API)"]
-            Broker[("redpanda:9092 / 19092\nTopic: bnpb.hazard-events\n- Committed Offset Management\n- Log Compaction & Replay")]
-            Init["redpanda-init (one-shot)\nTopic Bootstrap: 3 Partitions"]
-        end
-
-        subgraph SecurityGateway["Access Control & Gateway (Jenka / Member C)"]
-            Auth["auth:8084\nPOST /auth/token (60s TTL)\nPOST /auth/refresh (Rotation)"]
-            ClientAPI["client-api:8080 (Public Facade)\nGET /api/v1/hazards\nGET /api/v1/hazards/{id}\n- Scope Validation\n- Media Raw Field Projection Filter (403)\n- X-Correlation-ID Forwarding"]
-        end
+    subgraph UP["Upstream agencies (simulated)"]
+        direction LR
+        BMKG["<b>mock-bmkg</b> :8081<br/>X-BMKG-Key"]:::ext
+        PVMBG["<b>mock-pvmbg</b> :8082<br/>Bearer token"]:::ext
     end
 
-    subgraph DownstreamSubscribers["Downstream Event Consumers (Jenka / Member C)"]
-        Dashboard["dashboard-consumer\nGroup: bnpb-dashboard-group"]
-        Notifier["notifier-consumer\nGroup: bnpb-notifier-group"]
-        ThirdParty["evaluator-third-party\nGroup: bnpb-third-party-group\n(Dynamic Subscriber)"]
+    DB[("<b>canonical-db</b> :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
+
+    subgraph BUS["Event bus"]
+        direction LR
+        INIT["redpanda-init<br/>one-shot topic bootstrap"]:::broker
+        RP[["<b>redpanda</b> :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
     end
 
-    subgraph ExternalClients["Downstream Public & Agency Clients"]
-        Media["Media & Public Pers\nScope: hazards:read:summary\n(Summary Fields Only, 403 on Raw)"]
-        Field["Field Teams (BASARNAS / Pemda)\nScope: hazards:read:all\n(Full Telemetry, 60s TTL + Refresh)"]
-        InternalOps["BNPB Pusat Command Center\nScope: hazards:read:all"]
+    subgraph CON["Event consumers"]
+        direction LR
+        DASH["<b>dashboard-consumer</b><br/>bnpb-dashboard-group"]:::cons
+        NOTI["<b>notifier-consumer</b><br/>bnpb-notifier-group"]:::cons
+        AUDIT["<b>evaluator</b> (test script)<br/>bnpb-evaluator-audit-group"]:::cons
     end
 
-    %% Initialization Flow
-    Init -.->|Bootstrap Topic & Partitions| Broker
+    CLI -->|"1. POST /auth/token"| AUTH
+    CLI -->|"2. Bearer JWT"| CAPI
+    CAPI -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+    AGG -->|"GET every 3 s"| BMKG
+    AGG -->|"GET every 3 s"| PVMBG
+    AGG <-->|"SQL transaction"| DB
+    DB -->|"outbox relay (aggregator)<br/>key = hazard_id"| RP
+    INIT -.->|"create topic"| RP
+    RP --> DASH
+    RP --> NOTI
+    RP -.->|"new group, no aggregator change"| AUDIT
 
-    %% Ingestion Flow
-    BMKG -->|HTTP Polling every 3s| Aggregator
-    PVMBG -->|HTTP Polling every 3s| Aggregator
-    Aggregator <-->|ACID Read / Write| Postgres
-    Aggregator -->|Transactional Outbox Relay| Broker
-
-    %% Event Streaming Flow
-    Broker -->|Pull Log Streams| Dashboard
-    Broker -->|Pull Log Streams| Notifier
-    Broker -.->|Dynamic Subscription| ThirdParty
-
-    %% Client Query Flow
-    ExternalClients -->|HTTP Bearer Auth| ClientAPI
-    ClientAPI -->|JWT Signature & Scope Verification| Auth
-    ClientAPI -->|Internal HTTP GET with X-Correlation-ID| Aggregator
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---

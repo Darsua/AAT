@@ -30,29 +30,26 @@ We adopt **PostgreSQL 16 (Alpine)** as our canonical storage engine, utilizing a
 The course specification explicitly requires a rigorous comparative evaluation of storage alternatives to justify the persistence architecture.
 
 ```mermaid
-flowchart TD
-    subgraph Ingestion["Ingestion Flow"]
-        Input["Incoming Agency Event\n(BMKG / PVMBG)"]
-        Transform["Canonical Harmonization &\nStatic Volcano Lookup"]
-    end
+sequenceDiagram
+    autonumber
+    participant Ing as aggregator (ingestion)
+    participant DB as canonical-db
+    participant Rel as aggregator (outbox relay)
+    participant RP as redpanda
 
-    subgraph AtomicTx["Single PostgreSQL ACID Transaction"]
-        Hazards["INSERT INTO hazards\n(Strict Envelope + JSONB attributes)"]
-        Outbox["INSERT INTO outbox_events\n(payload: HazardEvent JSON, published: false)"]
+    Ing->>DB: One transaction:<br/>UPSERT hazards,<br/>INSERT outbox_events (published = false)
+    loop every 500 ms
+        Rel->>DB: Phase 1, claim (short transaction)<br/>FOR UPDATE SKIP LOCKED, claim_expires_at = now + 30 s
+        DB-->>Rel: claimed rows
+        alt payload cannot be parsed
+            Rel->>DB: quarantine (event_type = hazard_event_quarantined)
+        else payload valid
+            Rel->>RP: Phase 2, publish (no transaction held)<br/>key = hazard_id, header X-Correlation-ID
+            RP-->>Rel: ack
+            Rel->>DB: Phase 3, complete (short transaction)<br/>UPDATE published = true WHERE id AND payload unchanged
+        end
     end
-
-    subgraph AsyncRelay["Asynchronous Background Relay"]
-        RelayWorker["Outbox Relay Worker\n(SELECT ... FOR UPDATE SKIP LOCKED)"]
-        Redpanda["Redpanda Broker\n(Topic: bnpb.hazard-events)"]
-        MarkDone["UPDATE outbox_events\nSET published = true"]
-    end
-
-    Input --> Transform
-    Transform --> AtomicTx
-    Hazards --- Outbox
-    AtomicTx --> RelayWorker
-    RelayWorker -->|1. Produce| Redpanda
-    Redpanda -->|2. ACK| MarkDone
+    Note over Rel,DB: On a publish error nothing is marked. The row is claimed again once the 30 s lease expires.
 ```
 
 ### Comparative Matrix

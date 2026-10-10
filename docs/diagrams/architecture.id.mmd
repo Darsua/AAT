@@ -1,0 +1,51 @@
+flowchart TB
+    CLI["Klien<br/>Media, tim lapangan, pusat komando"]:::actor
+
+    subgraph GW["Lapisan akses"]
+        direction LR
+        AUTH["<b>auth</b> :8084<br/>POST /auth/token<br/>POST /auth/refresh<br/>JWT HS256, TTL 60 s"]:::svc
+        CAPI["<b>client-api</b> :8080<br/>GET /api/v1/hazards<br/>verifikasi JWT lokal<br/>filter scope, X-Correlation-ID"]:::svc
+    end
+
+    AGG["<b>aggregator</b> :8083<br/>polling, normalisasi, pengayaan<br/>relay transactional outbox"]:::svc
+
+    subgraph UP["Instansi hulu (simulasi)"]
+        direction LR
+        BMKG["<b>mock-bmkg</b> :8081<br/>X-BMKG-Key"]:::ext
+        PVMBG["<b>mock-pvmbg</b> :8082<br/>Bearer token"]:::ext
+    end
+
+    DB[("<b>canonical-db</b> :5432<br/>PostgreSQL 16<br/>hazards, outbox_events")]:::store
+
+    subgraph BUS["Bus event"]
+        direction LR
+        INIT["redpanda-init<br/>inisialisasi topik sekali jalan"]:::broker
+        RP[["<b>redpanda</b> :9092<br/>topic bnpb.hazard-events<br/>3 partitions"]]:::broker
+    end
+
+    subgraph CON["Konsumen event"]
+        direction LR
+        DASH["<b>dashboard-consumer</b><br/>bnpb-dashboard-group"]:::cons
+        NOTI["<b>notifier-consumer</b><br/>bnpb-notifier-group"]:::cons
+        AUDIT["<b>evaluator</b> (skrip uji)<br/>bnpb-evaluator-audit-group"]:::cons
+    end
+
+    CLI -->|"1. POST /auth/token"| AUTH
+    CLI -->|"2. Bearer JWT"| CAPI
+    CAPI -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+    AGG -->|"GET tiap 3 detik"| BMKG
+    AGG -->|"GET tiap 3 detik"| PVMBG
+    AGG <-->|"transaksi SQL"| DB
+    DB -->|"relay outbox (aggregator)<br/>key = hazard_id"| RP
+    INIT -.->|"membuat topik"| RP
+    RP --> DASH
+    RP --> NOTI
+    RP -.->|"grup baru, aggregator tidak diubah"| AUDIT
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242

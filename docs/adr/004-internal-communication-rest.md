@@ -30,20 +30,22 @@ We select **HTTP/1.1 with JSON payloads (REST)** for all internal synchronous se
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as External Client (Media/Field)
-    participant ClientAPI as client-api (:8080)
-    participant Aggregator as aggregator (:8083)
+    actor Client as External client
+    participant Auth as auth (:8084)
+    participant CAPI as client-api (:8080)
+    participant Agg as aggregator (:8083)
     participant DB as canonical-db (:5432)
 
-    Client->>ClientAPI: GET /api/v1/hazards (Bearer JWT)
-    Note over ClientAPI: Verify JWT signature, expiry and scope locally (shared HS256 secret, no call to auth)
-    Note over ClientAPI: Check if Scope allows Raw fields
-    ClientAPI->>Aggregator: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
-    Aggregator->>DB: Query hazards
-    DB-->>Aggregator: Canonical records
-    Aggregator-->>ClientAPI: 200 OK (JSON array + degraded status)
-    Note over ClientAPI: Filter fields if Media scope (Summary only)
-    ClientAPI-->>Client: 200 OK (Filtered JSON payload)
+    Client->>Auth: POST /auth/token
+    Auth-->>Client: JWT (HS256, TTL 60 s)
+    Client->>CAPI: GET /api/v1/hazards (Bearer JWT)
+    Note over CAPI: Verify signature, expiry and scope locally (shared secret, no call to auth)
+    CAPI->>Agg: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
+    Agg->>DB: SELECT from hazards
+    DB-->>Agg: Canonical records
+    Agg-->>CAPI: 200 OK (JSON array, degraded status)
+    Note over CAPI: Media scope: drop raw fields (summary only)
+    CAPI-->>Client: 200 OK (filtered JSON)
 ```
 
 ---

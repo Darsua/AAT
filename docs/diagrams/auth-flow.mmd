@@ -1,0 +1,11 @@
+sequenceDiagram
+    autonumber
+    actor Client as Client or app
+    participant Auth as auth (:8084)
+    participant CAPI as client-api (:8080)
+
+    Client->>Auth: POST /auth/token (credentials)
+    Auth-->>Client: access token (JWT, TTL 60 s) and refresh token
+    Client->>CAPI: GET /api/v1/hazards (Authorization: Bearer JWT)
+    Note over CAPI: Verifies signature and checks scopes locally (shared secret)
+    CAPI-->>Client: response

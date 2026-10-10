@@ -20,29 +20,38 @@ We select **Redpanda** (single-node development mode) as our message broker, int
 * **Broker Container**: `docker.redpanda.com/redpandadata/redpanda:v24.1.1` configured with single-node mode (`--overprovisioned`, `--smp 1`, `--memory 256M`).
 * **Topic**: `bnpb.hazard-events` (partitioned topic with durable commit log).
 * **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`. The producer uses the `kafka.Hash` balancer on the message key, `RequiredAcks: kafka.RequireOne` (acks=1) and `MaxAttempts: 3`; consumers read with `FetchMessage`, commit manually with `CommitMessages`, and start from `kafka.FirstOffset` for a new group.
-* **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (currently `bnpb-dashboard-group` and `bnpb-notifier-group`, overridable via `CONSUMER_GROUP`; a third-party evaluator service would use its own, e.g. `group.evaluator`).
+* **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (currently `bnpb-dashboard-group` and `bnpb-notifier-group`, overridable via `CONSUMER_GROUP`; a third-party evaluator service would use its own, e.g. `bnpb-evaluator-audit-group` as in `scripts/test_consumer_recovery.sh`).
 * **Message Envelope** (frozen contract between producer and consumers, detailed in `services/aggregator/README.md` §3.5): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
 
 ```mermaid
 flowchart LR
-    subgraph AggregatorService["Aggregator Service (Member B)"]
-        OutboxWorker["Outbox Relay Worker"]
+    subgraph PROD["aggregator"]
+        RELAY["Outbox relay<br/>kafka-go Writer<br/>balancer Hash, key = hazard_id<br/>RequiredAcks = 1"]:::svc
     end
 
-    subgraph RedpandaBroker["Redpanda Message Broker (Kafka API)"]
-        Topic["Topic: bnpb.hazard-events\n(Persistent Append-Only Log)"]
+    subgraph BROKER["redpanda"]
+        TOPIC[["bnpb.hazard-events<br/>3 partitions<br/>append-only log"]]:::broker
     end
 
-    subgraph ConsumersLayer["Downstream Consumers (Member C)"]
-        CG1["Consumer: Dashboard\nGroup: bnpb-dashboard-group\n[Committed Offset: 42]"]
-        CG2["Consumer: Notifier\nGroup: bnpb-notifier-group\n[Committed Offset: 42]"]
-        CG3["Consumer: Evaluator 3rd Service\nGroup: group.evaluator\n[New Group: Replays from Offset 0]"]
+    subgraph GROUPS["Consumer groups (independent offsets)"]
+        direction TB
+        G1["dashboard-consumer<br/>bnpb-dashboard-group<br/>manual commit after processing"]:::cons
+        G2["notifier-consumer<br/>bnpb-notifier-group<br/>manual commit after processing"]:::cons
+        G3["evaluator (scripts/test_consumer_recovery.sh)<br/>bnpb-evaluator-audit-group<br/>new group, no committed offset"]:::cons
     end
 
-    OutboxWorker -->|Produce Event via segmentio/kafka-go| Topic
-    Topic -->|Pull Stream| CG1
-    Topic -->|Pull Stream| CG2
-    Topic -.->|Dynamic Subscription\nZero Aggregator Changes| CG3
+    RELAY -->|"produce"| TOPIC
+    TOPIC -->|"fetch"| G1
+    TOPIC -->|"fetch"| G2
+    TOPIC -.->|"dynamic subscription<br/>no aggregator change"| G3
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---

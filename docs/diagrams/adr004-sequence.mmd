@@ -1,0 +1,18 @@
+sequenceDiagram
+    autonumber
+    actor Client as External client
+    participant Auth as auth (:8084)
+    participant CAPI as client-api (:8080)
+    participant Agg as aggregator (:8083)
+    participant DB as canonical-db (:5432)
+
+    Client->>Auth: POST /auth/token
+    Auth-->>Client: JWT (HS256, TTL 60 s)
+    Client->>CAPI: GET /api/v1/hazards (Bearer JWT)
+    Note over CAPI: Verify signature, expiry and scope locally (shared secret, no call to auth)
+    CAPI->>Agg: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
+    Agg->>DB: SELECT from hazards
+    DB-->>Agg: Canonical records
+    Agg-->>CAPI: 200 OK (JSON array, degraded status)
+    Note over CAPI: Media scope: drop raw fields (summary only)
+    CAPI-->>Client: 200 OK (filtered JSON)

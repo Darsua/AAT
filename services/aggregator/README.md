@@ -12,40 +12,42 @@
 
 The `aggregator` service is the central ingestion and event-sourcing engine in the BNPB disaster management platform. It operates strictly on the internal private network (not exposed to the public internet).
 
-```
- +--------------------+       +--------------------+
- |  mock-bmkg (:8081) |       | mock-pvmbg (:8082) |
- +--------------------+       +--------------------+
-           \                           /
-      HTTP  \                         /  HTTP
-   (Poller)  \                       /  (Poller)
-              v                     v
-       +------------------------------------+
-       |          Aggregator (:8083)        |
-       |  - Upstream Poller Workers         |
-       |  - Normalization Engine            |
-       |  - Transactional Outbox Relay      |
-       +------------------------------------+
-              |                      ^
-   ACID Write |                      | Internal Read
-   (Event +   |                      | (Proxied by client-api)
-    Outbox)   v                      |
-       +--------------+     +--------------------+
-       |  PostgreSQL  |     | client-api (:8080) |
-       +--------------+     +--------------------+
-              |
-         Outbox Poll
-              |
-              v
-       +------------------------------------+
-       |  Redpanda / Kafka (:9092)          |
-       |  Topic: bnpb.hazard-events         |
-       +------------------------------------+
-              /                       \
-             v                         v
-   +---------------------+   +--------------------+
-   | Dashboard Consumer  |   | Notifier Consumer  |
-   +---------------------+   +--------------------+
+```mermaid
+flowchart TD
+    BM["mock-bmkg :8081"]:::ext
+    PV["mock-pvmbg :8082"]:::ext
+
+    subgraph AGG["aggregator :8083"]
+        direction TB
+        POLL["Pollers<br/>exponential backoff, max 30 s"]:::svc
+        NORM["Normaliser<br/>canonical HazardEvent"]:::svc
+        REPO["Repository<br/>one transaction: hazards + outbox_events"]:::svc
+        RELAY["Outbox relay"]:::svc
+        API["GET /internal/hazards"]:::svc
+        POLL --> NORM --> REPO
+    end
+
+    DB[("PostgreSQL")]:::store
+    RP[["redpanda<br/>bnpb.hazard-events"]]:::broker
+    CAPI["client-api :8080"]:::svc
+    CONS["dashboard-consumer<br/>notifier-consumer"]:::cons
+
+    BM -->|"HTTP"| POLL
+    PV -->|"HTTP"| POLL
+    REPO <-->|"ACID write"| DB
+    DB -->|"unpublished rows"| RELAY
+    RELAY -->|"publish"| RP
+    RP --> CONS
+    CAPI -->|"internal read"| API
+    API --> DB
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---

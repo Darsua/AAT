@@ -23,18 +23,18 @@ services/auth/
 
 The service is self-contained in one Go module. Other microservices communicate with Auth through its HTTP contract instead of importing its implementation.
 
-```
-+---------------+      POST /auth/token       +---------------+
-| Client / App  | --------------------------> |  auth (:8084) |
-| (Credentials) | <-------------------------- |  Issues JWT   |
-+---------------+     Access Token (60s TTL)  +---------------+
-       |              & Refresh Token
-       |
-       |  GET /api/v1/hazards (Authorization: Bearer <JWT>)
-       v
-+--------------------+
-| client-api (:8080) | (Verifies JWT signature & checks scopes)
-+--------------------+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client or app
+    participant Auth as auth (:8084)
+    participant CAPI as client-api (:8080)
+
+    Client->>Auth: POST /auth/token (credentials)
+    Auth-->>Client: access token (JWT, TTL 60 s) and refresh token
+    Client->>CAPI: GET /api/v1/hazards (Authorization: Bearer JWT)
+    Note over CAPI: Verifies signature and checks scopes locally (shared secret)
+    CAPI-->>Client: response
 ```
 
 ---

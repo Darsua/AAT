@@ -332,3 +332,30 @@ Keputusan yang tersisa untuk Anda:
 | D: perintah hitung layanan dibatasi ke blok `services:` | Perintah lama menghasilkan 14 baris (10 layanan, 2 volume, 2 jaringan) dan dapat disalahbaca sebagai 14 layanan [proof: `grep -nE` sesi ini] |
 | D: perintah `diff` F5 dan O9 dijalankan ulang | Keduanya tidak menghasilkan selisih (ADR 003 dan README aggregator kini identik dengan migrasi) [proof: `diff` sesi ini] |
 | Skrip uji MongoDB disimpan di `docs/evidence/adr-audit/mongo_tx_test.sh` | Agar E6 dapat diulang |
+
+## H. Diagram: dibuat ulang dengan Mermaid (10 Oktober)
+
+Seluruh diagram dibuat ulang dengan Mermaid, sumbernya di `docs/diagrams/*.mmd` dan sinkronisasinya diperiksa oleh `docs/diagrams/check_sync.py` (12 blok Markdown, semuanya `ok`) [proof: keluaran `check_sync.py` sesi ini]. Hasil render dilihat langsung sebagai gambar sebelum di-commit.
+
+### H1. Diagram yang tadinya salah terhadap kode
+
+| Diagram | Isi lama | Fakta | Bukti |
+| :--- | :--- | :--- | :--- |
+| README (arsitektur) | `ClientAPI -->|JWT Signature & Scope Verification| Auth` | `client-api` memverifikasi JWT secara lokal dan tidak memanggil auth | [proof: `services/client-api/main.go:581-583`] |
+| README (arsitektur) | Grup `bnpb-third-party-group` | Nama itu tidak ada di repo; grup konsumen ketiga di skrip bernama `bnpb-evaluator-audit-group` | [proof: `scripts/test_consumer_recovery.sh:26`, grep `third-party` hanya menemukan ADR 002] |
+| README (arsitektur) | "Log Compaction & Replay" pada topik | Tidak ada konfigurasi kompaksi di compose maupun kode | [proof: grep `compact|cleanup.policy` pada `docker-compose.yml`, `.env.example`, `services` kosong] |
+| ADR 002 | `group.evaluator`, "Committed Offset: 42" | Nama grup dan offset karangan; diganti nama dari skrip dan keterangan "new group" | [proof: `test_consumer_recovery.sh:26`] |
+| ADR 002 (teks baris 23) | contoh `group.evaluator` | diganti `bnpb-evaluator-audit-group` | sama |
+| ADR 003 | Satu transaksi `SELECT ... FOR UPDATE SKIP LOCKED`, produce, lalu `UPDATE` | Tiga fase dengan lease 30 detik, publish di luar transaksi, karantina | [proof: `hazard_repo.go:402-430`, `outbox_relay.go:46`] (lihat F6) |
+| ADR 004 | Tanpa langkah token | Ditambah `POST /auth/token` dan catatan verifikasi lokal | [proof: `services/auth/main.go:270`] |
+| ADR 005 | "Replica 1 - Leader" dan "Follower" untuk aggregator, partisi `0, 1, 2` pada M2 | Peran leader dan follower tidak ada di rencana; rencana menyebut 6 partisi | [proof: ADR 005, bagian "Topic Partitioning"] |
+| Laporan Gambar 2.1 | Panah `Verify JWT` dari client-api ke Auth; grup `dashboard` dan `notifier` | Verifikasi lokal; grup sebenarnya `bnpb-dashboard-group` dan `bnpb-notifier-group` | [proof: `client-api/main.go:581-583`, `dashboard/main.go:23`, `notifier/main.go:22`] |
+
+### H2. Cakupan
+- README, ADR 002 sampai 005 (enam diagram), lima README layanan yang tadinya diagram ASCII (`aggregator`, `auth`, `client-api`, `consumers`, `mock-bmkg`, `mock-pvmbg`), dan Gambar 2.1 laporan (tadinya TikZ).
+- Gambar 2.1 memakai varian ringkas (`architecture.report.mmd`) agar teks terbaca pada lebar halaman. Varian lengkap ada di `architecture.id.mmd`.
+- Laporan menjadi 33 halaman [proof: `pdfinfo docs/report/main.pdf`].
+
+### H3. Batasan
+- Render dibuat dengan `@mermaid-js/mermaid-cli` 11.4.2 dan Brave di komputer Anda. GitHub merender blok Mermaid dengan versi miliknya sendiri, sehingga tampilan bisa sedikit berbeda dari berkas di `rendered/` {unverified, tidak dicoba di GitHub}.
+- PNG `adr004-sequence` terpotong sedikit di tepi bawah; tidak dipakai di dokumen mana pun karena dokumen memakai blok Mermaid.

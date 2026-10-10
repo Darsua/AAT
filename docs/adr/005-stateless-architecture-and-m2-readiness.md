@@ -17,31 +17,42 @@ Authoritative state should live in durable infrastructure before services are sc
 We keep the synchronous read path stateless, delegate canonical data and message offsets to `canonical-db` and `redpanda`, derive **deterministic, source-based hazard identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**. The Milestone 1 Auth refresh-token store and consumer deduplication/counters are documented exceptions that must move to durable shared storage before those services are horizontally scaled.
 
 ```mermaid
-flowchart TD
-    subgraph M1Baseline["Milestone 1: Single-Instance Baseline"]
-        C1["client-api:8080"]
-        A1["aggregator:8083"]
-        DB1[("canonical-db:5432\nPostgreSQL")]
-        RP1[("redpanda:9092\nPartitions 0–2")]
-        CG1["consumers (1 replica)"]
+flowchart TB
+    subgraph M1["Milestone 1: single-instance baseline (implemented)"]
+        direction LR
+        C1["client-api :8080"]:::svc
+        A1["aggregator :8083"]:::svc
+        DB1[("canonical-db :5432")]:::store
+        RP1[["redpanda :9092<br/>3 partitions"]]:::broker
+        CG1["consumers<br/>1 replica per group"]:::cons
+        C1 --> A1
+        A1 --> DB1
+        A1 --> RP1
+        RP1 --> CG1
     end
 
-    subgraph M2Evolution["Milestone 2: Horizontal Scale-Out"]
-        LB["Nginx / Envoy Load Balancer"]
-        C_N1["client-api (Replica 1)"]
-        C_N2["client-api (Replica 2)"]
-        Redis[("Redis Cluster\n(Read-Through Cache)")]
-        A_N1["aggregator (Replica 1 - Leader)"]
-        A_N2["aggregator (Replica 2 - Follower)"]
-        RP_N[("redpanda:9092\nPartitions 0, 1, 2")]
-        CG_N1["consumer (Worker 1)"]
-        CG_N2["consumer (Worker 2)"]
+    subgraph M2["Milestone 2: horizontal scale-out (plan only)"]
+        direction LR
+        LB["Nginx or Envoy<br/>load balancer"]:::plan
+        CN["client-api<br/>replicas 1..N"]:::plan
+        RED[("Redis<br/>read-through cache")]:::plan
+        AN["aggregator"]:::plan
+        RPN[["redpanda<br/>6 partitions"]]:::plan
+        CGN["consumer workers<br/>share one group"]:::plan
+        LB --> CN
+        CN --> RED
+        RED -->|"cache miss"| AN
+        RPN --> CGN
     end
+    M1 ~~~ M2
 
-    LB --> C_N1 & C_N2
-    C_N1 & C_N2 --> Redis
-    Redis --> A_N1 & A_N2
-    RP_N --> CG_N1 & CG_N2
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
 ```
 
 ---
@@ -114,11 +125,12 @@ Problem 2 introduces external provider outages (e.g., PVMBG downtime).
 * In Milestone 2, we wrap external HTTP polling with a **Circuit Breaker** (e.g., `sony/gobreaker`):
   ```mermaid
   stateDiagram-v2
+      direction LR
       [*] --> Closed
-      Closed --> Open: Consecutive Failures > Threshold (e.g. 5)
-      Open --> HalfOpen: Cooldown Timer Expires (e.g. 30s)
-      HalfOpen --> Closed: Probe Request Succeeds
-      HalfOpen --> Open: Probe Request Fails
+      Closed --> Open: consecutive failures > threshold (e.g. 5)
+      Open --> HalfOpen: cooldown expires (e.g. 30 s)
+      HalfOpen --> Closed: probe succeeds
+      HalfOpen --> Open: probe fails
   ```
   * **Closed State**: Requests flow normally to `mock-pvmbg`.
   * **Open State**: Immediate fallback to canonical cache; prevents polling worker threads from exhausting sockets or thundering-herd effects on recovering providers.
