@@ -44,10 +44,12 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
     Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms (\path{docs/evidence/p2/demo_p2.log}).
 
     \item \textbf{Uji Beban Konkurensi Berkelanjutan (\texttt{make load-test}):}
-    Pengujian beban menggunakan k6 dijalankan dengan parameter 50 Virtual Users (VUs) secara simultan selama 60 detik penuh terhadap titik akhir \texttt{GET /api/v1/hazards} (:8080) (\path{docs/evidence/p2/load_test.log}):
+    Delay PVMBG diatur tetap 3 detik (\texttt{PVMBG\_DELAY\_MIN\_MS=PVMBG\_DELAY\_MAX\_MS=3000}). Pengujian beban menggunakan k6 menjalankan tiga skenario serentak selama 60 detik penuh: 25 VUs \texttt{GET /api/v1/hazards?type=SEISMIC} (hanya butuh data BMKG), 25 VUs \texttt{type=VOLCANIC} (butuh data PVMBG), dan 5 VUs yang memanggil \texttt{mock-pvmbg} langsung agar hulu lambat tetap sibuk (\path{docs/evidence/p2/load_test.log}):
     \begin{itemize}
-        \item \textbf{Total Permintaan Terlayani:} 29.514 permintaan ($\approx 491$ req/s).
-        \item \textbf{Ambang Batas Latensi \& Error Rate:} Latensi p95: 1,75 ms ($< 300$ ms); Latensi p99: 3,07 ms ($< 500$ ms); Error Rate: 0,43\% ($< 1,0\%$) --- seluruh kriteria evaluasi beban terbukti \mbox{\textbf{MEMENUHI}}.
+        \item \textbf{Total Permintaan Terlayani:} 29.434 permintaan HTTP ($\approx 474$ req/s), termasuk 29.234 permintaan ke gateway (seluruhnya HTTP 200; tanpa HTTP 429).
+        \item \textbf{Latensi BMKG-only (p50/p95/p99):} 1,72 ms / 3,43 ms / 6,48 ms; ambang p95 $< 300$ ms terpenuhi saat PVMBG berdelay tetap 3 detik (permintaan langsung ke PVMBG tercatat 3 detik pada setiap panggilan).
+        \item \textbf{Latensi vulkanik (p50/p95/p99):} 1,72 ms / 3,42 ms / 6,72 ms.
+        \item \textbf{Error Rate:} 0,00\% (0 dari 29.234 permintaan gateway; ambang $< 1,0\%$). Pada uji sebelumnya, error 0,43\% disebabkan satu token yang dipakai seluruh uji kedaluwarsa pada akhir 60 detik (TTL 60 detik); skrip kini memperbarui token tiap VU. Penyebab ini adalah dugaan karena status per permintaan belum dicatat pada uji sebelumnya.
     \end{itemize}
 \end{enumerate}
 
@@ -65,8 +67,8 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
     \end{itemize}
     \item \textbf{Konfigurasi Load Testing:}
     \begin{itemize}
-        \item \textbf{Tooling:} Grafana k6 v0.50+ dieksekusi secara otomatis melalui Docker atau biner lokal (\path{scripts/load_test.js}).
-        \item \textbf{Beban \& Durasi:} 50 Virtual Users (VUs) selama 60 detik konstan (\textit{sustained load}).
-        \item \textbf{Autentikasi:} Setiap VU melakukan autentikasi otomatis ke Auth Service dan menyertakan header \texttt{Authorization: Bearer <token>} pada setiap iterasi.
+        \item \textbf{Tooling:} Grafana k6 (v2.3.0 pada pengujian ini) dieksekusi melalui Docker atau biner lokal (\path{scripts/load_test.js}).
+        \item \textbf{Beban \& Durasi:} 50 Virtual Users (VUs) ke gateway ditambah 5 VUs langsung ke \texttt{mock-pvmbg} selama 60 detik konstan (\textit{sustained load}), dengan delay PVMBG tetap 3 detik.
+        \item \textbf{Autentikasi:} Setiap VU melakukan autentikasi otomatis ke Auth Service, memperbarui token setiap 40 detik (TTL token 60 detik), dan menyertakan header \texttt{Authorization: Bearer <token>} pada setiap iterasi.
     \end{itemize}
 \end{enumerate}

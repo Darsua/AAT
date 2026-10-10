@@ -362,3 +362,34 @@ Seluruh diagram dibuat ulang dengan Mermaid dan sumber kanonisnya disimpan di `d
 ### H3. Batasan
 - Render dibuat dengan `@mermaid-js/mermaid-cli` 11.4.2 dan Brave di komputer Anda. GitHub merender blok Mermaid dengan versi miliknya sendiri, sehingga tampilan bisa sedikit berbeda dari berkas di `rendered/` {unverified, tidak dicoba di GitHub}.
 - PNG `adr004-sequence` terpotong sedikit di tepi bawah; tidak dipakai di dokumen mana pun karena dokumen memakai blok Mermaid.
+
+## I. Pemeriksaan ulang terhadap spesifikasi tugas (10 Oktober)
+
+Pemeriksaan membandingkan spesifikasi M1 dengan kode, compose, ADR, laporan dan bukti. Semua temuan di bawah sudah diperbaiki kecuali yang tercantum di I3. I-7 dan I-8 ditambahkan setelah pemeriksaan lanjutan.
+
+### I1. Temuan dan perbaikan
+
+| # | Temuan | Perbaikan | Verifikasi |
+| :--- | :--- | :--- | :--- |
+| I-1 | Delay PVMBG tetap 500 ms sampai 3 s di kode; spesifikasi mewajibkan dapat dikonfigurasi | Variabel `PVMBG_DELAY_MIN_MS` dan `PVMBG_DELAY_MAX_MS` (bawaan 500 dan 3000), ditambahkan ke compose, `.env.example`, README | Tiga sampel dengan keduanya 3000: 3,0016 s, 3,0006 s, 3,0006 s; batas terbalik ditolak saat start; `go test` mock-pvmbg lulus |
+| I-2 | Latensi panggilan keluar tidak dicatat (Ketentuan Implementasi 7) | Aggregator mencatat `outbound_call` dengan `upstream`, `path`, `status`, `duration_ms`, `correlation_id` untuk BMKG dan PVMBG; client-api mencatat `outbound` ke Aggregator | Log aggregator menunjukkan `duration_ms` 57 sampai 1943; log client-api menunjukkan `correlation_id="verify-001"` dengan `duration_ms=14` |
+| I-3 | Consumer tidak punya endpoint health check | `GET /health` di `dashboard` (port 8085) dan `notifier` (8086), healthcheck compose | Kedua kontainer `healthy`; respons `{"service":"...","status":"UP"}`; `health_test.go` lulus |
+| I-4 | Ketiga client memakai secret bawaan yang sama (`secret123`) | Tiga nilai berbeda di compose, `.env.example`, skrip uji dan README | `secret123` ditolak 401; secret media diterima 200; ID media dengan secret internal ditolak 401 |
+| I-5 | README bukti P2 memuat rute `/admin/outage-mode` (rute asli `/admin/outage`), p99 4,18 ms dan error 0,20% | Rute, p99 3,07 ms dan error 0,43% disesuaikan dengan `load_test.log` dan laporan | Dibandingkan dengan `docs/evidence/p2/load_test.log` |
+| I-7 | Uji beban P2 tidak menguji skenario BMKG-only versus PVMBG 3 s secara eksplisit | `scripts/load_test.js` menjalankan tiga skenario serentak (BMKG-only 25 VUs, vulkanik 25 VUs, PVMBG langsung 5 VUs) dengan delay PVMBG tetap 3 s dan threshold p95 per skenario | `load_test.log`: BMKG-only p95 3,43 ms, p99 6,48 ms; vulkanik p95 3,42 ms; PVMBG langsung 3 s pada setiap panggilan; semua threshold lulus |
+| I-8 | 128 respons gagal (0,43%) pada uji beban lama | Skrip memperbarui token tiap VU setiap 40 s dan mencatat status per kode | Uji ulang: 29.234 permintaan gateway, seluruhnya HTTP 200, error 0,00%. Penyebab (token tunggal kedaluwarsa pada detik ke-60) adalah dugaan, karena uji lama tidak mencatat status |
+| I-6 | Klaim "zero data loss" tanpa bukti hitung pesan | Frasa diturunkan di `consumers/README.md` dan `evidence/p4/README.md`; laporan P5 sudah diperhalus oleh anggota tim pada PR yang sama | grep `zero` pada berkas tersebut |
+
+### I2. Koreksi atas temuan sebelumnya
+- Butir P3 "token lama ditolak setelah refresh" sudah ditunjukkan oleh `scripts/test_auth_scopes.sh` (`Old access token remains rejected after refresh (HTTP 401)`). Temuan awal yang menyebut penafsirannya meragukan tidak perlu ditindaklanjuti.
+
+### I3. Tidak diubah
+- Tag `milestone-1` belum dibuat; tag dibuat pada commit akhir setelah PR digabung.
+- Tenggat: spesifikasi lokal menulis 9 Oktober 23:59 WIB, `docs/tracker.md` menulis 10 Oktober. Perpanjangan tidak dapat diverifikasi dari repositori.
+- Compose masih memuat nilai bawaan `JWT_SECRET` dan password database sebagai cadangan; nilai itu juga contoh di `.env.example`.
+
+### I4. Hasil uji ulang
+- `go vet` dan `go test` lulus pada tujuh modul.
+- Uji beban baru (`make load-test`): 0 kegagalan, semua threshold lulus (I-7, I-8).
+- `scripts/test_auth_scopes.sh`: 17 lulus, 0 gagal. `scripts/test_cross_credential.sh`: lulus. `scripts/test_observability.sh`: 13 lulus, 0 gagal.
+

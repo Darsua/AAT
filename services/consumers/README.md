@@ -113,7 +113,7 @@ docker compose start <your-consumer-1>
 docker compose logs -f <your-consumer-1>
 ```
 
-### Step 6: Verify Recovery & Zero Data Loss
+### Step 6: Verify Recovery & No Skipped Messages
 1. Confirm the consumer reconnects with its original `GroupID`.
 2. Confirm it resumes reading from the **last committed offset** (no messages skipped).
 3. Confirm all backlogged events are processed and committed.
@@ -140,6 +140,7 @@ cd services/consumers/dashboard
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-dashboard-group"
+export PORT="8085"   # health endpoint: GET /health
 go run .
 
 # In a separate terminal, run second consumer (e.g. notifier)
@@ -147,6 +148,7 @@ cd services/consumers/notifier
 export REDPANDA_BROKERS="localhost:19092"
 export TOPIC="bnpb.hazard-events"
 export CONSUMER_GROUP="bnpb-notifier-group"
+export PORT="8086"   # health endpoint: GET /health
 go run .
 ```
 

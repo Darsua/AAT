@@ -49,7 +49,7 @@ flowchart LR
 
 ### 2.3 Latency Injection Requirement
 - Field observation data from remote mountain stations suffers from high latency and variable network conditions.
-- Every response to `GET /volcanic-reports` must inject an artificial random delay between **500ms and 3000ms (3.0s)** to test upstream timeout handling and asynchronous polling.
+- Every response to `GET /volcanic-reports` must inject an artificial random delay between **500ms and 3000ms (3.0s)** to test upstream timeout handling and asynchronous polling. The bounds are configurable with `PVMBG_DELAY_MIN_MS` (default `500`) and `PVMBG_DELAY_MAX_MS` (default `3000`); set both to `3000` for a fixed 3 s delay.
 
 ---
 

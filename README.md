@@ -108,14 +108,14 @@ flowchart TB
 
 | Service Name | Directory | Container Port | Host Port | Network Scope | Description |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`client-api`** | `services/client-api/` | `8080` | `8080:8080` | Public (`bnpb-public`) | Public API Gateway. Enforces JWT scopes, redacts raw telemetry for media, propagates `X-Correlation-ID`. |
+| **`client-api`** | `services/client-api/` | `8080` | `8080:8080` | Public (`bnpb-public`) | Public API Gateway. Enforces JWT scopes, redacts raw telemetry for media, propagates `X-Correlation-ID`, logs the latency of its outbound call to the Aggregator. |
 | **`mock-bmkg`** | `services/mock-bmkg/` | `8081` | `8081:8081` | Public / Internal | Upstream mock for BMKG. Injects 50–150ms simulated latency, requires `X-BMKG-Key`. |
-| **`mock-pvmbg`** | `services/mock-pvmbg/` | `8082` | `8082:8082` | Public / Internal | Upstream mock for PVMBG. Injects 500ms–3s latency, requires Bearer token, supports schema/outage admin toggles. |
+| **`mock-pvmbg`** | `services/mock-pvmbg/` | `8082` | `8082:8082` | Public / Internal | Upstream mock for PVMBG. Injects 500ms–3s latency (configurable with `PVMBG_DELAY_MIN_MS` / `PVMBG_DELAY_MAX_MS`), requires Bearer token, supports schema/outage admin toggles. |
 | **`aggregator`** | `services/aggregator/` | `8083` | *None* (see note) | Internal Only (`bnpb-internal`) | Core orchestrator. Polls sources, performs static volcano joins, writes to Postgres + Outbox, exposes `/internal/hazards`. Reachable only from containers on `bnpb-internal`: that network is `internal: true`, so the `127.0.0.1:8083` mapping in `docker-compose.yml` is not published (`docker ps` shows `8083/tcp` only). |
 | **`auth`** | `services/auth/` | `8084` | `8084:8084` | Public (`bnpb-public`) | Authentication Authority. Issues short-lived JWTs (60s TTL) and rotates refresh tokens. |
 | **`canonical-db`** | `services/aggregator/migrations/` | `5432` | *None* | Internal Only (`bnpb-internal`) | PostgreSQL 16 Alpine canonical datastore. Isolated from host access for security. |
 | **`redpanda`** | — | `9092` / `19092` | `19092:19092` | Public / Internal | Kafka API event broker. Handles topic `bnpb.hazard-events` and independent consumer group cursors. |
-| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | *None* | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
+| **`dashboard-consumer` / `notifier-consumer`** | `services/consumers/` | `8085` / `8086` (`GET /health` only) | *None* | Internal Only (`bnpb-internal`) | Independent consumer groups for dashboard statistics and urgent notifications. |
 
 ---
 
@@ -267,10 +267,12 @@ make demo-p2
 
 **Executing the 50-Connection Sustained Load Test**:
 ```bash
-make load-test
-# or: k6 run scripts/load_test.js
+# Fix the PVMBG delay at 3 s (Problem 2 criterion 1), then run the test
+PVMBG_DELAY_MIN_MS=3000 PVMBG_DELAY_MAX_MS=3000 docker compose up -d mock-pvmbg
+AUTH_INTERNAL_CLIENT_SECRET=internal-secret-2026 PVMBG_TOKEN=pvmbg-bearer-token-2026 make load-test
+# or: k6 run scripts/load_test.js (with the same environment variables)
 ```
-*Evaluates 50 Virtual Users (VUs) sustaining requests against `http://localhost:8080/api/v1/hazards` for 60 seconds. Verifies p95 latency < 300ms and error rate < 1% per IF4031 M1 spec.*
+*Runs three scenarios for 60 seconds: 25 VUs on `GET /api/v1/hazards?type=SEISMIC` (BMKG-only), 25 VUs on `type=VOLCANIC`, and 5 VUs calling `mock-pvmbg` directly so the 3 s upstream stays busy. Verifies p95 latency < 300ms for both gateway scenarios and error rate < 1% per IF4031 M1 spec. Omit `PVMBG_TOKEN` to skip the direct PVMBG scenario. Set `PVMBG_DELAY_MIN_MS`/`PVMBG_DELAY_MAX_MS` back to the defaults (`500`/`3000`) afterwards with `docker compose up -d mock-pvmbg`.*
 
 **Manual Outage Simulation**:
 ```bash
@@ -332,7 +334,7 @@ not substitute mock tokens or fabricated HTTP responses.
 # 1. Acquire Media Token
 MEDIA_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"test-media-client","client_secret":"secret123","requested_scope":"media"}' | jq -r .access_token)
+  -d '{"client_id":"test-media-client","client_secret":"media-secret-2026","requested_scope":"media"}' | jq -r .access_token)
 
 # 2. Media queries summary fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=summary"
@@ -343,7 +345,7 @@ curl -i -H "Authorization: Bearer ${MEDIA_TOKEN}" "http://localhost:8080/api/v1/
 # 4. Acquire Field Token
 FIELD_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"test-field-client","client_secret":"secret123","requested_scope":"field"}' | jq -r .access_token)
+  -d '{"client_id":"test-field-client","client_secret":"field-secret-2026","requested_scope":"field"}' | jq -r .access_token)
 
 # 5. Field queries raw fields -> HTTP 200 OK
 curl -i -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?fields=all"
@@ -443,17 +445,19 @@ docker compose run --rm \
 | `BMKG_API_KEY` | `bmkg-secret-key-2026` | API key required in `X-BMKG-Key` header for BMKG access. |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` | Internal URL for polling PVMBG mock. |
 | `PVMBG_TOKEN` | `pvmbg-bearer-token-2026` | Bearer token required for PVMBG mock access. |
+| `PVMBG_DELAY_MIN_MS` | `500` | Lower bound of the random PVMBG response delay in milliseconds. |
+| `PVMBG_DELAY_MAX_MS` | `3000` | Upper bound of the random PVMBG response delay in milliseconds. Set both bounds to `3000` for a fixed 3 s delay. |
 | `POLL_INTERVAL_SECS` | `3` | Frequency (in seconds) at which Aggregator polls upstream mocks. |
 | `AUTH_URL` | `http://auth:8084` | Internal URL for Auth service. |
 | `AGGREGATOR_URL` | `http://aggregator:8083` | Internal URL for Aggregator service queries. |
 | `JWT_SECRET` | `super-secret-jwt-key-2026` | Shared HMAC-SHA256 secret for signing and verifying JWTs. |
 | `JWT_TTL_SECONDS` | `60` | Expiration lifetime for issued JWT access tokens. |
 | `AUTH_MEDIA_CLIENT_ID` | `test-media-client` | Client identity for Media role authentication. |
-| `AUTH_MEDIA_CLIENT_SECRET` | `secret123` | Shared secret for Media client authentication. |
+| `AUTH_MEDIA_CLIENT_SECRET` | `media-secret-2026` | Shared secret for Media client authentication. |
 | `AUTH_FIELD_CLIENT_ID` | `test-field-client` | Client identity for Field responder role authentication. |
-| `AUTH_FIELD_CLIENT_SECRET` | `secret123` | Shared secret for Field responder client authentication. |
+| `AUTH_FIELD_CLIENT_SECRET` | `field-secret-2026` | Shared secret for Field responder client authentication. |
 | `AUTH_INTERNAL_CLIENT_ID` | `test-internal-client` | Client identity for Internal operations role authentication. |
-| `AUTH_INTERNAL_CLIENT_SECRET` | `secret123` | Shared secret for Internal operations client authentication. |
+| `AUTH_INTERNAL_CLIENT_SECRET` | `internal-secret-2026` | Shared secret for Internal operations client authentication. |
 
 ---
 

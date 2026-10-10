@@ -111,7 +111,7 @@ Authenticate client credentials (e.g. `client_id` + `client_secret` or `username
   ```json
   {
     "client_id": "field-unit-jakarta-01",
-    "client_secret": "secret123",
+    "client_secret": "<field-client-secret>",
     "requested_scope": "field"
   }
   ```
@@ -160,9 +160,9 @@ Rotate refresh token and issue new 60s access token.
 # In services/auth
 export PORT=8084
 export JWT_SECRET="super-secret-jwt-key-2026"
-export AUTH_MEDIA_CLIENT_SECRET="secret123"
-export AUTH_FIELD_CLIENT_SECRET="secret123"
-export AUTH_INTERNAL_CLIENT_SECRET="secret123"
+export AUTH_MEDIA_CLIENT_SECRET="media-secret-2026"
+export AUTH_FIELD_CLIENT_SECRET="field-secret-2026"
+export AUTH_INTERNAL_CLIENT_SECRET="internal-secret-2026"
 go run main.go
 ```
 
@@ -171,9 +171,9 @@ go run main.go
 docker build -t bnpb/auth:latest services/auth/
 docker run -p 8084:8084 \
   -e JWT_SECRET="super-secret-jwt-key-2026" \
-  -e AUTH_MEDIA_CLIENT_SECRET="secret123" \
-  -e AUTH_FIELD_CLIENT_SECRET="secret123" \
-  -e AUTH_INTERNAL_CLIENT_SECRET="secret123" \
+  -e AUTH_MEDIA_CLIENT_SECRET="media-secret-2026" \
+  -e AUTH_FIELD_CLIENT_SECRET="field-secret-2026" \
+  -e AUTH_INTERNAL_CLIENT_SECRET="internal-secret-2026" \
   bnpb/auth:latest
 ```
 
@@ -185,7 +185,7 @@ curl -i http://localhost:8084/health
 # 2. Issue token stub
 curl -i -X POST http://localhost:8084/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"client_id":"test-media-client","client_secret":"secret123","requested_scope":"media"}'
+  -d '{"client_id":"test-media-client","client_secret":"media-secret-2026","requested_scope":"media"}'
 
 # 3. Refresh token stub
 curl -i -X POST http://localhost:8084/auth/refresh \
