@@ -185,7 +185,7 @@ Database & PostgreSQL 16 (JSONB) & Menjamin transaksi ACID penuh untuk pola Tran
 \addlinespace[2pt]
 Komunikasi & HTTP/REST \& JSON & Standar industri yang transparan, mudah di-debug, mendukung interoperabilitas universal, dan menyederhanakan penegakan kontrak OpenAPI antarservice. \\
 \addlinespace[2pt]
-Message Broker & Redpanda 24.1 (API Kafka) & Kompatibel penuh dengan ekosistem Kafka tanpa ketergantungan JVM atau Zookeeper, latensi deterministik berbasis C++/Raft, serta konsumsi sumber daya ringan dalam container. \\
+Message Broker & Redpanda 24.1 (API Kafka) & Kompatibel dengan API Kafka tanpa ketergantungan JVM atau Zookeeper, berbasis C++/Raft dalam satu biner, serta menyediakan utilitas \texttt{rpk} yang dipakai untuk inisialisasi topik. \\
 \addlinespace[2pt]
 Autentikasi & JWT HS256 \& Refresh Token & Memungkinkan verifikasi klaim hak akses (\textit{scope}) secara terdesentralisasi di sisi Client API tanpa panggilan jaringan berulang ke Auth Service, dengan rotasi berkala untuk keamanan. \\
 \addlinespace[2pt]

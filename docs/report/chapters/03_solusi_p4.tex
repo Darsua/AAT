@@ -24,13 +24,13 @@ Tabel~\ref{tab:storage_eval} menyajikan perbandingan komparatif tiga opsi arsite
 \toprule
 \textbf{Kriteria} & \textbf{PostgreSQL + JSONB (Terpilih)} & \textbf{MongoDB (Document Store)} & \textbf{Strict SQL (EAV / Migrasi DDL)} \\
 \midrule
-Transaksionalitas \& Pola Outbox & \textbf{Sangat Kuat:} Mendukung transaksi ACID atomik antara tabel \texttt{hazards} dan \texttt{outbox\_events}. & \textbf{Kompleks:} Transaksi \mbox{multi-dokumen} memerlukan replika set terdistribusi dengan penalti performa. & \textbf{Kuat:} Mendukung transaksi ACID penuh. \\
+Transaksionalitas \& Pola Outbox & \textbf{Sangat Kuat:} Mendukung transaksi ACID atomik antara tabel \texttt{hazards} dan \texttt{outbox\_events}. & \textbf{Kompleks:} Transaksi \mbox{multi-dokumen} memerlukan replica set (\texttt{--replSet} dan \texttt{rs.initiate()}) sebelum dapat dipakai. & \textbf{Kuat:} Mendukung transaksi ACID penuh. \\
 \addlinespace
 Agilitas Evolusi Skema & \textbf{Tinggi:} Atribut baru masuk ke JSONB tanpa \textit{table lock} atau migrasi DDL. & \textbf{Tinggi:} Skema dokumen secara alami dinamis. & \textbf{Rendah:} Memerlukan DDL \texttt{ALTER TABLE} atau tabel EAV yang rumit. \\
 \addlinespace
 Performa Query \& Indexing & \textbf{Tinggi:} Kolom relasional diindeks B-Tree standar; kolom JSONB dapat diindeks GIN. & \textbf{Sedang:} Kueri dokumen sangat cepat, namun tidak mendukung relasi JOIN. & \textbf{Sedang--Rendah:} Pola EAV memperlambat kueri karena banyaknya operasi JOIN. \\
 \addlinespace
-Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebutuhan relasional dan dokumen fleksibel. & \textbf{Sedang:} Menambah beban pemeliharaan infrastruktur klaster terpisah. & \textbf{Rendah:} Mesin relasional tunggal namun beban migrasi skema tinggi. \\
+Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebutuhan relasional dan dokumen fleksibel. & \textbf{Sedang:} Menambah langkah inisialisasi replica set pada saat \textit{startup}. & \textbf{Rendah:} Mesin relasional tunggal namun beban migrasi skema tinggi. \\
 \bottomrule
 \end{tabularx}
 \end{spacing}
@@ -79,7 +79,7 @@ Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/tes
     \item \textbf{Perbandingan Alternatif Penyimpanan:}
     Dua alternatif utama dievaluasi (Tabel~\ref{tab:storage_eval}):
     \begin{itemize}
-        \item \textit{Alternatif 1: Basis Data Dokumen Murni (MongoDB):} Keuntungannya fleksibel secara alami, namun konsekuensi buruknya adalah implementasi Transactional Outbox memerlukan transaksi \mbox{multi-dokumen} terdistribusi yang sangat kompleks dan rentan performa.
+        \item \textit{Alternatif 1: Basis Data Dokumen Murni (MongoDB):} Keuntungannya fleksibel secara alami, namun konsekuensi buruknya adalah implementasi Transactional Outbox memerlukan transaksi \mbox{multi-dokumen}, yang pada MongoDB hanya tersedia pada replica set. Pengujian pada \texttt{mongo:7.0} menunjukkan mongod \textit{standalone} menolak transaksi, sedangkan replica set satu anggota sudah cukup, tetapi langkah \texttt{rs.initiate()} harus dijalankan lebih dahulu sebelum aplikasi dapat menulis (lihat ADR 003).
         \item \textit{Pilihan Terpilih: PostgreSQL 16 dengan Kolom JSONB:} Konsekuensinya adalah kelompok harus menjaga validasi skema atribut dinamis di lapisan aplikasi, namun memperoleh keuntungan besar berupa transaksi ACID tunggal atomik untuk outbox event, pengindeksan relasional yang matang, serta keandalan operasional tingkat tinggi.
     \end{itemize}
 \end{enumerate}

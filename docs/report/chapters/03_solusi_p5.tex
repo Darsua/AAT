@@ -41,7 +41,7 @@ Pemilihan pola dan teknologi distribusi \textit{event} didasarkan pada perbandin
     \item \textbf{Pemilihan Redpanda (Log-based Pub/Sub) vs. Tradisional Message Queue (RabbitMQ AMQP):}
     \begin{itemize}
         \item \textit{RabbitMQ (AMQP Fanout Exchange):} Menyediakan mekanisme distribusi pesan yang baik, namun model antreannya menghapus pesan setelah diakui (\textit{destructive read}). Apabila konsumen baru mendaftar di kemudian hari atau konsumen yang mati membutuhkan pemutaran ulang (\textit{replayability}) dari \textit{offset} awal hari, antrean AMQP membutuhkan konfigurasi antrean terpisah sebelum pesan diterbitkan.
-        \item \textit{Redpanda (Kafka API):} Menggunakan model \textit{immutable distributed commit log}. Pesan dipertahankan berdasarkan durasi retensi waktu dan kuota penyimpanan fisik, bukan status pembacaan konsumen. Konsumen baru dapat bergabung kapan saja dan membaca data tanpa intervensi produser. Redpanda dipilih karena diimplementasikan dalam C++ tanpa ketergantungan JVM atau Zookeeper, berkinerja tinggi, dan hemat memori pada lingkungan kontainer Docker.
+        \item \textit{Redpanda (Kafka API):} Menggunakan model \textit{immutable distributed commit log}. Pesan dipertahankan berdasarkan durasi retensi waktu dan kuota penyimpanan fisik, bukan status pembacaan konsumen. Konsumen baru dapat bergabung kapan saja dan membaca data tanpa intervensi produser. Redpanda dipilih karena diimplementasikan dalam C++ tanpa ketergantungan JVM atau Zookeeper, kompatibel dengan API Kafka, dan menyediakan utilitas \texttt{rpk} untuk inisialisasi topik. Hemat memori bukan alasan pemilihan: pengukuran kami menunjukkan Redpanda (352 MiB, \texttt{--memory 256M}) tidak lebih ringan daripada Apache Kafka 3.7 mode KRaft (297 MiB) pada kondisi idle (lihat ADR 002).
     \end{itemize}
 \end{enumerate}
 
@@ -103,7 +103,7 @@ Jawaban komprehensif atas aspek evaluasi Problem 5:
 \begin{enumerate}
     \item \textbf{Broker dan Pola yang Dipilih:}
     \begin{itemize}
-        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), konsumsi memori rendah, latensi I/O stabil berbasis seastar engine, serta dukungan utilitas CLI \texttt{rpk}.
+        \item \textbf{Broker (Redpanda):} Kompatibel API Kafka v3, arsitektur \textit{single binary} C++ (tanpa JVM dan ZooKeeper), serta dukungan utilitas CLI \texttt{rpk}.
         \item \textbf{Pola (Pub--Sub Log Terdistribusi):} Topik \texttt{bnpb.hazard-events} dibagi ke 3 partisi dengan \textit{consumer groups} mandiri untuk replikasi aliran pesan (\textit{fan-out}) ke setiap grup secara otonom.
     \end{itemize}
 
