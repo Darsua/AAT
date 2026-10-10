@@ -5,7 +5,7 @@
 ## Context
 In IF4031 Milestone 1, services must communicate across network boundaries:
 1. **Aggregator to External Providers**: `services/aggregator` periodically polls `mock-bmkg` (`:8081`) and `mock-pvmbg` (`:8082`) over HTTP.
-2. **Client-Facing API to Aggregator**: When external clients query `services/client-api` (`GET /hazards`), the client API validates the caller's JWT token, evaluates required scopes, and forwards the query to `services/aggregator` (`GET /internal/hazards`) over the internal Docker network.
+2. **Client-Facing API to Aggregator**: When external clients query `services/client-api` (`GET /api/v1/hazards`), the client API validates the caller's JWT token, evaluates required scopes, and forwards the query to `services/aggregator` (`GET /internal/hazards`) over the internal Docker network.
 3. **Problem 1 Live Dynamic Attributes**: Upstream attributes (e.g., `confidence_level`) must flow seamlessly across internal service boundaries without manual schema recompilation or dropping unmapped fields.
 4. **Grading & Operability**: Evaluators need to inspect internal states, simulate outages, and test endpoints directly via command-line tools (`curl`, `jq`, `httpie`).
 
@@ -32,15 +32,14 @@ sequenceDiagram
     autonumber
     actor Client as External Client (Media/Field)
     participant ClientAPI as client-api (:8080)
-    participant Auth as auth (:8084)
     participant Aggregator as aggregator (:8083)
     participant DB as canonical-db (:5432)
 
-    Client->>ClientAPI: GET /hazards (Bearer JWT)
-    ClientAPI->>Auth: Validate Token & Scopes (or local JWT verify)
+    Client->>ClientAPI: GET /api/v1/hazards (Bearer JWT)
+    Note over ClientAPI: Verify JWT signature, expiry and scope locally (shared HS256 secret, no call to auth)
     Note over ClientAPI: Check if Scope allows Raw fields
     ClientAPI->>Aggregator: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
-    Aggregator->>DB: Query hazards + volcano_references
+    Aggregator->>DB: Query hazards
     DB-->>Aggregator: Canonical records
     Aggregator-->>ClientAPI: 200 OK (JSON array + degraded status)
     Note over ClientAPI: Filter fields if Media scope (Summary only)
@@ -73,7 +72,7 @@ Evaluators assess services by executing tests, inspecting containers, and runnin
 * Every payload is human-readable JSON. There is no need to install specialized binary decoding tools (`grpcurl`), mount `.proto` files, or maintain reflection servers.
 
 ### 4. Low Latency on Docker Bridge Network
-Benchmarking within a Linux Docker bridge network reveals that HTTP/1.1 with persistent keep-alive connections (`MaxIdleConnsPerHost: 100`) achieves sub-millisecond round-trip times (<0.6 ms for typical payloads). For the Milestone 1 scale (50 sustained concurrent requests), the overhead of HTTP/1.1 compared to gRPC binary framing is negligible (microseconds), while saving substantial architectural complexity.
+HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleConnsPerHost: 50`) adds little latency on the Docker bridge network: in the Milestone 1 load test through the full client-api to aggregator path, p95 latency was 1.75 ms and p99 3.07 ms (`docs/evidence/p2/load_test.log`). For the Milestone 1 scale (50 sustained concurrent requests), the overhead of HTTP/1.1 compared to gRPC binary framing is negligible (microseconds), while saving substantial architectural complexity.
 
 ---
 
@@ -89,7 +88,7 @@ Benchmarking within a Linux Docker bridge network reveals that HTTP/1.1 with per
 ### Alternative B: Broker Request-Reply (RPC over Kafka/Redpanda)
 * **Description**: `client-api` publishes a request to a Kafka request topic and awaits a response on a dedicated reply topic with a correlation ID.
 * **Why Rejected**:
-  * Request-reply over an asynchronous event log is an anti-pattern for synchronous read queries (`GET /hazards`).
+  * Request-reply over an asynchronous event log is an anti-pattern for synchronous read queries (`GET /api/v1/hazards`).
   * Introduces unnecessary latency, complex timeout handling, and potential consumer group rebalancing stalls during synchronous user requests.
   * Event brokers should be reserved for decoupled event fan-out (Problem 5), not synchronous query-response loops.
 

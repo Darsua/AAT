@@ -68,7 +68,7 @@ Problem 2 and Problem 4 evaluate system resilience under concurrent load (includ
 ### 3. Unified Developer Tooling and Zero Multi-Runtime Friction
 * **Single Toolchain**: Every team member needs only Go 1.22 installed locally. There are no competing virtual environment tools (`uv`, `venv`, `poetry`), no Python version mismatches, and no C compiler toolchains needed.
 * **Go Workspace (`go.work`)**: Allows developers to open the entire repository in their editor (Zed, VS Code, GoLand) with cross-service symbol navigation and shared linting, while preserving strict dependency isolation across individual `go.mod` files.
-* **Identical Multi-Stage Dockerfile Pattern**: All services share the same deterministic multi-stage build structure (see each service's actual `Dockerfile`; `aggregator` builds from `./cmd/server/main.go`, the other four build from a flat `main.go` in the service root):
+* **Identical Multi-Stage Dockerfile Pattern**: All services share the same deterministic multi-stage build structure (see each service's actual `Dockerfile`; `aggregator` builds from `./cmd/server/main.go`, the other services build from a flat `main.go` in the service root):
   ```dockerfile
   FROM golang:1.22-alpine AS builder
   WORKDIR /app
