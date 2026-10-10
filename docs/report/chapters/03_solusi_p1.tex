@@ -10,6 +10,20 @@ Untuk mengatasi permasalahan tersebut tanpa mengharuskan \textit{redeploy} atau 
     \item \textbf{Persistensi Tanpa Migrasi DDL:} Nilai \texttt{attributes} disimpan ke dalam kolom PostgreSQL bertipe \texttt{JSONB}. Dengan pendekatan ini, penambahan field baru dari hulu tidak memerlukan eksekusi \texttt{ALTER TABLE} maupun penguncian tabel (\textit{table lock}).
 \end{enumerate}
 
+Gambar~\ref{fig:konteks_bmkg} dan Gambar~\ref{fig:konteks_pvmbg} memperlihatkan dua sumber data yang diakses Aggregator. Kontrol admin PVMBG digunakan untuk menambahkan atribut \texttt{confidence\_level} saat pengujian; jalur pengambilan laporan tetap menggunakan HTTP dengan kredensial PVMBG.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.18\textheight,keepaspectratio]{../diagrams/rendered/mock-bmkg-context.png}
+    \caption[Konteks layanan simulasi BMKG]{Konteks layanan simulasi BMKG (sumber: \texttt{mock-bmkg-context.mmd}).}
+    \label{fig:konteks_bmkg}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{../diagrams/rendered/mock-pvmbg-context.png}
+    \caption[Konteks layanan simulasi PVMBG]{Konteks layanan simulasi PVMBG dan kontrol pengujian (sumber: \texttt{mock-pvmbg-context.mmd}).}
+    \label{fig:konteks_pvmbg}
+\end{figure}
+
 \subsection{Alasan Keputusan dan Trade-Off}
 Dalam menentukan mekanisme evolusi skema, kelompok mempertimbangkan beberapa alternatif:
 \begin{itemize}
