@@ -3,7 +3,7 @@
 Tanggal audit: 2026-10-10. Branch: `docs/report-p1-corrections`.
 Cakupan: `docs/adr/001` sampai `005`, dibandingkan dengan kode, `docker-compose.yml`, `.env.example`, migrasi SQL, Dockerfile dan log bukti di `docs/evidence/`.
 
-Aturan penilaian: kode dan konfigurasi adalah sumber kebenaran. Kode tidak diubah dalam audit ini, hanya ADR dan laporan.
+Aturan penilaian: kode dan konfigurasi adalah sumber kebenaran. Kode Go tidak diubah dalam audit ini. Yang diubah: ADR, bab laporan, `README.md` dan `services/aggregator/README.md`.
 
 Notasi bukti: `[proof: berkas:baris]` berarti saya membaca baris itu pada sesi audit. `{unverified}` berarti tidak ada bukti di repo atau belum diperiksa. Nomor baris ADR merujuk ke versi **sebelum** perbaikan (commit `cd63221`), kecuali disebut lain.
 
@@ -14,6 +14,9 @@ Commit perbaikan:
 | `2837f97` | Perbaikan ADR 001, 002, 003 |
 | `b370934` | Perbaikan ADR 002, 004, 005 (bersama bab laporan) |
 | `05bea3d` | Perbaikan lanjutan ADR 001 dan 004 |
+| `df2151f` | Angka terukur di ADR 001 sampai 003, O4, O6, O7, O8, dokumen audit ini |
+| `b1b2290` | O2, O9, O10 (ADR 001, README aggregator, README utama) |
+| `0630e4a` | Pembersihan baris sisa di ringkasan audit |
 
 ## Ringkasan
 
@@ -210,7 +213,17 @@ grep -nE 'Key:|X-Correlation-ID|quarantin' services/aggregator/internal/worker/o
 sed -n 33,50p services/aggregator/internal/normalizer/normalizer.go
 # SQL ADR vs migrasi (F5)
 diff <(awk '/^```sql/{f=1;next} /^```/{f=0} f' docs/adr/003-canonical-storage-postgres-jsonb.md) services/aggregator/migrations/001_init.sql
+# SQL README aggregator vs migrasi (O9), jalankan dengan bash, bukan fish
+diff <(awk '/^```sql/{f=1;next} /^```/{f=0} f' services/aggregator/README.md) services/aggregator/migrations/001_init.sql
+# Port aggregator tidak dipublikasikan (O10)
+docker compose up -d && docker ps --format '{{.Names}} {{.Ports}}' | grep aggregator
+docker network inspect bnpb-aat_bnpb-internal --format '{{.Internal}}'
+# Ukur ulang sumber daya (O1, bagian E1 sampai E3)
+docker compose up -d --build && sleep 120 && docker stats --no-stream --format '{{.Name}} {{.MemUsage}}'
+docker images --format '{{.Repository}} {{.Size}}' | grep bnpb
 ```
+
+Catatan: `docker compose up` membutuhkan berkas `.env` (salin dari `.env.example`). Ukuran pembanding pihak ketiga (E4) diambil dengan `docker run` image bawaan tanpa konfigurasi dan memori dibaca dengan `docker stats --no-stream` 45 detik setelah siap.
 
 ## E. Data pengukuran (10 Oktober 2026)
 
@@ -275,4 +288,19 @@ Waktu mencakup overhead `docker start`, jadi bukan waktu proses semata.
 - Percobaan pertama cek kesiapan RabbitMQ gagal karena perintah cek saya, bukan karena RabbitMQ; angka RabbitMQ diambil dari lari ulang.
 - Startup dingin mencakup `docker start`. Klaim "< 50 ms" ADR 001 hanya benar jika yang diukur adalah proses saja, dan itu tidak diukur.
 - Pembanding Python dan pihak ketiga memakai pengaturan bawaan dan tidak mewakili konfigurasi produksi.
-- Di sesi ini saya mengubah state mesin Anda: menyalakan layanan Docker, membuat `.env` (diabaikan git), mem-build image, dan menjalankan 9 kontainer. Stack masih berjalan.
+- Di sesi ini saya mengubah state mesin Anda: menyalakan layanan Docker, membuat `.env` (diabaikan git), mem-build image, dan menjalankan 9 kontainer. Setelah pengukuran, stack dimatikan dengan `docker compose down` dan `docker ps` menampilkan nol kontainer berjalan. Image hasil build dan image pembanding masih ada di cache Docker. Tiga kontainer berstatus Exited (`agitated_curran`, `upbeat_wozniak`, `condescending_greider`, image sama, umur 2 hari) bukan dari sesi ini dan tidak disentuh.
+
+## F. Status akhir
+
+| Kategori | Jumlah | Rincian |
+| :--- | :--- | :--- |
+| Salah dan diperbaiki | 13 | F1 sampai F13 |
+| Diperbaiki setelah diukur atau diputuskan | 6 | O1, O3, O4, O6, O7, O8 |
+| Diperbaiki kemudian | 3 | O2, O9, O10 |
+| Dicabut | 1 | O5 |
+| Terbuka | 0 | |
+
+Keputusan yang tersisa untuk Anda:
+1. Baris `ports: "127.0.0.1:8083:8083"` pada aggregator di `docker-compose.yml` tidak berpengaruh (O10). Boleh dihapus atau dibiarkan.
+2. Angka pada E4 dan pembanding Python berasal dari satu sampel dan pengaturan bawaan. Jika ADR dijadikan dasar nilai, ulangi pengukuran beberapa kali dengan perintah di bagian D.
+3. Klaim ADR 003 bahwa MongoDB memerlukan replica set untuk transaksi multi-dokumen tidak diuji di sesi ini {unverified}.
