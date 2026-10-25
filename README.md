@@ -175,6 +175,7 @@ Start the full platform, including the dashboard and notifier consumers, with a 
 make up
 # or: docker compose up -d --build
 ```
+`make up` automatically builds and starts all container images in detached mode via Docker Compose.
 
 ### 7.3 Verify Service Health
 Verify that all five HTTP services report healthy (`"status": "UP"`):
@@ -210,7 +211,7 @@ Automated test scripts under [`scripts/`](scripts/) and Makefile targets provide
 | **Problem 1 (P1)** | Dynamic Schema Evolution | `make demo-p1` | `./scripts/test_schema_change.sh` | Additive `confidence_level` dynamically ingested into Postgres JSONB without restart/migrations. | `8082`, `8080` |
 | **Problem 2 (P2)** | Outage Handling & Concurrency | `make demo-p2`<br>`make load-test` | `./scripts/test_outage.sh`<br>`k6 run scripts/load_test.js` | BMKG stays healthy during PVMBG outage (`degraded: true`); 50 VUs sustained with p95 < 300ms. | `8082`, `8081`, `8080` |
 | **Problem 3 (P3)** | Scoped RBAC & Token Lifecycle | `make demo-p3` | `./scripts/test_cross_credential.sh`<br>`./scripts/test_auth_scopes.sh` | Media role gets `403 Forbidden` on raw fields / `fields=all`; 60s TTL token refresh rotation works. | `8084`, `8080`, `8081`, `8082` |
-| **Problem 4 (P4)** | Container Isolation & Rebuild | — | `docker compose restart aggregator`<br>`docker compose up -d --build client-api` | Zero cascading failures; clean DB reconnection on restart; schema coexistence in DB. | `8083`, `8080`, `5432` |
+| **Problem 4 (P4)** | Container Isolation & Rebuild | `make demo-p4` | `./scripts/test_storage_restart.sh`<br>`docker compose restart aggregator`<br>`docker compose up -d --build client-api` | Zero cascading failures; clean DB reconnection on restart; schema coexistence in DB. | `8083`, `8080`, `5432` |
 | **Problem 5 (P5)** | Pub-Sub Fan-Out & Recovery | `make demo-p5` | `./scripts/test_consumer_recovery.sh` | Independent consumer group replay from offset after downtime; dynamic 3rd consumer addition. | `19092` |
 
 ---
@@ -286,7 +287,18 @@ curl -i -H "Authorization: Bearer pvmbg-bearer-token-2026" http://localhost:8082
 # 3. Verify mock-bmkg remains completely operational (HTTP 200)
 curl -i -H "X-BMKG-Key: bmkg-secret-key-2026" http://localhost:8081/seismic-events
 
-# 4. Restore PVMBG service
+# 4. Wait a few seconds for the next poll cycle, then query the gateway with a Field token
+FIELD_TOKEN=$(curl -s -X POST http://localhost:8084/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"client_id":"test-field-client","client_secret":"field-secret-2026","requested_scope":"field"}' | jq -r .access_token)
+
+# Volcanic data is served from the canonical store with degraded: true and a stale_since timestamp
+curl -s -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?type=VOLCANIC" | jq .meta
+
+# Seismic data is unaffected: degraded: false
+curl -s -H "Authorization: Bearer ${FIELD_TOKEN}" "http://localhost:8080/api/v1/hazards?type=SEISMIC" | jq .meta
+
+# 5. Restore PVMBG service
 curl -s -X POST http://localhost:8082/admin/outage \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer pvmbg-bearer-token-2026" \
@@ -359,6 +371,14 @@ curl -s -X POST http://localhost:8084/auth/refresh \
 **Goal**: Verify zero tight coupling by demonstrating that any single container can be stopped, restarted, or rebuilt without cascading crashes across dependent services.
 
 ```bash
+make demo-p4
+# or: ./scripts/test_storage_restart.sh
+```
+
+The script checks that records with and without the evolved `confidence_level` field coexist in the `hazards` table, restarts `aggregator` and `canonical-db` in turn, and confirms the other services stay up and the Client API answers with HTTP 200 afterwards.
+
+**Manual Step-by-Step Verification**:
+```bash
 # 1. Restart Aggregator independently
 docker compose restart aggregator
 docker compose ps aggregator
@@ -390,6 +410,8 @@ make demo-p5
 # or: ./scripts/test_consumer_recovery.sh
 ```
 
+`make demo-p5` automates the downtime test by stopping `dashboard-consumer`; the manual steps below stop `notifier-consumer`. The two groups track independent offsets, so either consumer demonstrates the same recovery behaviour.
+
 **Step-by-Step Verification**:
 ```bash
 # 1. Inspect live consumer logs receiving events
@@ -417,6 +439,17 @@ docker compose run --rm \
 
 ---
 
+### Additional Make Targets
+
+| Target | Purpose |
+| :--- | :--- |
+| `make build` | Build the Docker Compose service images without starting them. |
+| `make test` | Run the Go unit tests for the aggregator, auth, client-api, both consumers, and both mocks (`go test -v`). |
+| `make test-observability` | Audit `X-Correlation-ID` propagation from Client API to Aggregator, latency/status fields in the HTTP service logs, Kafka correlation headers reaching both consumers, and consumer-group lag. The HTTP and Kafka paths are audited separately; the script does not exercise the Aggregator outbox publisher end to end. |
+| `make report` | Compile the LaTeX report with `tectonic` into `docs/report/main.pdf` and `docs/report/IF4031_M1_AhhAldoyTolong.pdf`. |
+
+---
+
 ## 9. Configuration Reference (`.env.example`)
 
 | Variable | Default Value | Description |
@@ -428,7 +461,7 @@ docker compose run --rm \
 | `AUTH_PORT` | `8084` | Host port exposed for Auth Authority service. |
 | `REDPANDA_PORT` | `19092` | Host port exposed for external Redpanda Kafka client testing. |
 | `POSTGRES_USER` | `bnpb_user` | PostgreSQL database master username. |
-| `POSTGRES_PASSWORD`| `bnpb_secret`| PostgreSQL database master password. |
+| `POSTGRES_PASSWORD` | `bnpb_secret` | PostgreSQL database master password. |
 | `POSTGRES_DB` | `bnpb_hazards` | Canonical PostgreSQL database name. |
 | `DATABASE_URL` | `postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable` | Full PostgreSQL connection URI. |
 | `REDPANDA_BROKERS` | `redpanda:9092` | Internal Kafka broker address for services. |

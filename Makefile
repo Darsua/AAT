@@ -33,7 +33,7 @@ help:
 
 ## Start services in background
 up:
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) up -d --build
 
 ## Stop services and remove volumes
 down:
