@@ -2,6 +2,10 @@
 .env
 .env.local
 .env.*.local
+*kubeconfig*.yaml
+*.kubeconfig
+!*kubeconfig*.template.yaml
+!*kubeconfig*.example.yaml
 
 # Binaries & build artifacts
 *.exe
