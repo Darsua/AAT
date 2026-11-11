@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bnpb-config
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+
+  # Internal microservice addresses
+  AGGREGATOR_URL: "http://aggregator:8083"
+  CLIENT_API_URL: "http://client-api:8080"
+  AUTH_SERVICE_URL: "http://auth:8084"
+  REDPANDA_BROKERS: "redpanda:9092"
+
+  # Upstream simulation & feed addresses
+  BMKG_URL: "http://mock-bmkg:8081"
+  PVMBG_URL: "http://mock-pvmbg:8082"
+  SENSOR_PANTAI_URL: "http://sensor-pantai:8080"
+  SATELLITE_URL: "https://satellite.naufarrel.dev"
+
+  # Redpanda / Kafka topic definitions
+  REDPANDA_TOPIC_HAZARDS: "bnpb.hazard-events"
+  REDPANDA_TOPIC_FIELD_REPORTS: "bnpb.field-reports"
+  REDPANDA_TOPIC_DLQ: "bnpb.dlq"

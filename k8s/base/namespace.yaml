@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    app.kubernetes.io/part-of: bnpb-disaster-coordination
+    environment: production

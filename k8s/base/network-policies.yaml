@@ -1,0 +1,147 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-storage-strict
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      role: store
+  policyTypes:
+    - Ingress
+  ingress:
+    # Course Invariant #2: Storage is owned strictly by aggregator.
+    # Non-aggregator application components (client-api, auth, consumers, mocks, sensors)
+    # are strictly barred at the network level from connecting to storage.
+    - from:
+        - podSelector:
+            matchLabels:
+              role: aggregator
+        - podSelector:
+            matchLabels:
+              role: store
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Ensure tester-agent test harness is never blocked per course contract
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tester-agent
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-broker-policy
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      role: broker
+  policyTypes:
+    - Ingress
+  ingress:
+    # Broker accepts event ingestion from aggregator and subscriptions from consumers
+    - from:
+        - podSelector:
+            matchLabels:
+              role: aggregator
+        - podSelector:
+            matchLabels:
+              role: consumer
+        - podSelector:
+            matchLabels:
+              role: broker
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9644
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tester-agent
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mock-admin-policy
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      role: mock
+  policyTypes:
+    - Ingress
+  ingress:
+    # Ingestion poller from Aggregator
+    - from:
+        - podSelector:
+            matchLabels:
+              role: aggregator
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+    # Administrative endpoints (/admin/outage, /admin/schema-version) invoked by tester-agent
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tester-agent
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+    # Allow intra-namespace diagnostic curls
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controllers
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: security
+spec:
+  podSelector:
+    matchExpressions:
+      - key: role
+        operator: In
+        values: ["api", "aggregator", "other"]
+  policyTypes:
+    - Ingress
+  ingress:
+    # Permit HTTP ingress from Traefik / kube-system ingress controllers and cluster peers
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 3000
