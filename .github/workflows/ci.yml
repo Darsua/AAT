@@ -54,7 +54,7 @@ jobs:
           import yaml, json, glob
           for y in glob.glob('**/*.yaml', recursive=True) + glob.glob('**/*.yml', recursive=True):
               with open(y) as f:
-                  yaml.safe_load(f)
+                  list(yaml.safe_load_all(f))
               print(f'Valid YAML: {y}')
           for j in glob.glob('**/*.json', recursive=True):
               with open(j) as f:
