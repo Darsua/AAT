@@ -54,6 +54,8 @@ paths:
             enum:
               - SEISMIC
               - VOLCANIC
+              - WILDFIRE
+              - COASTAL
             example: "SEISMIC"
         - name: severity
           in: query
@@ -203,6 +205,106 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/v1/field-reports:
+    post:
+      summary: Submit Field Disaster Report
+      description: >
+        Enables emergency response and field teams to submit disaster observations directly to BNPB.
+        Acknowledges receipt immediately with HTTP 202 Accepted and stages the report durably before returning.
+      operationId: submitFieldReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          example: "trace-91b452e8-f901-447b-a489-32cf4b910123"
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Client-provided idempotency key preventing double-processing on retries.
+          schema:
+            type: string
+          example: "idem-fld-20261112-9901"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldReportRequest'
+      responses:
+        '202':
+          description: Field report accepted and durably staged for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldReportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: Media clients shed under system overload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "TOO_MANY_REQUESTS"
+                message: "System capacity exceeded; priority allocated to Field Team traffic"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /field-reports:
+    post:
+      summary: Submit Field Disaster Report (Short Alias)
+      description: Alias route for `/api/v1/field-reports` conforming to course prompt requirements.
+      operationId: submitFieldReportAlias
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldReportRequest'
+      responses:
+        '202':
+          description: Field report accepted and durably staged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldReportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: Media clients shed under system overload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /health:
     get:
       summary: Health Check
@@ -301,6 +403,8 @@ components:
           enum:
             - BMKG
             - PVMBG
+            - SATELIT
+            - SENSOR_PANTAI
           description: Reporting source agency.
           example: "BMKG"
         hazard_type:
@@ -308,6 +412,8 @@ components:
           enum:
             - SEISMIC
             - VOLCANIC
+            - WILDFIRE
+            - COASTAL
           description: Hazard classification type.
           example: "SEISMIC"
         severity:
@@ -357,6 +463,8 @@ components:
           enum:
             - BMKG
             - PVMBG
+            - SATELIT
+            - SENSOR_PANTAI
           description: Reporting source agency (Summary Field).
           example: "BMKG"
         source_ref_id:
@@ -368,6 +476,8 @@ components:
           enum:
             - SEISMIC
             - VOLCANIC
+            - WILDFIRE
+            - COASTAL
           description: Hazard classification type (Summary Field).
           example: "SEISMIC"
         severity:
@@ -485,3 +595,76 @@ components:
           type: string
           description: Human-readable error message.
           example: "Scope 'hazards:read:all' required to access raw fields"
+
+    FieldReportRequest:
+      type: object
+      required:
+        - reporter_id
+        - hazard_type
+        - severity
+        - area_name
+        - occurred_at
+      properties:
+        report_id:
+          type: string
+          description: Unique client-generated report identifier or tracking code.
+          example: "rep-fld-0091"
+        reporter_id:
+          type: string
+          description: Authenticated field team agent identifier.
+          example: "tim-sar-reg1"
+        hazard_type:
+          type: string
+          enum:
+            - SEISMIC
+            - VOLCANIC
+            - WILDFIRE
+            - COASTAL
+          example: "WILDFIRE"
+        severity:
+          type: string
+          enum:
+            - NORMAL
+            - WASPADA
+            - SIAGA
+            - AWAS
+          example: "SIAGA"
+        area_name:
+          type: string
+          example: "Kecamatan Bukit Batu, Bengkalis, Riau"
+        latitude:
+          type: number
+          example: 1.4523
+        longitude:
+          type: number
+          example: 101.9821
+        occurred_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:30:00Z"
+        description:
+          type: string
+          example: "Titik api meluas ke arah barat daya mendekati permukiman warga"
+        details:
+          type: object
+          additionalProperties: true
+
+    FieldReportResponse:
+      type: object
+      required:
+        - report_id
+        - status
+        - received_at
+      properties:
+        report_id:
+          type: string
+          example: "rep-fld-0091"
+        status:
+          type: string
+          enum:
+            - accepted
+          example: "accepted"
+        received_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:30:05Z"

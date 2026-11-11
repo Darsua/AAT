@@ -25,7 +25,9 @@
       "type": "string",
       "enum": [
         "BMKG",
-        "PVMBG"
+        "PVMBG",
+        "SATELIT",
+        "SENSOR_PANTAI"
       ],
       "description": "[Summary Field / Ringkasan - Accessible by Media] Ingestion source agency reporting the event.",
       "example": "BMKG"
@@ -39,7 +41,9 @@
       "type": "string",
       "enum": [
         "SEISMIC",
-        "VOLCANIC"
+        "VOLCANIC",
+        "WILDFIRE",
+        "COASTAL"
       ],
       "description": "[Summary Field / Ringkasan - Accessible by Media] Type and domain classification of the natural hazard.",
       "example": "SEISMIC"
@@ -123,6 +127,48 @@
           "minimum": 0.0,
           "maximum": 1.0,
           "description": "Dynamic confidence score [0.0 - 1.0] introduced at runtime by PVMBG via /admin/schema-version."
+        },
+        "detection_count": {
+          "type": "integer",
+          "description": "Number of connected hotspot detections forming a single wildfire event (SATELIT)."
+        },
+        "satellites": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of satellite identifiers that observed detections in this wildfire (SATELIT, e.g. [\"N20\", \"N21\"])."
+        },
+        "max_confidence": {
+          "type": "string",
+          "description": "Highest detection confidence recorded in this wildfire cluster (SATELIT, e.g. \"h\" or \"n\")."
+        },
+        "total_frp_mw": {
+          "type": "number",
+          "description": "Total Fire Radiative Power in megawatts across all detections in the cluster (SATELIT)."
+        },
+        "detection_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Raw unrounded detection keys in format satellite|acq_date|acq_time|latitude|longitude (SATELIT)."
+        },
+        "station_id": {
+          "type": "string",
+          "description": "Coastal observation station identifier (SENSOR_PANTAI, e.g. \"stn-padang-01\")."
+        },
+        "sea_level_anomaly_m": {
+          "type": "number",
+          "description": "Sea level anomaly in meters above expected baseline (SENSOR_PANTAI)."
+        },
+        "wave_height_m": {
+          "type": "number",
+          "description": "Directly observed coastal wave height in meters (SENSOR_PANTAI)."
+        },
+        "quality": {
+          "type": "string",
+          "description": "Sensor data quality evaluation flag (SENSOR_PANTAI, e.g. \"ok\")."
+        },
+        "critical": {
+          "type": "boolean",
+          "description": "Critical coastal hazard trigger flag (SENSOR_PANTAI)."
         }
       },
       "additionalProperties": true

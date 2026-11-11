@@ -32,6 +32,8 @@ paths:
             enum:
               - SEISMIC
               - VOLCANIC
+              - WILDFIRE
+              - COASTAL
             example: "SEISMIC"
         - name: severity
           in: query
@@ -186,6 +188,8 @@ components:
           enum:
             - BMKG
             - PVMBG
+            - SATELIT
+            - SENSOR_PANTAI
           description: "Reporting source agency (Summary Field)."
           example: "BMKG"
         source_ref_id:
@@ -197,6 +201,8 @@ components:
           enum:
             - SEISMIC
             - VOLCANIC
+            - WILDFIRE
+            - COASTAL
           description: "Hazard classification type (Summary Field)."
           example: "SEISMIC"
         severity:

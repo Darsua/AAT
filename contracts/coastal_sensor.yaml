@@ -1,0 +1,198 @@
+openapi: 3.0.3
+info:
+  title: Coastal Sensor Network Blackbox Contract
+  version: 2.0.0
+  description: >
+    OpenAPI specification for the blackbox Coastal Sensor Network (Lampiran C) provided by course assistants.
+    Simulates physical coastal observation buoys measuring sea level anomaly and direct wave height
+    to validate or complement BMKG predictive tsunami warnings.
+    
+    Packaged as container image `sustuna/sensor-pantai@sha256:51fbd90d3891ad6e9f5768ad330ffb65205644cb29e50da65c7538f2e0b4397d`.
+servers:
+  - url: http://sensor-pantai:8080
+    description: Coastal Sensor Service (In-Cluster)
+paths:
+  /healthz:
+    get:
+      summary: Sensor Health Check
+      description: Unauthenticated readiness and liveness check.
+      responses:
+        '200':
+          description: Sensor ready and operational.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /v1/stations:
+    get:
+      summary: List Observation Stations
+      description: Retrieve catalog of coastal sensor observation buoys.
+      security:
+        - SensorBearerAuth: []
+      responses:
+        '200':
+          description: Active observation stations catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Station'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/observations:
+    get:
+      summary: Fetch Coastal Sensor Observations
+      description: >
+        Retrieve timeseries observations sorted ascending by `observed_at`, then `observation_id`.
+      security:
+        - SensorBearerAuth: []
+      parameters:
+        - name: station_id
+          in: query
+          required: false
+          description: Filter observations by specific station ID.
+          schema:
+            type: string
+          example: "stn-padang-01"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of records to return per page.
+          schema:
+            type: integer
+            default: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor.
+          schema:
+            type: string
+          example: "eyJvIjo4MTN9"
+      responses:
+        '200':
+          description: Observation batch retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - generated_at
+                  - items
+                  - next_cursor
+                properties:
+                  generated_at:
+                    type: string
+                    format: date-time
+                    example: "2026-11-12T02:43:05Z"
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Observation'
+                  next_cursor:
+                    type: string
+                    nullable: true
+                    example: "eyJvIjo4MTN9"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    SensorBearerAuth:
+      type: http
+      scheme: bearer
+      description: Coastal Sensor authentication token (`PANTAI_AUTH_TOKEN`).
+
+  schemas:
+    Station:
+      type: object
+      required:
+        - station_id
+        - name
+        - province
+        - latitude
+        - longitude
+      properties:
+        station_id:
+          type: string
+          example: "stn-padang-01"
+        name:
+          type: string
+          example: "Padang"
+        province:
+          type: string
+          example: "Sumatera Barat"
+        latitude:
+          type: number
+          example: -0.9492
+        longitude:
+          type: number
+          example: 100.3543
+
+    Observation:
+      type: object
+      required:
+        - observation_id
+        - station_id
+        - observed_at
+        - sea_level_anomaly_m
+        - wave_height_m
+        - quality
+        - critical
+      properties:
+        observation_id:
+          type: string
+          example: "obs-000812"
+        station_id:
+          type: string
+          example: "stn-padang-01"
+        observed_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:43:00Z"
+        sea_level_anomaly_m:
+          type: number
+          description: Deviation in sea surface height in meters.
+          example: 0.42
+        wave_height_m:
+          type: number
+          description: Peak wave height recorded in meters.
+          example: 1.8
+        quality:
+          type: string
+          enum:
+            - ok
+            - suspicious
+            - bad
+          example: "ok"
+        critical:
+          type: boolean
+          description: Flag indicating immediate tsunami hazard condition requiring alert propagation.
+          example: false
+
+  responses:
+    Unauthorized:
+      description: Unauthorized request (missing or invalid token).
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                example: "Unauthorized"

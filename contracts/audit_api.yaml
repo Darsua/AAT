@@ -1,0 +1,486 @@
+openapi: 3.0.3
+info:
+  title: BNPB Aggregator Internal Audit API
+  version: 2.0.0
+  description: >
+    Internal Audit and Grading API specification (Lampiran A) exposed by the Aggregator service.
+    Queried by course testing agents and grading harnesses to verify cross-shard data consistency,
+    event durability post-chaos, partition recovery, and Dead Letter Queue (DLQ) state.
+    
+    Protected by internal bearer token authentication. All responses employ ISO-8601 UTC timestamps
+    and return explicit degraded metadata (`partial: true`, `unavailable_units: [...]`) when storage
+    nodes are offline rather than terminating with HTTP 500.
+servers:
+  - url: http://aggregator:8083
+    description: Aggregator Internal Service (Kubernetes / In-Cluster)
+  - url: http://localhost:8083
+    description: Local Development Engine
+paths:
+  /internal/audit/events:
+    get:
+      summary: Retrieve Canonical Hazard Events for Audit
+      description: >
+        Returns all HazardEvents matching filter parameters.
+        Results are ordered ascending by `ingested_at`, then by `hazard_id`.
+      operationId: getAuditEvents
+      security:
+        - AuditBearerAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: false
+          description: Restrict results to a single source agency.
+          schema:
+            type: string
+            enum:
+              - BMKG
+              - PVMBG
+              - SATELIT
+              - SENSOR_PANTAI
+          example: SATELIT
+        - name: since
+          in: query
+          required: false
+          description: Filter events with `ingested_at` greater than or equal to this ISO 8601 UTC timestamp.
+          schema:
+            type: string
+            format: date-time
+          example: "2026-11-12T02:00:00Z"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of records to return per page (default 100, max 1000).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+          example: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor obtained from `next_cursor` in a previous response.
+          schema:
+            type: string
+          example: "eyJvIjoxMDB9"
+      responses:
+        '200':
+          description: Audit event batch retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /internal/audit/checksum:
+    get:
+      summary: Compute Data Integrity Checksum per Source
+      description: >
+        Calculates record count and SHA-256 checksum across all HazardEvents for the specified source.
+        The checksum is computed over all `source_ref_id` values sorted ascending in raw byte order,
+        delimited by newline (`\n`) without a trailing newline, rendered as 64 lowercase hexadecimal characters.
+      operationId: getAuditChecksum
+      security:
+        - AuditBearerAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: Ingestion source agency to compute checksum for.
+          schema:
+            type: string
+            enum:
+              - BMKG
+              - PVMBG
+              - SATELIT
+              - SENSOR_PANTAI
+          example: SATELIT
+      responses:
+        '200':
+          description: Source checksum and record count computed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditChecksumResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /internal/audit/location:
+    get:
+      summary: Query Storage Shard and Replica Location
+      description: >
+        Resolves the physical/virtual node name and storage unit (shard/replica) where the specified
+        `hazard_id` is durably persisted.
+      operationId: getAuditLocation
+      security:
+        - AuditBearerAuth: []
+      parameters:
+        - name: hazard_id
+          in: query
+          required: true
+          description: Unique canonical identifier of the hazard event.
+          schema:
+            type: string
+          example: "hz-7f3a91"
+      responses:
+        '200':
+          description: Location topology for hazard event resolved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLocationResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: Hazard event identifier not found in any storage unit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: "not_found"
+                  message: "hazard_id tidak ditemukan"
+
+  /internal/audit/unprocessed:
+    get:
+      summary: Inspect Dead Letter Queue (DLQ) & Unprocessed Messages
+      description: >
+        Lists unprocessable or parked payloads rejected by parser/adapters due to schema incompatibility
+        or transient exhaustion. Restricted to BNPB Internal Ops.
+      operationId: getAuditUnprocessed
+      security:
+        - AuditBearerAuth: []
+      parameters:
+        - name: source
+          in: query
+          required: false
+          description: Filter unprocessed messages by originating source agency.
+          schema:
+            type: string
+            enum:
+              - BMKG
+              - PVMBG
+              - SATELIT
+              - SENSOR_PANTAI
+          example: PVMBG
+        - name: limit
+          in: query
+          required: false
+          description: Maximum items to return per page (default 100).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+          example: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unprocessed / parked DLQ entries retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditUnprocessedResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+components:
+  securitySchemes:
+    AuditBearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token provided by course assistants for internal audit API authentication.
+
+  schemas:
+    AuditEventsResponse:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - partial
+        - unavailable_units
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalHazardEvent'
+        next_cursor:
+          type: string
+          nullable: true
+          example: "eyJvIjoxMDB9"
+        partial:
+          type: boolean
+          description: True if one or more storage units could not be reached, indicating incomplete result.
+          example: false
+        unavailable_units:
+          type: array
+          items:
+            type: string
+          description: Identifiers of storage shards or replicas that failed to respond.
+          example: []
+
+    AuditChecksumResponse:
+      type: object
+      required:
+        - source
+        - count
+        - checksum
+        - algorithm
+        - as_of
+        - partial
+        - unavailable_units
+      properties:
+        source:
+          type: string
+          example: "SATELIT"
+        count:
+          type: integer
+          description: Total number of canonical records currently persisted for this source.
+          example: 12843
+        checksum:
+          type: string
+          description: 64-character lowercase hexadecimal SHA-256 hash.
+          example: "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78"
+        algorithm:
+          type: string
+          example: "sha256"
+        as_of:
+          type: string
+          format: date-time
+          example: "2026-11-12T03:00:00Z"
+        partial:
+          type: boolean
+          example: false
+        unavailable_units:
+          type: array
+          items:
+            type: string
+          example: []
+
+    AuditLocationResponse:
+      type: object
+      required:
+        - hazard_id
+        - locations
+        - partial
+      properties:
+        hazard_id:
+          type: string
+          example: "hz-7f3a91"
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageLocation'
+        partial:
+          type: boolean
+          example: false
+
+    StorageLocation:
+      type: object
+      required:
+        - node
+        - unit
+        - role
+      properties:
+        node:
+          type: string
+          description: Kubernetes node name as reported by `kubectl get nodes` (e.g. aqua, ruby).
+          example: "ruby"
+        unit:
+          type: string
+          description: Shard or replica unit identifier.
+          example: "shard-2"
+        role:
+          type: string
+          enum:
+            - primary
+            - replica
+          example: "primary"
+
+    AuditUnprocessedResponse:
+      type: object
+      required:
+        - items
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnprocessedMessage'
+        next_cursor:
+          type: string
+          nullable: true
+          example: null
+
+    UnprocessedMessage:
+      type: object
+      required:
+        - message_id
+        - source
+        - received_at
+        - reason
+        - retryable
+        - attempts
+        - status
+      properties:
+        message_id:
+          type: string
+          example: "msg-31c9"
+        source:
+          type: string
+          example: "PVMBG"
+        received_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:40:11Z"
+        reason:
+          type: string
+          example: "schema_incompatible: field 'level' berubah dari number menjadi string"
+        retryable:
+          type: boolean
+          description: False for breaking schema changes requiring code updates; True for transient network/lock failures.
+          example: false
+        attempts:
+          type: integer
+          example: 3
+        status:
+          type: string
+          enum:
+            - retrying
+            - parked
+          example: "parked"
+
+    CanonicalHazardEvent:
+      type: object
+      required:
+        - hazard_id
+        - source
+        - source_ref_id
+        - hazard_type
+        - severity
+        - area_name
+        - occurred_at
+        - ingested_at
+        - attributes
+      properties:
+        hazard_id:
+          type: string
+          example: "hz-7f3a91"
+        source:
+          type: string
+          enum:
+            - BMKG
+            - PVMBG
+            - SATELIT
+            - SENSOR_PANTAI
+          example: "SATELIT"
+        source_ref_id:
+          type: string
+          example: "fire-0a41c7"
+        hazard_type:
+          type: string
+          enum:
+            - SEISMIC
+            - VOLCANIC
+            - WILDFIRE
+            - COASTAL
+          example: "WILDFIRE"
+        severity:
+          type: string
+          enum:
+            - NORMAL
+            - WASPADA
+            - SIAGA
+            - AWAS
+          example: "SIAGA"
+        area_name:
+          type: string
+          example: "Kalimantan Tengah"
+        latitude:
+          type: number
+          nullable: true
+          example: -2.51234
+        longitude:
+          type: number
+          nullable: true
+          example: 113.80450
+        occurred_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:43:00Z"
+        ingested_at:
+          type: string
+          format: date-time
+          example: "2026-11-12T02:51:08Z"
+        attributes:
+          type: object
+          additionalProperties: true
+          example:
+            detection_count: 6
+            satellites: ["N20", "N21"]
+            max_confidence: "h"
+            total_frp_mw: 41.45
+            detection_keys: ["N20|2026-11-12|243|-2.51230|113.80440"]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: "unauthorized"
+            message:
+              type: string
+              example: "token tidak valid"
+
+  responses:
+    BadRequestError:
+      description: Parameter tidak valid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "bad_request"
+              message: "parameter source wajib diisi"
+
+    UnauthorizedError:
+      description: Autentikasi token gagal.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unauthorized"
+              message: "token tidak valid"
+
+    ServiceUnavailableError:
+      description: Seluruh unit penyimpanan tidak dapat dijangkau.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: "unavailable"
+              message: "cluster penyimpanan tidak merespons"
