@@ -13,13 +13,13 @@ Untuk mengatasi permasalahan tersebut tanpa mengharuskan \textit{redeploy} atau 
 Gambar~\ref{fig:konteks_bmkg} dan Gambar~\ref{fig:konteks_pvmbg} memperlihatkan dua sumber data yang diakses Aggregator. Kontrol admin PVMBG digunakan untuk menambahkan atribut \texttt{confidence\_level} saat pengujian; jalur pengambilan laporan tetap menggunakan HTTP dengan kredensial PVMBG.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.18\textheight,keepaspectratio]{../diagrams/rendered/mock-bmkg-context.png}
+    \includegraphics[width=\textwidth,height=0.18\textheight,keepaspectratio]{../../diagrams/rendered/mock-bmkg-context.png}
     \caption[Konteks layanan simulasi BMKG]{Konteks layanan simulasi BMKG.}
     \label{fig:konteks_bmkg}
 \end{figure}
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{../diagrams/rendered/mock-pvmbg-context.png}
+    \includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{../../diagrams/rendered/mock-pvmbg-context.png}
     \caption[Konteks layanan simulasi PVMBG]{Konteks layanan simulasi PVMBG dan kontrol pengujian.}
     \label{fig:konteks_pvmbg}
 \end{figure}
@@ -41,9 +41,9 @@ Mekanisme yang diimplementasikan memiliki batasan arsitektur yang disadari:
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada log \path{docs/evidence/p1/demo_p1.log}:
+Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\texttt{make demo-p1}) dengan hasil eksekusi tercatat pada log \path{docs/evidence/m1/p1/demo_p1.log}:
 \begin{enumerate}
-    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}. Sebagai pembanding, log pengujian penyimpanan (\path{docs/evidence/p4/storage_restart.log}) mencatat 45 record vulkanik berskema awal tanpa \texttt{confidence\_level} berdampingan dengan 771 record yang memuatnya, seluruhnya berada pada basis data yang sama.
+    \item \textbf{Fase Awal (Baseline Schema):} PVMBG beroperasi dengan parameter \texttt{include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level} = \texttt{false}. Aggregator menghasilkan record kanonis tanpa field \texttt{confidence\_level}. Sebagai pembanding, log pengujian penyimpanan (\path{docs/evidence/m1/p4/storage_restart.log}) mencatat 45 record vulkanik berskema awal tanpa \texttt{confidence\_level} berdampingan dengan 771 record yang memuatnya, seluruhnya berada pada basis data yang sama.
     \item \textbf{Pemicuan Skema Dinamis:} Mengirimkan \texttt{POST /admin/schema-version} dengan payload \texttt{\{"include\_}\allowbreak\texttt{confidence\_}\allowbreak\texttt{level":} \texttt{true\}} ke \texttt{mock-pvmbg} (:8082). Upstream langsung memancarkan field baru.
     \item \textbf{Verifikasi Ingesti \& Client API:} Tanpa \textit{restart} container apa pun, Aggregator langsung mengonsumsi record baru dan menempatkan \texttt{confidence\_level} ke \texttt{attributes JSONB}:
 
@@ -62,7 +62,7 @@ Verifikasi empiris dijalankan via skrip \path{scripts/test_schema_change.sh} (\t
 }
 \end{lstlisting}
 \end{minipage}
-    \item \textbf{Pemetaan Sumber BMKG ke Skema Kanonis:} Record gempa BMKG dinormalisasi ke \texttt{HazardEvent} yang sama dengan atribut \texttt{depth\_km}, \texttt{magnitude}, dan \texttt{potential\_tsunami}. Keparahan diturunkan oleh fungsi \texttt{deriveSeismicSeverity}: tingkat ancaman (\texttt{AWAS}, \texttt{SIAGA}, atau \texttt{WASPADA}) pada peringatan tsunami yang berkorelasi menimpa hasil lainnya, sedangkan tanpa peringatan yang dikenali magnitudo di bawah 5,0 menghasilkan \texttt{NORMAL}, di bawah 6,5 menghasilkan \texttt{WASPADA}, dan selebihnya \texttt{SIAGA}. Log \path{docs/evidence/p4/storage_restart.log} mencatat record BMKG bermagnitudo 5 dengan keparahan \texttt{WASPADA} dan record bermagnitudo 4,9 dengan keparahan \texttt{NORMAL}, keduanya tersimpan pada tabel \texttt{hazards} bersama atribut \texttt{JSONB} masing-masing.
+    \item \textbf{Pemetaan Sumber BMKG ke Skema Kanonis:} Record gempa BMKG dinormalisasi ke \texttt{HazardEvent} yang sama dengan atribut \texttt{depth\_km}, \texttt{magnitude}, dan \texttt{potential\_tsunami}. Keparahan diturunkan oleh fungsi \texttt{deriveSeismicSeverity}: tingkat ancaman (\texttt{AWAS}, \texttt{SIAGA}, atau \texttt{WASPADA}) pada peringatan tsunami yang berkorelasi menimpa hasil lainnya, sedangkan tanpa peringatan yang dikenali magnitudo di bawah 5,0 menghasilkan \texttt{NORMAL}, di bawah 6,5 menghasilkan \texttt{WASPADA}, dan selebihnya \texttt{SIAGA}. Log \path{docs/evidence/m1/p4/storage_restart.log} mencatat record BMKG bermagnitudo 5 dengan keparahan \texttt{WASPADA} dan record bermagnitudo 4,9 dengan keparahan \texttt{NORMAL}, keduanya tersimpan pada tabel \texttt{hazards} bersama atribut \texttt{JSONB} masing-masing.
 \end{enumerate}
 
 \subsection{Jawaban Butir Spesifikasi (Di Laporan)}

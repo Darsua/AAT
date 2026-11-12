@@ -38,6 +38,7 @@ Several M2 workstreams touch the Aggregator. Coordinate overlapping edits with i
 
 ## Documentation discipline
 
+- Write Markdown documentation in English. Preserve proper names, file paths, quoted source text, and raw evidence; report manuscript language is separate.
 - Root README: visitor-facing overview and honest implementation status.
 - `docs/development.md`: local setup and verification; service READMEs: service-specific essentials; `k8s/README.md`: cluster operations.
 - Contracts own API details; ADRs own decisions/trade-offs; issues own pending work and acceptance criteria. Link instead of copying schemas, ownership matrices, or task lists across documents.

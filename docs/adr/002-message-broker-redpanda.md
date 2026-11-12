@@ -74,7 +74,7 @@ Redpanda is a C++ reimplementation of the Apache Kafka wire protocol that requir
 | **Consumer Group Offsets** | Built-in Kafka standard | Built-in Kafka standard | Manual ACK / Dead-Letter | JetStream Consumer State |
 | **CGO-Free Go Driver** | Yes (`segmentio/kafka-go`) | Yes (`segmentio/kafka-go`; Confluent's client uses C) | Yes (`amqp091-go`) | Yes (`nats.go`) |
 
-*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [historical measurement evidence](../evidence/adr-audit/README.md#methodology-and-limitations). Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
+*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [historical measurement evidence](../evidence/m1/adr-audit/README.md#methodology-and-limitations). Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
 
 In this measurement Redpanda did **not** use less idle memory than Apache Kafka in KRaft mode (352 MiB versus 297 MiB), although it started faster (1.9 s versus 3.9 s, both small). Memory and startup time are therefore not the reasons for choosing Redpanda. The reasons that remain are: it speaks the Kafka wire protocol so `segmentio/kafka-go` and Kafka tooling work unchanged, it runs as a single native binary without a JVM, and its `rpk` CLI is used by the `redpanda-init` service to provision and verify the topic.
 

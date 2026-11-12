@@ -4,7 +4,7 @@
 
 **M1 baseline; M2 design questions remain open.** This ADR originated with the 2026-09-22 scaffold and was aligned with the M1 implementation on 2026-10-10. Contract extensions frozen in [#34](https://github.com/Darsua/AAT/issues/34) describe intended interfaces, not completed runtime capabilities. [GitHub issues](https://github.com/Darsua/AAT/issues) own pending tasks and acceptance work; this ADR is not a backlog or deployment plan.
 
-[Historical measurements](../evidence/adr-audit/README.md) do not establish multi-node capacity or failure guarantees.
+[Historical measurements](../evidence/m1/adr-audit/README.md) do not establish multi-node capacity or failure guarantees.
 
 ## M1 state and limitations
 

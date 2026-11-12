@@ -37,7 +37,7 @@ Sistem menerapkan pemisahan ketat antara komunikasi sinkron dan asinkron:
 Gambar~\ref{fig:komunikasi_http} memperlihatkan jalur permintaan sinkron. Client API memverifikasi JWT secara lokal, meneruskan permintaan beserta \texttt{X-Correlation-ID} ke Aggregator, lalu menyaring respons sesuai scope klien.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.52\textheight,keepaspectratio]{../diagrams/rendered/adr004-sequence.png}
+    \includegraphics[width=\textwidth,height=0.52\textheight,keepaspectratio]{../../diagrams/rendered/adr004-sequence.png}
     \caption[Komunikasi HTTP antarservice]{Komunikasi HTTP antara klien, Client API, Aggregator, dan basis data.}
     \label{fig:komunikasi_http}
 \end{figure}
@@ -63,7 +63,7 @@ Alur pemrosesan data ujung-ke-ujung dirancang sebagai berikut:
 Gambar~\ref{fig:alur_aggregator} menunjukkan pemisahan poller, normalizer, repository, dan relay di dalam Aggregator. Jalur baca HTTP menggunakan data kanonis yang telah tersimpan, sedangkan relay menerbitkan event dari outbox ke broker.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../diagrams/rendered/aggregator-flow.png}
+    \includegraphics[width=\textwidth,height=0.70\textheight,keepaspectratio]{../../diagrams/rendered/aggregator-flow.png}
     \caption[Alur pemrosesan data pada Aggregator]{Alur pengambilan, normalisasi, persistensi, dan distribusi event oleh Aggregator.}
     \label{fig:alur_aggregator}
 \end{figure}

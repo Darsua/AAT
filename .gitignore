@@ -50,6 +50,9 @@ coverage.out
 # Local spreadsheets & tracking documents
 *.xlsx
 
+# LaTeX default PDF output; retain only explicitly named submission PDFs
+/docs/report/**/main.pdf
+
 # LaTeX intermediate build artifacts
 *.aux
 *.bbl

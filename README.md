@@ -119,8 +119,8 @@ The runnable Compose application is the **Milestone 1 baseline**. Work toward th
 | [`docs/development.md`](docs/development.md) | Local configuration, API usage, tests, and M1 verification commands |
 | [`k8s/`](k8s/) | Kubernetes foundation manifests and the cluster operations runbook |
 | [`scripts/`](scripts/) | Local demonstrations and load/observability checks |
-| [`docs/evidence/`](docs/evidence/) | Recorded M1 evidence and dated measurements |
-| [`docs/report/`](docs/report/) | M1 LaTeX report and build instructions |
+| [`docs/evidence/`](docs/evidence/) | Milestone-separated evidence; historical M1 records and a reserved M2 location |
+| [`docs/report/`](docs/report/) | M1 LaTeX report and reserved M2 report folders |
 | [`docs/diagrams/`](docs/diagrams/) | Architecture and flow diagram sources |
 
 For local checks, run `make test` with Go installed. See the development guide for vetting and Compose validation. Contributors should also read [`AGENTS.md`](AGENTS.md) for repository constraints and ownership rules.

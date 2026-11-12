@@ -19,7 +19,7 @@ Untuk menyelesaikan permasalahan ini, sistem menerapkan arsitektur isolasi berla
 Gambar~\ref{fig:alur_auth} menunjukkan pemisahan penerbitan dan pemeriksaan token: klien memperoleh JWT dari Auth, kemudian mengirimkannya ke Client API. Pemeriksaan permintaan data tidak memerlukan panggilan balik ke Auth.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.42\textheight,keepaspectratio]{../diagrams/rendered/auth-flow.png}
+    \includegraphics[width=\textwidth,height=0.42\textheight,keepaspectratio]{../../diagrams/rendered/auth-flow.png}
     \caption[Penerbitan dan verifikasi token]{Penerbitan token oleh Auth dan verifikasi lokal oleh Client API.}
     \label{fig:alur_auth}
 \end{figure}
@@ -27,7 +27,7 @@ Gambar~\ref{fig:alur_auth} menunjukkan pemisahan penerbitan dan pemeriksaan toke
 Urutan penegakan akses pada Gambar~\ref{fig:alur_client_api} menempatkan validasi JWT dan scope sebelum permintaan diteruskan ke Aggregator. Dengan urutan ini, permintaan Media terhadap field mentah dapat ditolak di gerbang API.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../diagrams/rendered/clientapi-gateway.png}
+    \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../../diagrams/rendered/clientapi-gateway.png}
     \caption[Alur permintaan pada Client API]{Alur pemeriksaan JWT, scope, dan penerusan permintaan pada Client API.}
     \label{fig:alur_client_api}
 \end{figure}

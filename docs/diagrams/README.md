@@ -33,12 +33,12 @@ Service guides **link to these sources**, rather than embedding diagram blocks:
 
 [architecture.id.mmd](architecture.id.mmd) is the separate Indonesian reference.
 [architecture.report.mmd](architecture.report.mmd) is the report variant for
-`docs/report/figures/arsitektur.pdf` (Gambar 2.1); neither is an automatic mirror
+`docs/report/m1/figures/arsitektur.pdf` (Gambar 2.1); neither is an automatic mirror
 of the English source.
 
 Files in [rendered/](rendered/) and report figures remain historical,
 unregenerated artifacts and may differ from current sources. Historical
-measurements are retained in [ADR audit evidence](../evidence/adr-audit/README.md).
+measurements are retained in [ADR audit evidence](../evidence/m1/adr-audit/README.md).
 
 ## Maintenance
 

@@ -141,11 +141,11 @@ Start with a healthy local stack. These scripts **change running state**: they m
 
 | Target | Checks | Recorded M1 evidence |
 | :--- | :--- | :--- |
-| `make demo-p1` | Additive PVMBG `confidence_level` ingestion | [Schema evolution](evidence/p1/README.md) |
-| `make demo-p2` | PVMBG outage, retained data, and degraded metadata | [Outage handling](evidence/p2/README.md) |
-| `make demo-p3` | Cross-credential rejection, scopes, expiry, and refresh rotation | [Authentication](evidence/p3/README.md) |
-| `make demo-p4` | Mixed JSONB attributes and recovery after container restarts | [Storage and restarts](evidence/p4/README.md) |
-| `make demo-p5` | Consumer-group independence, offset recovery, and a third group | [Pub-sub](evidence/p5/README.md) |
+| `make demo-p1` | Additive PVMBG `confidence_level` ingestion | [Schema evolution](evidence/m1/p1/README.md) |
+| `make demo-p2` | PVMBG outage, retained data, and degraded metadata | [Outage handling](evidence/m1/p2/README.md) |
+| `make demo-p3` | Cross-credential rejection, scopes, expiry, and refresh rotation | [Authentication](evidence/m1/p3/README.md) |
+| `make demo-p4` | Mixed JSONB attributes and recovery after container restarts | [Storage and restarts](evidence/m1/p4/README.md) |
+| `make demo-p5` | Consumer-group independence, offset recovery, and a third group | [Pub-sub](evidence/m1/p5/README.md) |
 | `make test-observability` | Correlation IDs, HTTP latency/status logs, Kafka headers, and group lag | See [the script](../scripts/test_observability.sh) |
 
 Use the host environment setup above for the authentication scripts. `SKIP_TTL_WAIT=1` skips the natural-expiration wait for quick iteration; it does **not** prove expiry behavior. The restart script uses fixed default ports and database identifiers, and some historical scripts retain development credential fallbacks. Inspect scripts before using a customized stack; not every setting is overridable.
@@ -173,6 +173,6 @@ This is **not** the M2 sustained 10,000-VU/scaling test. Historical measurements
 
 ## Reports and architecture documentation
 
-`make report` builds the **M1** report with `tectonic`, producing `docs/report/main.pdf` and `docs/report/IF4031_M1_AhhAldoyTolong.pdf`. Tectonic may download TeX dependencies. See the [report guide](report/README.md).
+`make report` builds the **M1** report with `tectonic`, producing `docs/report/m1/main.pdf` and `docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf`. Tectonic may download TeX dependencies. See the [report guide](report/README.md). M2 will also use LaTeX; its folders are reserved, with no manuscript or build target yet.
 
-Architecture decisions are in [docs/adr](adr/). Their cited [historical measurements](evidence/adr-audit/README.md) retain methodology and limitations, not an active audit backlog. Diagram sources live in [docs/diagrams](diagrams/); update canonical `.mmd` sources together with their embedded Markdown diagrams.
+Architecture decisions are in [docs/adr](adr/). Their cited [historical measurements](evidence/m1/adr-audit/README.md) retain methodology and limitations, not an active audit backlog. Diagram sources live in [docs/diagrams](diagrams/); update canonical `.mmd` sources together with their embedded Markdown diagrams.

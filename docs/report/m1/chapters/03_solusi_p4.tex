@@ -13,7 +13,7 @@ Solusi dirancang melalui integrasi dua pilar arsitektur:
 Gambar~\ref{fig:relay_outbox} memperlihatkan hubungan kepemilikan penyimpanan dengan distribusi event. Penyimpanan hazard dan outbox dilakukan dalam satu transaksi; relay kemudian melakukan claim, publish ke broker di luar transaksi basis data, dan complete. PostgreSQL menyimpan outbox, sedangkan proses Aggregator yang menerbitkan event ke Redpanda.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth,height=0.55\textheight,keepaspectratio]{../diagrams/rendered/adr003-outbox.png}
+    \includegraphics[width=\textwidth,height=0.55\textheight,keepaspectratio]{../../diagrams/rendered/adr003-outbox.png}
     \caption[Tiga fase relay Transactional Outbox]{Tiga fase relay Transactional Outbox: claim, publish, dan complete.}
     \label{fig:relay_outbox}
 \end{figure}
@@ -51,7 +51,7 @@ Kompleksitas Operasional & \textbf{Rendah:} Satu mesin basis data melayani kebut
 \end{itemize}
 
 \subsection{Bukti Penyelesaian}
-Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan pada berkas \path{docs/evidence/p4/storage_restart.log}:
+Verifikasi empiris diotomasi via target \texttt{make demo-p4} (\path{scripts/test_storage_restart.sh}) dengan rekaman log tersimpan pada berkas \path{docs/evidence/m1/p4/storage_restart.log}:
 \begin{enumerate}
     \item \textbf{Koeksistensi Skema Heterogen pada PostgreSQL (P4-02):}
     Kueri langsung ke basis data \texttt{canonical-db} membuktikan koeksistensi record sebelum dan setelah evolusi skema:

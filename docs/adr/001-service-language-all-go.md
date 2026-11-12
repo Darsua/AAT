@@ -51,7 +51,7 @@ Deploying ten containers (seven Go service containers covering the six logical m
 | **Total Idle Memory** | **55.8 MiB** for the 7 Go service containers (measured) | Not measured (6 hello-world instances would be about 190 MiB) | Not measured |
 | **Cold Startup Time** | **233–515 ms** from `docker start` to `/health` 200 (measured; includes container start) | 929 ms for hello-world FastAPI measured the same way | 929 ms or more |
 
-*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [historical measurement evidence](../evidence/adr-audit/README.md#methodology-and-limitations). Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
+*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [historical measurement evidence](../evidence/m1/adr-audit/README.md#methodology-and-limitations). Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
 
 By compiling static binaries (`CGO_ENABLED=0 GOOS=linux`) into minimal Alpine runtime containers, the seven Go service containers idle at about 56 MiB RAM in total (measured), leaving most system memory for PostgreSQL and Redpanda. The footprint advantage over Python is real (roughly 4x on idle memory, 8 MiB average versus 32 MiB, and 7x to 9x on image size, for a hello-world comparison) but it is not decisive on its own: the host used here has 13.5 GiB of RAM.
 
@@ -89,7 +89,7 @@ Problem 2 and Problem 4 evaluate system resilience under concurrent load (includ
 
 ### 1. Static Typing vs. Dynamic Additive Schema (Problem 1)
 * **Challenge**: Problem 1 requires `mock-pvmbg` to dynamically introduce new fields (e.g., `confidence_level: 0.95`) at runtime without crashing downstream services or dropping unknown attributes. Default Go struct decoding silently discards unknown JSON fields; explicit `DisallowUnknownFields` would instead reject them. Neither behavior alone preserves additive attributes.
-* **Mitigation**: The [canonical model](../../services/aggregator/internal/domain/models.go) combines a strongly typed envelope with `Attributes map[string]any`. The PVMBG adapter explicitly captures unknown additive fields into `DynamicFields`, then normalization copies them into `Attributes` for JSONB persistence. BMKG uses typed DTOs and drops unknown fields. A dynamic destination map alone does not preserve fields discarded during decoding; see [P1 evidence](../evidence/p1/README.md).
+* **Mitigation**: The [canonical model](../../services/aggregator/internal/domain/models.go) combines a strongly typed envelope with `Attributes map[string]any`. The PVMBG adapter explicitly captures unknown additive fields into `DynamicFields`, then normalization copies them into `Attributes` for JSONB persistence. BMKG uses typed DTOs and drops unknown fields. A dynamic destination map alone does not preserve fields discarded during decoding; see [P1 evidence](../evidence/m1/p1/README.md).
 
 ### 2. Verbosity Compared to Python Frameworks
 * **Challenge**: Go lacks decorator-based routing (`@app.get("/...")`) and automatic request body binding found in FastAPI.

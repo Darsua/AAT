@@ -41,10 +41,10 @@ Verifikasi empiris dilakukan melalui dua skrip utama:
 }
 \end{lstlisting}
 \end{minipage}
-    Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms (\path{docs/evidence/p2/demo_p2.log}).
+    Sementara itu, pemanggilan langsung ke \texttt{mock-bmkg} (:8081) tetap merespons dengan HTTP 200 dan latensi p95 jauh di bawah ambang 300 ms (\path{docs/evidence/m1/p2/demo_p2.log}).
 
     \item \textbf{Uji Beban Konkurensi Berkelanjutan (\texttt{make load-test}):}
-    Delay PVMBG diatur tetap 3 detik (\texttt{PVMBG\_DELAY\_MIN\_MS=PVMBG\_DELAY\_MAX\_MS=3000}). Pengujian beban menggunakan k6 menjalankan tiga skenario serentak selama 60 detik penuh: 25 VUs \texttt{GET /api/v1/hazards?type=SEISMIC} (hanya butuh data BMKG), 25 VUs \texttt{type=VOLCANIC} (butuh data PVMBG), dan 5 VUs yang memanggil \texttt{mock-pvmbg} langsung agar hulu lambat tetap sibuk (\path{docs/evidence/p2/load_test.log}):
+    Delay PVMBG diatur tetap 3 detik (\texttt{PVMBG\_DELAY\_MIN\_MS=PVMBG\_DELAY\_MAX\_MS=3000}). Pengujian beban menggunakan k6 menjalankan tiga skenario serentak selama 60 detik penuh: 25 VUs \texttt{GET /api/v1/hazards?type=SEISMIC} (hanya butuh data BMKG), 25 VUs \texttt{type=VOLCANIC} (butuh data PVMBG), dan 5 VUs yang memanggil \texttt{mock-pvmbg} langsung agar hulu lambat tetap sibuk (\path{docs/evidence/m1/p2/load_test.log}):
     \begin{itemize}
         \item \textbf{Total Permintaan Terlayani:} 29.434 permintaan HTTP ($\approx 474$ req/s), termasuk 29.234 permintaan ke gateway (seluruhnya HTTP 200; tanpa HTTP 429).
         \item \textbf{Latensi BMKG-only (p50/p95/p99):} 1,72 ms / 3,43 ms / 6,48 ms; ambang p95 $< 300$ ms terpenuhi saat PVMBG berdelay tetap 3 detik (permintaan langsung ke PVMBG tercatat 3 detik pada setiap panggilan).

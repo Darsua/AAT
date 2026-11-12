@@ -1,6 +1,6 @@
 # Historical ADR measurement evidence
 
-These **2026-10-10, single-sample** observations provide historical context for [ADR 001](../../adr/001-service-language-all-go.md), [ADR 002](../../adr/002-message-broker-redpanda.md), and [ADR 003](../../adr/003-canonical-storage-postgres-jsonb.md). They are **not current validation, production benchmarks, or proof of Milestone 2 capacity**. No measurements were rerun for this documentation cleanup.
+These **2026-10-10, single-sample** observations provide historical context for [ADR 001](../../../adr/001-service-language-all-go.md), [ADR 002](../../../adr/002-message-broker-redpanda.md), and [ADR 003](../../../adr/003-canonical-storage-postgres-jsonb.md). They are **not current validation, production benchmarks, or proof of Milestone 2 capacity**. No measurements were rerun for this documentation cleanup.
 
 ## Methodology and limitations
 

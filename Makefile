@@ -102,15 +102,14 @@ load-test:
 		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" -e PVMBG_TOKEN="$$PVMBG_TOKEN" -e LOAD_DURATION="$${LOAD_DURATION:-60s}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi
 
-## Build modular LaTeX report using tectonic
+## Build the M1 LaTeX report using tectonic
 report:
-	@if command -v tectonic >/dev/null 2>&1; then \
-		echo "[report] Compiling modular LaTeX report via tectonic..."; \
-		tectonic docs/report/main.tex; \
-		cp docs/report/main.pdf docs/report/IF4031_M1_AhhAldoyTolong.pdf; \
-		echo "[report] Successfully generated:"; \
-		echo "         - docs/report/main.pdf"; \
-		echo "         - docs/report/IF4031_M1_AhhAldoyTolong.pdf"; \
+	@set -e; \
+	if command -v tectonic >/dev/null 2>&1; then \
+		echo "[report] Compiling the M1 LaTeX report via tectonic..."; \
+		tectonic docs/report/m1/main.tex; \
+		cp docs/report/m1/main.pdf docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf; \
+		echo "[report] Submission PDF: docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf"; \
 	else \
 		echo "[report] ERROR: tectonic is not installed. Install via: sudo pacman -S tectonic" >&2; \
 		exit 1; \
