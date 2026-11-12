@@ -77,9 +77,11 @@ paths:
 
   /internal/audit/checksum:
     get:
-      summary: Compute Data Integrity Checksum per Source
+      summary: Compute Data Integrity Checksum
       description: >
-        Calculates record count and SHA-256 checksum across all HazardEvents for the specified source.
+        Calculates record count and SHA-256 checksum across all HazardEvents, optionally filtered by source.
+        When source is omitted, all sources are included. Appendix A does not define the response's
+        source value for this all-source case; resolve that representation before runtime implementation.
         The checksum is computed over all `source_ref_id` values sorted ascending in raw byte order,
         delimited by newline (`\n`) without a trailing newline, rendered as 64 lowercase hexadecimal characters.
       operationId: getAuditChecksum
@@ -88,8 +90,8 @@ paths:
       parameters:
         - name: source
           in: query
-          required: true
-          description: Ingestion source agency to compute checksum for.
+          required: false
+          description: Optional source filter; omit to include HazardEvents from all sources.
           schema:
             type: string
             enum:
@@ -152,7 +154,8 @@ paths:
       summary: Inspect Dead Letter Queue (DLQ) & Unprocessed Messages
       description: >
         Lists unprocessable or parked payloads rejected by parser/adapters due to schema incompatibility
-        or transient exhaustion. Restricted to BNPB Internal Ops.
+        or transient exhaustion, including messages currently retrying. Recovered messages are excluded.
+                Restricted to BNPB Internal Ops.
       operationId: getAuditUnprocessed
       security:
         - AuditBearerAuth: []
@@ -172,11 +175,11 @@ paths:
         - name: limit
           in: query
           required: false
-          description: Maximum items to return per page (default 100).
+          description: Maximum items to return per page (default 100, max 1000).
           schema:
             type: integer
             minimum: 1
-            maximum: 500
+            maximum: 1000
             default: 100
           example: 100
         - name: cursor
@@ -218,6 +221,7 @@ components:
         next_cursor:
           type: string
           nullable: true
+          description: Opaque continuation cursor; null on the final page.
           example: "eyJvIjoxMDB9"
         partial:
           type: boolean
@@ -246,7 +250,7 @@ components:
           example: "SATELIT"
         count:
           type: integer
-          description: Total number of canonical records currently persisted for this source.
+          description: Total number of canonical records in the requested source scope, or all sources when the filter is omitted.
           example: 12843
         checksum:
           type: string
@@ -461,7 +465,7 @@ components:
           example:
             error:
               code: "bad_request"
-              message: "parameter source wajib diisi"
+              message: "invalid source filter"
 
     UnauthorizedError:
       description: Autentikasi token gagal.

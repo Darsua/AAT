@@ -74,7 +74,6 @@ paths:
           description: Maximum number of records to return per page.
           schema:
             type: integer
-            default: 100
         - name: cursor
           in: query
           required: false
@@ -169,18 +168,15 @@ components:
           example: 0.42
         wave_height_m:
           type: number
-          description: Peak wave height recorded in meters.
+          description: Observed wave height in meters.
           example: 1.8
         quality:
           type: string
-          enum:
-            - ok
-            - suspicious
-            - bad
+          description: Sensor-provided quality flag; Appendix C does not define an exhaustive value set.
           example: "ok"
         critical:
           type: boolean
-          description: Flag indicating immediate tsunami hazard condition requiring alert propagation.
+          description: Sensor-marked critical observation requiring alert propagation.
           example: false
 
   responses:

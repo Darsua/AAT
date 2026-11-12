@@ -109,7 +109,7 @@ paths:
                   data:
                     type: array
                     items:
-                      oneOf:
+                      anyOf:
                         - $ref: '#/components/schemas/HazardEventSummary'
                         - $ref: '#/components/schemas/HazardEventFull'
                   meta:
@@ -191,7 +191,7 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
+                anyOf:
                   - $ref: '#/components/schemas/HazardEventSummary'
                   - $ref: '#/components/schemas/HazardEventFull'
         '400':

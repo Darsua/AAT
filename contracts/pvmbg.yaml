@@ -27,7 +27,9 @@ paths:
             example: "2026-09-05T15:30:00Z"
       responses:
         '200':
-          description: Array of volcanic reports.
+          description: >
+            Array of volcanic reports in nominal/additive mode. When an incompatible admin mode
+            is active, the documented field mutation deliberately violates this nominal schema.
           content:
             application/json:
               schema:
@@ -43,8 +45,17 @@ paths:
 
   /admin/schema-version:
     post:
-      summary: Toggle Schema Version / Dynamic Fields
-      description: Control whether dynamic attributes (e.g. `confidence_level`) are emitted in upstream responses.
+      summary: Configure Schema Evolution Test Mode
+      description: >
+        Control additive dynamic attributes and the incompatible schema modes required by M2 P3.
+        The legacy include_confidence_level request remains supported. With no mode supplied,
+        select additive mode. Named modes are team-defined controls, not prescribed assistant payloads.
+        rename_field replaces report_id with event_id, preserving its value;
+        type_change serializes integer eruption_count_24h as a decimal string;
+        missing_required_field omits volcano_id. All other nominal report fields remain unchanged.
+        Incompatible modes intentionally violate the nominal VolcanicReport schema; they are test
+        fixtures to quarantine and replay, not accepted canonical data. These M2 controls are a
+        contract definition pending implementation under issue #26.
       operationId: updateSchemaVersion
       security:
         - BearerAuth: []
@@ -54,13 +65,22 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - include_confidence_level
+              anyOf:
+                - required: [include_confidence_level]
+                - required: [mode]
               properties:
                 include_confidence_level:
                   type: boolean
-                  description: When true, dynamic confidence_level field is included in volcanic reports.
+                  description: >
+                    When true, include the additive confidence_level field. If omitted, retain
+                    the current setting; startup remains false. May be combined with any mode.
                   example: true
+                mode:
+                  type: string
+                  enum: [additive, rename_field, type_change, missing_required_field]
+                  default: additive
+                  description: Schema test mode; omitting it selects the M1-compatible additive mode.
+                  example: rename_field
       responses:
         '200':
           description: Schema configuration updated.
@@ -78,6 +98,11 @@ paths:
                   include_confidence_level:
                     type: boolean
                     example: true
+                  mode:
+                    type: string
+                    enum: [additive, rename_field, type_change, missing_required_field]
+                    description: Active mode; optional for compatibility with M1 responses.
+                    example: rename_field
                   message:
                     type: string
                     example: "Dynamic schema updated successfully"

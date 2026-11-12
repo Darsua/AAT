@@ -16,6 +16,10 @@ Full request/response shapes: frozen [PVMBG API](../../contracts/pvmbg.yaml).
 | `POST /admin/schema-version` | Same Bearer token | Toggle `include_confidence_level`. |
 | `POST /admin/outage` | Same Bearer token | Toggle `is_outage`. |
 
+The contract also defines M2 incompatible-schema controls; those modes are **not implemented**
+by the current mock and remain tracked in [#26](https://github.com/Darsua/AAT/issues/26).
+The route table above describes the runnable M1 behavior, not those planned controls.
+
 All protected routes use `PVMBG_TOKEN`; there is no separate admin credential.
 Missing, malformed, or invalid tokens return `401`.
 

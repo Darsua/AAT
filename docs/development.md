@@ -122,12 +122,12 @@ docker compose config --quiet
 git status --short
 ```
 
-`make test` includes both consumer modules. CI also vets and builds all seven services, runs Go tests with race detection, and checks documentation links/diagrams, tracked-file hygiene, YAML/JSON syntax, and empty Secret templates. It does not perform full OpenAPI/JSON Schema semantic validation or prove Kubernetes deployment/recovery.
+`make test` includes both consumer modules. CI also vets and builds all seven services, runs Go tests with race detection, and checks documentation links/diagrams, tracked-file hygiene, YAML/JSON syntax, empty Secret templates, and targeted contract-structure regressions. It does not perform full OpenAPI/JSON Schema semantic validation or prove Kubernetes deployment/recovery.
 
 Run the repository checks locally with Python 3 and the existing CI parser dependency, `PyYAML==6.0.3`:
 
 ```bash
-python3 -m unittest discover -s scripts -p 'test_check_repository.py' -v
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 scripts/check_repository.py docs
 python3 scripts/check_repository.py configs
 python3 scripts/check_repository.py hygiene
