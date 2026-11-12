@@ -6,10 +6,18 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-lint:
-    name: Test, Vet & Config Lint
+    name: Test, Vet & Repository Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -18,63 +26,70 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: false
-
-      - name: Go Work Sync
-        run: go work sync
+          cache: true
+          cache-dependency-path: |
+            go.work.sum
+            services/**/go.sum
 
       - name: Go Vet
         run: |
           go vet ./services/aggregator/... \
                  ./services/auth/... \
                  ./services/client-api/... \
+                 ./services/consumers/dashboard/... \
+                 ./services/consumers/notifier/... \
                  ./services/mock-bmkg/... \
                  ./services/mock-pvmbg/...
 
-      - name: Run Go Unit Tests
-        run: |
-          go test -v ./services/aggregator/... \
-                     ./services/auth/... \
-                     ./services/client-api/... \
-                     ./services/mock-bmkg/... \
-                     ./services/mock-pvmbg/...
+      - name: Run Go Tests with Race Detection
+        env:
+          GOFLAGS: -race
+          CGO_ENABLED: '1'
+        run: make test
 
       - name: Validate Docker Compose Configuration
         run: docker compose config --quiet
 
-      - name: Setup Python for Contract Validation
+      - name: Setup Python for Repository Checks
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Validate OpenAPI & JSON Schemas
-        run: |
-          python -m pip install pyyaml
-          python -c "
-          import yaml, json, glob
-          for y in glob.glob('**/*.yaml', recursive=True) + glob.glob('**/*.yml', recursive=True):
-              with open(y) as f:
-                  list(yaml.safe_load_all(f))
-              print(f'Valid YAML: {y}')
-          for j in glob.glob('**/*.json', recursive=True):
-              with open(j) as f:
-                  json.load(f)
-              print(f'Valid JSON: {j}')
-          "
+      - name: Install YAML Parser
+        run: python -m pip install PyYAML==6.0.3
+
+      - name: Test Repository Checker
+        run: python -m unittest discover -s scripts -p 'test_check_repository.py' -v
+
+      - name: Check YAML and JSON Syntax and Empty Secret Templates
+        run: python scripts/check_repository.py configs
+
+      - name: Check Documentation Links, Fences and Mermaid Sources
+        run: python scripts/check_repository.py docs
 
   docker-build:
     name: Build Docker Container (${{ matrix.service }})
     needs: test-and-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        service:
-          - aggregator
-          - auth
-          - client-api
-          - mock-bmkg
-          - mock-pvmbg
+        include:
+          - service: aggregator
+            context: ./services/aggregator
+          - service: auth
+            context: ./services/auth
+          - service: client-api
+            context: ./services/client-api
+          - service: dashboard
+            context: ./services/consumers/dashboard
+          - service: notifier
+            context: ./services/consumers/notifier
+          - service: mock-bmkg
+            context: ./services/mock-bmkg
+          - service: mock-pvmbg
+            context: ./services/mock-pvmbg
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -85,22 +100,22 @@ jobs:
       - name: Build Service Container
         uses: docker/build-push-action@v5
         with:
-          context: ./services/${{ matrix.service }}
+          context: ${{ matrix.context }}
           push: false
           tags: bnpb/${{ matrix.service }}:ci
 
   security-and-hygiene:
-    name: Security & Secret Leak Guard
+    name: Tracked File and Common Secret Pattern Guard
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Verify No Committed Secrets or .env Files
-        run: |
-          # Allow .env.example, but reject actual .env secrets (.env, .env.local, .env.prod, etc.)
-          if git ls-files | grep -E "(^|/)\.env" | grep -v "\.env\.example$"; then
-            echo "::error::Found committed .env file! Secrets must only exist in environment variables."
-            exit 1
-          fi
-          echo "No committed .env files found. Secret hygiene verified."
+      - name: Setup Python for Hygiene Checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check Tracked Secret Filenames and Common Token/Key Patterns
+        run: python scripts/check_repository.py hygiene

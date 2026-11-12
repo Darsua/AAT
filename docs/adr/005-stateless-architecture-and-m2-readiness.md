@@ -1,157 +1,58 @@
-# ADR 005: Stateless Service Architecture and Milestone 2 Scalability Roadmap
+# ADR 005: Stateless Service Architecture and Milestone 2 Readiness
 
----
+## Status and chronology
 
-## Context
-IF4031 is structured across progressive milestones. Milestone 1 establishes the baseline distributed architecture (six services, canonical storage, broker event fan-out, authentication scopes, and resilience under basic failure). Milestone 2 expands the platform to handle:
-* **Horizontal multi-instance scaling** across compute services.
-* **Volume spikes and high-throughput traffic bursts**.
-* **Cascading failures and network partitions** requiring circuit breaking and fallback strategies.
-* **Cache layers and distributed rate limiting**.
+**M1 baseline; M2 design questions remain open.** This ADR originated with the 2026-09-22 scaffold and was aligned with the M1 implementation on 2026-10-10. Contract extensions frozen in [#34](https://github.com/Darsua/AAT/issues/34) describe intended interfaces, not completed runtime capabilities. [GitHub issues](https://github.com/Darsua/AAT/issues) own pending tasks and acceptance work; this ADR is not a backlog or deployment plan.
 
-Authoritative state should live in durable infrastructure before services are scaled horizontally. Milestone 1 may use bounded process-local state where the trade-off is explicit, but that state must be externalized before running multiple replicas.
+[Historical measurements](../evidence/adr-audit/README.md) do not establish multi-node capacity or failure guarantees.
 
----
+## M1 state and limitations
 
-## Decision
-We keep the synchronous read path stateless, delegate canonical data and message offsets to `canonical-db` and `redpanda`, derive **deterministic, source-based hazard identifiers**, enforce **database-level idempotency constraints**, and decouple services via **domain interfaces**. The Milestone 1 Auth refresh-token store and consumer deduplication/counters are documented exceptions that must move to durable shared storage before those services are horizontally scaled.
+M1 runs six logical service areas as seven independent Go modules in single-node Compose. Some request handling is stateless, but the platform as a whole is not:
+
+- **Gateway:** `client-api` verifies HS256 JWTs locally and reads through Aggregator HTTP. Get-by-ID scans list pages of 500, rather than using an indexed internal HTTP lookup.
+- **Auth:** configured client credentials issue access JWTs (default TTL 60 seconds). Refresh rotation/replay revocation is process-local: restart loses sessions and replicas cannot share them. Refresh revocation does not invalidate already-issued access JWTs before expiry if the verification key stays unchanged.
+- **Consumers:** unbounded process-local hazard-ID sets and counters reset on restart. The sets suppress legitimate later updates as well as duplicates; committed broker offsets may survive. Dashboard/notifier behavior is counters and logged decisions, not a UI or notification delivery.
+- **Ingestion:** Aggregator bootstraps each process-local cursor from the latest stored `occurred_at` and polls with a 10-second overlap. This is not a durable source checkpoint: late/backdated records, partial processing, source retention, and failed bootstrap/persistence can leave gaps. Mocks also keep generated records and chaos toggles in memory and reload seeds on restart.
+- **Persistence and delivery:** deterministic source-based IDs and `UNIQUE (source, source_ref_id)` avoid duplicate canonical rows, not conflicting revisions or multi-replica coordination. Canonical state and the latest outbox payload commit atomically; pending revisions can coalesce. Leased relay claims allow retry but also replay after publish-before-completion failure ([ADR 003](003-canonical-storage-postgres-jsonb.md)).
+- **Broker:** three partitions by default, replication factor one, producer acks=1. At-least-once retry depends on surviving storage and recovering dependencies. Catch-up depends on retention and committed offsets; this is neither event sourcing nor node-loss durability ([ADR 002](002-message-broker-redpanda.md)).
 
 ```mermaid
-flowchart TB
-    subgraph M1["Milestone 1: single-instance baseline (implemented)"]
-        direction LR
-        C1["client-api :8080"]:::svc
-        A1["aggregator :8083"]:::svc
-        DB1[("canonical-db :5432")]:::store
-        RP1[["redpanda :9092<br/>3 partitions"]]:::broker
-        CG1["consumers<br/>1 replica per group"]:::cons
-        C1 --> A1
-        A1 --> DB1
-        A1 --> RP1
-        RP1 --> CG1
+flowchart TD
+    subgraph M1["M1 runtime: single-node Compose"]
+        API["client-api: HTTP reads and local JWT verification"]
+        AGG["aggregator: polling, canonical upserts, outbox relay"]
+        DB[("PostgreSQL: canonical state and pending payloads")]
+        BUS["Redpanda: 3 partitions by default, replication factor 1"]
+        CONS["Consumers: local seen-ID sets and counters, alert logs"]
+        API --> AGG
+        AGG --> DB
+        AGG --> BUS
+        BUS --> CONS
     end
-
-    subgraph M2["Milestone 2: horizontal scale-out (plan only)"]
-        direction LR
-        LB["Nginx or Envoy<br/>load balancer"]:::plan
-        CN["client-api<br/>replicas 1..N"]:::plan
-        RED[("Redis<br/>read-through cache")]:::plan
-        AN["aggregator"]:::plan
-        RPN[["redpanda<br/>6 partitions"]]:::plan
-        CGN["consumer workers<br/>share one group"]:::plan
-        LB --> CN
-        CN --> RED
-        RED -->|"cache miss"| AN
-        RPN --> CGN
-    end
-    M1 ~~~ M2
-
-    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
-    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
-    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
-    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
-    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
-    classDef actor fill:#ffffff,stroke:#616161,color:#212121
-    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
+    M1 -.->|"Not a replica-count-only upgrade"| DESIGN["M2: state placement, coordination, recovery and failure validation unresolved"]
 ```
 
----
+## Open M2 design questions
 
-## Stateless Request Paths and Explicit Milestone 1 Exceptions
+1. **Which state must survive and be shared?** Define refresh-session recovery and revision-aware consumer projections/idempotency, separating replay from legitimate updates. Define durable audit records separately from the mutable outbox. No Redis or other state-store technology is selected here.
+2. **How will nodes coordinate and recover?** Define shard routing/query fan-out, transaction/outbox ownership, poll checkpoints/backfill, conflict handling, relay leases, and failover. Replica placement, readiness/routing, database/broker redundancy, acknowledgment policy, and failure tests need an explicit design. Existing Kubernetes foundation files are not a complete application deployment.
+3. **What are the ordering and recovery boundaries?** Retain the frozen `hazard_id` Kafka key. Hash affinity assumes a fixed partition count; retries/concurrent relays do not guarantee revision/event-time order. Partition count and retention need workload/recovery targets, not an assumed six-partition topology.
+4. **Which resilience measures are justified?** Define deadlines, retry budgets, overload behavior, and freshness indicators, then measure before choosing caching, rate limiting, or circuit breaking. No `gobreaker`, cache TTL, or breaker threshold is selected. M1 already decouples reads from polling and uses timeout/backoff with process-local degraded-source tracking; a polling breaker alone would not provide query fallback.
 
-### 1. Request and Session State
-* **`client-api`**: Holds no local state. Authentication is verified statelessly via cryptographic signature verification on self-contained JWT tokens (HMAC-SHA256 with 60-second expiration). Any incoming request can be served by any `client-api` container replica.
-* **`auth`**: Issues signed JWTs containing user identities and a `scope` claim (`hazards:read:summary` or `hazards:read:all`; see `contracts/auth_api.yaml`). Access-token verification requires only the shared verification key. Refresh-token rotation is process-local in Milestone 1, so an Auth restart invalidates outstanding refresh tokens and multiple Auth replicas would require a shared Redis or database store.
-* **Consumers**: Redpanda durably stores committed offsets, but the current deduplication sets and dashboard counters are process-local. They are sufficient for the single-replica Milestone 1 baseline; durable idempotency and counters must be externalized before multi-replica deployment.
-* **`aggregator`**: Each poller keeps its cursor in process memory and bootstraps it from the latest `occurred_at` stored in `canonical-db` on start (`GetLatestOccurredAt`), re-reading with a 10-second overlap window. Restarting the aggregator therefore does not lose progress, and the overlap is made safe by the idempotent upsert below.
+The following is an **optional conceptual breaker model**, not implemented poller behavior or a selected M2 dependency. Failure/recovery policies, cooldowns, probes, and HA interaction remain open.
 
-### 2. Deterministic Identifiers
-`hazard_id` is not a random or sequential value. `formatHazardID` in `services/aggregator/internal/normalizer/normalizer.go` builds it from a source prefix and the upstream reference (for example `haz-bmkg-<event_id>` and `haz-pvmbg-<report_id>`), bounded in length. The outbox `event_id` is derived the same way from the source and reference (`formatOutboxEventID`).
-* **Advantages**: no database round-trip or sequence is needed to generate an identifier, any replica derives the same identifier for the same upstream record, and re-ingesting a record updates the existing row instead of creating a duplicate.
-* **Trade-off**: identifiers are not time-ordered, so inserts do not benefit from B-Tree append locality. Time-ordered keys such as UUIDv7 remain an option if insert contention becomes a measured problem in Milestone 2.
-
-### 3. Database-Level Idempotency Guarantees
-To prevent duplicate records during network retries or multi-instance polling, idempotency is enforced at the storage engine level:
-```sql
-CONSTRAINT uq_source_ref UNIQUE (source, source_ref_id)
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open: Failure policy reached
+    Open --> HalfOpen: Cooldown policy allows probe
+    HalfOpen --> Closed: Recovery policy satisfied
+    HalfOpen --> Open: Probe fails
 ```
-Ingestion queries utilize atomic upserts (`ON CONFLICT (source, source_ref_id) DO UPDATE ...` or `DO NOTHING`). Even if multiple worker routines or replicas poll the same event simultaneously, duplicate records can never enter the canonical store.
 
----
+## Continuity and acceptance boundary
 
-## Milestone 2 Evolution Path
+Preserve independent modules, Aggregator-only canonical storage ownership, frozen contracts, UTC timestamps, and correlation propagation. New sources, write APIs, analytics, audit, and observability extend this baseline; their implementation belongs in the linked issues. The HTTP `HazardService` seam does not promise new behavior without handler/model changes ([ADR 004](004-internal-communication-rest.md)).
 
-> **Status: plan only.** Nothing in this section is implemented in Milestone 1. Items here (replicas behind a load balancer, Redis read-through cache, circuit breaker, six partitions) are design intentions to be validated when Milestone 2 starts; they are not claims about the current code.
-
-### 1. Multi-Instance Horizontal Scaling
-* **`client-api` Scaling**:
-  * Because `client-api` is 100% stateless, scaling from 1 to N instances requires only setting `deploy.replicas: N` in Docker Compose or Kubernetes, fronted by an Nginx or Envoy reverse proxy with round-robin routing.
-* **Consumer Group Auto-Rebalancing**:
-  * Kafka/Redpanda automatically rebalances partitions when multiple instances share a consumer group. Before scaling the current consumers, their process-local deduplication and side-effect state must move to shared durable storage so a rebalance or restart cannot repeat a non-idempotent action.
-
-### 2. Traffic Spikes and Read-Through Caching
-* During major disaster events, read queries on `GET /hazards` spike exponentially.
-* In Milestone 1, `client-api` uses the decoupled `HazardService` interface (see [ADR 004](004-internal-communication-rest.md)):
-  ```go
-  type HazardService interface {
-      GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error)
-  }
-  ```
-* In Milestone 2, we introduce Redis read-through caching via a simple decorator pattern with **zero changes to HTTP handlers**:
-  ```go
-  type CachedHazardService struct {
-      next  HazardService
-      redis *redis.Client
-  }
-
-  func (c *CachedHazardService) GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error) {
-      cacheKey := generateFilterKey(filter)
-      if cached, err := c.redis.Get(ctx, cacheKey).Bytes(); err == nil {
-          var resp HazardResponse
-          json.Unmarshal(cached, &resp)
-          return &resp, nil
-      }
-      resp, err := c.next.GetHazards(ctx, filter)
-      if err == nil {
-          c.redis.Set(ctx, cacheKey, resp, 5*time.Second)
-      }
-      return resp, err
-  }
-  ```
-
-### 3. Fault Tolerance & Circuit Breaking
-Problem 2 introduces external provider outages (e.g., PVMBG downtime).
-* In Milestone 1, `aggregator` gracefully returns the last-known canonical state with a `degraded: true` and `stale_since` indicator.
-* In Milestone 2, we wrap external HTTP polling with a **Circuit Breaker** (e.g., `sony/gobreaker`):
-  ```mermaid
-  stateDiagram-v2
-      direction LR
-      [*] --> Closed
-      Closed --> Open: consecutive failures > threshold (e.g. 5)
-      Open --> HalfOpen: cooldown expires (e.g. 30 s)
-      HalfOpen --> Closed: probe succeeds
-      HalfOpen --> Open: probe fails
-  ```
-  * **Closed State**: Requests flow normally to `mock-pvmbg`.
-  * **Open State**: Immediate fallback to canonical cache; prevents polling worker threads from exhausting sockets or thundering-herd effects on recovering providers.
-  * **Half-Open State**: Canary probe sent to verify provider recovery.
-
-### 4. Topic Partitioning & High Throughput
-In Milestone 1, `bnpb.hazard-events` uses three partitions provisioned by the one-shot `redpanda-init` Compose service. For Milestone 2:
-* Increase partitions from 3 to 6.
-* Partition messages by key (`Key: []byte(event.HazardType)` or `Key: []byte(event.AreaName)`). Note that Milestone 1 keys by `hazard_id`, which orders updates per hazard (see [ADR 002](002-message-broker-redpanda.md)); changing the key changes the ordering guarantee from per hazard to per category or area, so this trade-off must be re-evaluated before the change.
-* Would give chronological ordering per hazard category while enabling 6 concurrent consumer workers per group.
-
----
-
-## Summary of Architectural Continuity
-
-| Architecture Aspect | Milestone 1 Foundation | Milestone 2 Evolution | Code Changes Required |
-| :--- | :--- | :--- | :--- |
-| **Identity Generation** | Deterministic `hazard_id` derived from source and source reference | Same scheme (replica-safe because it needs no coordination) | None |
-| **Data Idempotency** | PostgreSQL Unique Constraints | Distributed Deduplication Table | None |
-| **Client Gateway** | Single stateless `client-api` | N instances behind Envoy | Compose configuration only |
-| **Auth Refresh State** | Process-local rotation store | Shared Redis or database store | Replace refresh-token store |
-| **Consumer Scaling** | Single worker per group with process-local deduplication | Multi-worker consumer group with shared idempotency state | Externalize deduplication and side effects |
-| **Query Acceleration** | Direct DB indexing | Redis decorator on `HazardService` | Add 1 decorator struct |
-| **Provider Outages** | Polling retry + Degraded flag | Dynamic Circuit Breaker | Add wrapper in polling client |
+M2 claims require implementation and multi-node failure/recovery evidence. M1 measurements, retained offsets, uniqueness constraints, or extra replicas alone do not establish complete restart progress, durable analytics, exactly-once effects, or node-loss availability.

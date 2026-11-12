@@ -5,16 +5,21 @@ sequenceDiagram
     participant Rel as aggregator (outbox relay)
     participant RP as redpanda
 
-    Ing->>DB: One transaction:<br/>UPSERT hazards,<br/>INSERT outbox_events (published = false)
+    Ing->>DB: One transaction: UPSERT hazards and latest outbox payload
+    Note over Ing,DB: One row per source record; pending revisions can coalesce
     loop every 500 ms
-        Rel->>DB: Phase 1, claim (short transaction)<br/>FOR UPDATE SKIP LOCKED, claim_expires_at = now + 30 s
+        Rel->>DB: Phase 1: claim with FOR UPDATE SKIP LOCKED and 30 s lease
         DB-->>Rel: claimed rows
-        alt payload cannot be parsed
-            Rel->>DB: quarantine (event_type = hazard_event_quarantined)
+        alt payload invalid or hazard_id missing
+            Rel->>DB: Complete quarantine: published = true, quarantine event_type
         else payload valid
-            Rel->>RP: Phase 2, publish (no transaction held)<br/>key = hazard_id, header X-Correlation-ID
-            RP-->>Rel: ack
-            Rel->>DB: Phase 3, complete (short transaction)<br/>UPDATE published = true WHERE id AND payload unchanged
+            Rel->>RP: Phase 2: publish outside transaction, key = hazard_id
+            alt publish succeeds
+                RP-->>Rel: ack
+                Rel->>DB: Phase 3: mark published only if payload unchanged
+            else publish fails
+                Rel->>DB: Attempt to release unpublished claims for next-tick retry
+            end
         end
     end
-    Note over Rel,DB: On a publish error nothing is marked. The row is claimed again once the 30 s lease expires.
+    Note over Rel,DB: Failed release or crash: lease expiry is fallback; replay is possible

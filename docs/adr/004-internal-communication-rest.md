@@ -2,6 +2,10 @@
 
 ---
 
+## Status and scope
+
+This describes the M1 HTTP read path. The broader M2 contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34) are not all implemented: field-report writes ([#27](https://github.com/Darsua/AAT/issues/27), Jenka), satellite/coastal types ([#28](https://github.com/Darsua/AAT/issues/28), Aldoy; [#29](https://github.com/Darsua/AAT/issues/29), Jenka), audit ([#30](https://github.com/Darsua/AAT/issues/30), Darrel), and unified observability ([#35](https://github.com/Darsua/AAT/issues/35), Jenka) remain future work.
+
 ## Context
 In IF4031 Milestone 1, services must communicate across network boundaries:
 1. **Aggregator to External Providers**: `services/aggregator` periodically polls `mock-bmkg` (`:8081`) and `mock-pvmbg` (`:8082`) over HTTP.
@@ -17,7 +21,7 @@ We evaluated the choice of internal communication protocol between `client-api` 
 We select **HTTP/1.1 with JSON payloads (REST)** for all internal synchronous service-to-service communication, coupled with an **interface-driven domain abstraction (`HazardService`)** inside `client-api`:
 
 1. **Protocol**: HTTP/1.1 over Docker bridge network (`bnpb-internal`), using Go standard library `net/http` with connection keep-alive and tuned connection pools (`http.Transport`).
-2. **Endpoint**: `http://aggregator:8083/internal/hazards` supporting query filters (`since`, `type`, `severity`, `limit`, `offset`).
+2. **Endpoint**: `http://aggregator:8083/internal/hazards` supports query filters (`since`, `type`, `severity`, `limit`, `offset`) and returns a JSON **`{data, meta}` object**, including degradation metadata. Only Aggregator accesses canonical PostgreSQL. The public gateway also implements `GET /api/v1/hazards/{id}` by scanning this list in pages of 500, not through an internal get-by-ID HTTP route.
 3. **Header Propagation**: `client-api` generates or propagates `X-Correlation-ID` across all internal HTTP calls for distributed tracing.
 4. **Interface Decoupling**: Handlers in `client-api` never reference raw HTTP client details; they interact with a domain interface:
    ```go
@@ -25,7 +29,7 @@ We select **HTTP/1.1 with JSON payloads (REST)** for all internal synchronous se
        GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error)
    }
    ```
-   The concrete `RemoteAggregatorClient` implements this interface, ensuring the underlying transport can evolve in Milestone 2 without modifying handler code.
+   `RemoteAggregatorClient` implements this interface. It isolates list transport details; it does not guarantee future M2 writes, new types, or lookup semantics can be implemented without handler changes.
 
 ```mermaid
 sequenceDiagram
@@ -43,7 +47,7 @@ sequenceDiagram
     CAPI->>Agg: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
     Agg->>DB: SELECT from hazards
     DB-->>Agg: Canonical records
-    Agg-->>CAPI: 200 OK (JSON array, degraded status)
+    Agg-->>CAPI: 200 OK (JSON object: data and meta, including degraded status)
     Note over CAPI: Media scope: drop raw fields (summary only)
     CAPI-->>Client: 200 OK (filtered JSON)
 ```
@@ -55,7 +59,7 @@ sequenceDiagram
 ### 1. Protocol Homogeneity Across Architecture
 The course specification explicitly mandates HTTP/REST for external integrations:
 * BMKG and PVMBG mock endpoints must be exposed as HTTP/REST.
-* `auth` service provides OAuth2/JWT tokens over HTTP.
+* `auth` provides client-credential JWT issuance and refresh rotation over HTTP; this is not a claim of a complete OAuth2 server.
 * `client-api` is an HTTP REST gateway.
 
 Using HTTP/REST internally preserves uniform transport semantics across the entire platform. Every service uses the same Go `net/http` primitives, error handling patterns, status codes (`200`, `400`, `401`, `403`, `503`), and connection lifecycle management.
@@ -63,18 +67,16 @@ Using HTTP/REST internally preserves uniform transport semantics across the enti
 ### 2. Seamless Dynamic Attribute Serialization (Problem 1)
 JSON is inherently schemaless and naturally accommodates dynamic additive attributes.
 * In Go, dynamic JSON attributes map directly into `map[string]interface{}` without code generation.
-* As `mock-pvmbg` introduces new fields (e.g., `confidence_level: 0.95`), the JSON payload traverses from `mock-pvmbg` → `aggregator` → `canonical-db` → `aggregator` → `client-api` → client without any service dropping unknown fields.
+* PVMBG's custom decoder captures unknown additive fields (e.g., `confidence_level`) and normalization places them in `attributes`; JSONB and the HTTP clients preserve that dynamic map through to `fields=all` responses. Summary projection intentionally omits raw attributes.
+* This is **not** an all-upstream guarantee: BMKG uses typed DTOs that drop unknown fields. JSON transport by itself does not provide unknown-field capture.
 
 ### 3. Grading Transparency and Terminal Operability
 Evaluators assess services by executing tests, inspecting containers, and running shell commands. With REST:
-* An evaluator can immediately curl the internal aggregator directly from within any container or during debugging:
-  ```bash
-  docker compose exec client-api curl -s http://aggregator:8083/internal/hazards | jq .
-  ```
+* The internal Aggregator endpoint can be inspected with an HTTP client on the Compose network; inspection tooling need not be bundled into each runtime image.
 * Every payload is human-readable JSON. There is no need to install specialized binary decoding tools (`grpcurl`), mount `.proto` files, or maintain reflection servers.
 
 ### 4. Low Latency on Docker Bridge Network
-HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleConnsPerHost: 50`) met the project latency target: in the Milestone 1 load test through the full client-api to aggregator path, p95 latency was 3.43 ms and p99 6.48 ms for BMKG-only requests, and 3.42 ms and 6.72 ms for volcanic requests (`docs/evidence/p2/load_test.log`). This demonstrates that HTTP/1.1 is sufficient for the measured 50-VU workload. No direct benchmark against a gRPC implementation was performed.
+HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleConnsPerHost: 50`) met the project latency target: in the Milestone 1 load test through the full client-api to aggregator path, p95 latency was 3.43 ms and p99 6.48 ms for BMKG-only requests, and 3.42 ms and 6.72 ms for volcanic requests ([P2 load-test log](../evidence/p2/load_test.log)). This demonstrates that HTTP/1.1 is sufficient for the measured 50-VU workload. No direct benchmark against a gRPC implementation was performed.
 
 ---
 
@@ -98,47 +100,6 @@ HTTP/1.1 with persistent keep-alive connections (`MaxIdleConns: 100`, `MaxIdleCo
 
 ## Clean Domain Decoupling
 
-To prevent `client-api` handlers from coupling to transport details, communication is encapsulated behind a domain interface:
+The actual `HazardService`, `QueryFilter`, and `RemoteAggregatorClient` live in [client-api/main.go](../../services/client-api/main.go), not a separate shared domain package. The client uses a 5-second timeout, up to 100 idle connections (50 per host), and a 90-second idle timeout.
 
-```go
-package domain
-
-import "context"
-
-type QueryFilter struct {
-    Since      string
-    HazardType string
-    Severity   string
-    Limit      int
-    Offset     int
-}
-
-type HazardService interface {
-    GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error)
-}
-```
-
-In `client-api`, the concrete implementation uses an HTTP client with connection pooling:
-
-```go
-type RemoteAggregatorClient struct {
-    baseURL    string
-    httpClient *http.Client
-}
-
-func NewRemoteAggregatorClient(baseURL string) *RemoteAggregatorClient {
-    return &RemoteAggregatorClient{
-        baseURL: baseURL,
-        httpClient: &http.Client{
-            Timeout: 5 * time.Second,
-            Transport: &http.Transport{
-                MaxIdleConns:        100,
-                MaxIdleConnsPerHost: 50,
-                IdleConnTimeout:     90 * time.Second,
-            },
-        },
-    }
-}
-```
-
-This abstraction ensures that if Milestone 2 requires introducing gRPC, Redis caching, or a circuit breaker, only `RemoteAggregatorClient` changes; the HTTP request handlers, auth validation, and scope filtering remain completely untouched.
+This abstraction is a seam for changing list retrieval, not a promise of zero handler/model changes for new endpoints, scopes, or types. M2 resilience and performance choices remain open ([ADR 005](005-stateless-architecture-and-m2-readiness.md)).

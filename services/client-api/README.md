@@ -1,187 +1,66 @@
-# Service: Client API Gateway (Facade)
+# Client API
 
-**Assigned Owner:** Member C (Jenka)  
-**Module Name:** `bnpb/client-api`  
-**Default Port:** `8080`  
-**Dependencies:** `github.com/golang-jwt/jwt/v5`  
-**Contract:** [`contracts/client_api.yaml`](../../contracts/client_api.yaml)
+`bnpb/client-api` is the M1 public hazard-read gateway. It verifies JWTs,
+enforces read scopes, and projects records fetched through Aggregator HTTP.
+It never connects to canonical PostgreSQL.
 
----
+The frozen contract includes planned M2 types and write/audit behavior.
+The current runtime accepts only `SEISMIC` and `VOLCANIC` and exposes no
+field-report write or audit endpoints.
 
-## 1. Overview & Architecture Role
+## Routes and contract
 
-The `client-api` service acts as the **Public Edge Gateway** for all external consumers (web apps, mobile apps, media outlets, and emergency field responder devices). It isolates the internal `aggregator` engine from the public internet.
+Base URL: `http://client-api:8080` inside Compose.
+Full shapes: frozen [Client API](../../contracts/client_api.yaml).
 
-```mermaid
-flowchart TD
-    EXT["External consumers<br/>Media, field teams, public portal"]:::actor
-    subgraph GW["client-api :8080"]
-        direction TB
-        S1["1. Inject or preserve X-Correlation-ID"]:::svc
-        S2["2. Validate JWT signature and claims"]:::svc
-        S3["3. Enforce scope permissions"]:::svc
-        S4["4. Proxy request to aggregator"]:::svc
-        S1 --> S2 --> S3 --> S4
-    end
-    AGG["aggregator :8083"]:::svc
+| Route | Current behavior |
+| --- | --- |
+| `GET /health` | Unauthenticated process liveness. |
+| `GET /api/v1/hazards` | Bearer JWT required; projected `{data, meta}` list. |
+| `GET /api/v1/hazards/{id}` | Bearer JWT required; single projected object or `404`. |
 
-    EXT -->|"GET /api/v1/hazards<br/>Authorization: Bearer JWT"| S1
-    S4 -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+List parameters: `fields=summary|all` (default `summary`), `type`, `severity`,
+`since` (UTC RFC3339), `limit` (default `50`, range `1`–`500`), and `offset`
+(default `0`). Severities: `NORMAL`, `WASPADA`, `SIAGA`, `AWAS`.
+Get-by-ID supports the same `fields` projection and scope checks.
 
-    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
-    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
-    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
-    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
-    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
-    classDef actor fill:#ffffff,stroke:#616161,color:#212121
-    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
-```
+## Authorization and upstream behavior
 
----
+- Missing, invalid, or expired JWTs return `401`.
+- `hazards:read:summary` permits summaries; requesting `fields=all` returns `403`.
+  `hazards:read:all` permits full records. The gateway checks scope strings,
+  not the `media`/`field`/`internal` role names issued by [Auth](../auth/README.md).
+- `X-Correlation-ID` is preserved or generated, returned to callers, and
+  forwarded to Aggregator.
+- List retrieval forwards filters to `GET /internal/hazards` and preserves
+  degradation metadata. The HTTP timeout is five seconds per upstream request.
+- **Get-by-ID scans Aggregator list pages of 500**, not a direct index or an
+  internal get-by-ID endpoint. Large stores require multiple requests;
+  concurrent writes can shift offset pagination. A failed page fails the lookup.
+- JWT verification is local; refresh-session revocation does not invalidate
+  an already-issued access token before expiry.
 
-## 2. Gateway Responsibilities & Specifications
+## Configuration
 
-### 2.1 Networking & Port
-- **Port:** `8080` (configurable via `PORT=8080`).
-- Public URL: `http://localhost:8080` or exposed via ingress/reverse-proxy.
+These are **process defaults**, not Compose credentials or host mappings.
 
-### 2.2 JWT Verification
-- Every request to `/api/v1/*` must include a valid Bearer token in the `Authorization` header:
-  ```http
-  Authorization: Bearer <token>
-  ```
-- Validate token authenticity and expiration against `JWT_SECRET` (HMAC-SHA256).
-- If absent, invalid, or expired, return `401 Unauthorized`.
+| Variable | Default / requirement |
+| --- | --- |
+| `PORT` | `8080` |
+| `JWT_SECRET` | Required; must match Auth. |
+| `AGGREGATOR_URL` | `http://aggregator:8083` |
 
-### 2.3 Scope-Based Access Control & Filtering
-Tokens issued by `auth` contain a `scope` claim with one of two literal values: `hazards:read:summary` (Media) or `hazards:read:all` (Field/Internal) — see `contracts/auth_api.yaml` and `services/auth/README.md` §2.5. `client-api` only ever checks these two literal strings; it has no knowledge of `media`/`field`/`internal` as role names.
+Supply the signing secret through the environment and override Compose's
+development-only fallback. A host process needs a reachable Aggregator URL;
+do not assume Compose's internal Aggregator is host-accessible.
 
-1. **`hazards:read:summary` Scope (Media):**
-   - Designed for news agencies and public information dashboards.
-   - Summarized view only (`fields=summary` by default).
-   - **403 Forbidden Rule:** If a `media` client requests raw telemetry or sets query param `fields=all`, `client-api` must reject the request with **`403 Forbidden`**:
-     ```json
-     {
-       "error": "FORBIDDEN",
-       "message": "Scope 'hazards:read:all' required to access raw fields or fields=all"
-     }
-     ```
+## Run, test, and code
 
-2. **`hazards:read:all` Scope (Field):**
-   - Permitted access to operational coordinates, evacuation zones, severity levels, and field responder dispatches (`fields=all`).
+See the [development guide](../../docs/development.md) for Compose startup,
+JWT acquisition, scope checks, and verification. With `JWT_SECRET` exported
+and `AGGREGATOR_URL` set appropriately, run `go run .` from this module.
+The listener binds all interfaces; keep the development stack on a trusted
+network or behind a firewall.
 
-3. **`hazards:read:all` Scope (Internal):**
-   - Full unrestricted access to all canonical domain models and operational metadata (`fields=all`). Same scope value as Field — `role` in the JWT (not `scope`) distinguishes them for audit/logging purposes only; access level is identical.
-
-### 2.4 Distributed Tracing: `X-Correlation-ID` Propagation
-- Inspect incoming request headers for `X-Correlation-ID`.
-- If missing or empty: generate a fresh UUIDv4 (or high-entropy pseudo-random identifier).
-- Always inject `X-Correlation-ID: <id>` into:
-  1. Downstream HTTP calls forwarded to `aggregator:8083`.
-  2. The HTTP response headers returned back to the client (`w.Header().Set("X-Correlation-ID", id)`).
-  3. All structured logs output by `client-api`.
-
----
-
-## 3. Downstream Proxying
-
-- Target Aggregator Endpoint: `http://aggregator:8083/internal/hazards` (configurable via `AGGREGATOR_URL`).
-- Query parameters (`type`, `severity`, `since`, `limit`, `offset`) should be safely forwarded to the aggregator.
-- Use `net/http` client with reasonable timeouts (e.g., 5 seconds).
-
----
-
-## 4. Endpoints Contract
-
-Refer to authoritative OpenAPI specification in [`contracts/client_api.yaml`](../../contracts/client_api.yaml).
-
-### 4.1 `GET /health`
-Liveness probe.
-- **Response `200 OK`:**
-  ```json
-  {
-    "status": "UP",
-    "service": "client-api"
-  }
-  ```
-
-### 4.2 `GET /api/v1/hazards`
-Public hazard event retrieval endpoint.
-- **Headers Required:**
-  - `Authorization: Bearer <JWT>`
-- **Headers Optional:**
-  - `X-Correlation-ID: <uuid>`
-- **Query Parameters (Optional):**
-  - `fields`: `summary` (default) or `all` (requires non-media scope; media returns 403)
-  - `type`: `SEISMIC`, `VOLCANIC`
-  - `severity`: `NORMAL`, `WASPADA`, `SIAGA`, `AWAS`
-  - `since`: ISO 8601 UTC timestamp
-  - `limit`: default `50`
-  - `offset`: default `0`
-- **Response `200 OK` (Summary Projection):**
-  ```json
-  {
-    "data": [
-      {
-        "hazard_id": "haz-bmkg-20260922-001",
-        "source": "BMKG",
-        "hazard_type": "SEISMIC",
-        "severity": "WASPADA",
-        "area_name": "124 km BaratDaya KAB-BANTUL-DIY",
-        "occurred_at": "2026-09-05T15:30:00Z",
-        "ingested_at": "2026-09-05T15:35:00Z"
-      }
-    ],
-    "meta": {
-      "total": 1,
-      "limit": 50,
-      "offset": 0,
-      "degraded": false,
-      "stale_since": null
-    }
-  }
-  ```
-
----
-
-## 5. Development Runbook
-
-### Run Locally
-```bash
-# In services/client-api
-export PORT=8080
-export JWT_SECRET="super-secret-jwt-key-2026"
-export AGGREGATOR_URL="http://localhost:8083"
-go run main.go
-```
-
-### Build & Run with Docker
-```bash
-docker build -t bnpb/client-api:latest services/client-api/
-docker run -p 8080:8080 \
-  -e JWT_SECRET="super-secret-jwt-key-2026" \
-  -e AGGREGATOR_URL="http://aggregator:8083" \
-  bnpb/client-api:latest
-```
-
-### Verification Commands
-```bash
-# 1. Health check
-curl -i http://localhost:8080/health
-
-# 2. Query hazards with Correlation ID and Bearer token
-curl -i http://localhost:8080/api/v1/hazards?fields=summary \
-  -H "Authorization: Bearer <JWT_TOKEN>" \
-  -H "X-Correlation-ID: test-trace-12345"
-```
-
----
-
-## 6. Implementation Checklist for Jenka
-
-- [x] Middleware: Read `X-Correlation-ID` or generate new UUID; set on context and response header.
-- [x] Middleware: Parse and validate JWT from `Authorization: Bearer <token>` using `jwt.Parse` and `JWT_SECRET`.
-- [x] Middleware / Guard: Check the JWT `scope` claim. Return `403 Forbidden` if a token with `scope: hazards:read:summary` (Media) requests `fields=all` or attempts to access raw telemetry.
-- [x] Implement reverse proxy / HTTP client forwarder to `AGGREGATOR_URL + "/internal/hazards"`.
-- [x] Forward `X-Correlation-ID` to downstream `aggregator`.
-- [x] Handle Aggregator failures with the contract-defined `500 Internal Server Error` response.
+- [Entrypoint, routes, JWT middleware, projections, and upstream calls](main.go)
+- [Canonical gateway diagram](../../docs/diagrams/clientapi-gateway.mmd)

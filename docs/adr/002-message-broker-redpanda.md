@@ -2,8 +2,12 @@
 
 ---
 
+## Status and scope
+
+This is the M1 single-node broker decision, not an M2 HA/durability claim. The expanded contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34) are not all implemented. M2 analytics ([#24](https://github.com/Darsua/AAT/issues/24), Jenka), DLQ handling ([#26](https://github.com/Darsua/AAT/issues/26), Aldoy), and Aggregator HA ([#25](https://github.com/Darsua/AAT/issues/25), Darrel) require further design and validation.
+
 ## Context
-Problem 5 of IF4031 Milestone 1 requires an event-driven architecture to broadcast canonical hazard alerts to multiple downstream consumers (such as field disaster dashboards and emergency SMS/alert dispatchers).
+Problem 5 of IF4031 Milestone 1 requires an event-driven architecture to broadcast canonical hazard alerts to multiple downstream consumers (the implemented consumers maintain counters and log alert decisions; they do not deliver SMS or render dashboards).
 
 The core technical requirements under Problem 5 are:
 1. **Pub-Sub Fan-Out**: Multiple downstream consumer services must receive identical copies of every published hazard event independently.
@@ -68,17 +72,18 @@ Redpanda is a C++ reimplementation of the Apache Kafka wire protocol that requir
 | **Startup to Healthy** | **1.9 s** (measured: `docker start` until `rpk cluster health`) | 3.9 s (measured: until the broker answers API-versions) | 5.2 s (RabbitMQ log "Time to start") | Not measured precisely (image has no shell; up within a fixed 2 s probe) |
 | **API Protocol** | Native Kafka API (v0.11+) | Native Kafka API | AMQP 0-9-1 / AMQP 1.0 | NATS Core / JetStream |
 | **Consumer Group Offsets** | Built-in Kafka standard | Built-in Kafka standard | Manual ACK / Dead-Letter | JetStream Consumer State |
-| **CGO-Free Go Driver** | Yes (`segmentio/kafka-go`) | No (`confluent` requires C) | Yes (`amqp091-go`) | Yes (`nats.go`) |
+| **CGO-Free Go Driver** | Yes (`segmentio/kafka-go`) | Yes (`segmentio/kafka-go`; Confluent's client uses C) | Yes (`amqp091-go`) | Yes (`nats.go`) |
 
-*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [`docs/adr-audit.md`](../adr-audit.md), section E. Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
+*Measured on 2026-10-10: Docker 29.8.2, 13.5 GiB host RAM, single sample, idle about 45 s to 2 min after the service was ready. Raw figures and method are in [historical measurement evidence](../evidence/adr-audit/README.md#methodology-and-limitations). Python and other third-party figures come from minimal stand-ins (a hello-world FastAPI app; stock images with default settings), not from BNPB services.*
 
 In this measurement Redpanda did **not** use less idle memory than Apache Kafka in KRaft mode (352 MiB versus 297 MiB), although it started faster (1.9 s versus 3.9 s, both small). Memory and startup time are therefore not the reasons for choosing Redpanda. The reasons that remain are: it speaks the Kafka wire protocol so `segmentio/kafka-go` and Kafka tooling work unchanged, it runs as a single native binary without a JVM, and its `rpk` CLI is used by the `redpanda-init` service to provision and verify the topic.
 
 ### 2. Pure Go Client (`segmentio/kafka-go`) Eliminating CGO
 The official Confluent Kafka Go client (`confluent-kafka-go`) is a wrapper around `librdkafka`, a C library. This introduces severe build disadvantages:
 * Requires CGO compilation (`CGO_ENABLED=1`), which requires installing GCC/musl in the Docker builder and complicates cross-compilation.
-* Produces dynamically linked binaries that complicate minimal Alpine or scratch container deployments.
-* Prone to silent segmentation faults during high-concurrency connection tear-downs.
+* Requires managing `librdkafka` build/link compatibility for the target image; static linking options exist but add build constraints.
+
+This is a **client-library** trade-off, not a Redpanda-only capability: `kafka-go` also works with Apache Kafka.
 
 In contrast, `segmentio/kafka-go` is written in 100% pure Go:
 * Compiles cleanly with `CGO_ENABLED=0` into static binaries.
@@ -87,8 +92,8 @@ In contrast, `segmentio/kafka-go` is written in 100% pure Go:
 
 ### 3. Native Offset Management for Seamless Problem 5 Scenarios
 Kafka's log-centric architecture is ideally suited for Problem 5:
-* **Decoupled Consumer State**: Consumers maintain their own cursor position (`committed offset`) in the broker's `__consumer_offsets` topic. If `services/consumers/notifier` goes down for 30 seconds while `services/aggregator` ingests 10 new seismic alerts, the messages remain persistently stored in `bnpb.hazard-events`. When `notifier` boots back up, it asks Redpanda for its last committed offset and immediately receives all 10 unread messages in order.
-* **Dynamic 3rd Consumer Addition**: Adding a new downstream consumer requires zero changes to the publisher. A new consumer simply connects with a new group id (the demo script `scripts/test_consumer_recovery.sh` uses `bnpb-evaluator-audit-group`) and starts from the earliest offset (`auto_offset_reset: "earliest"`, `kafka.FirstOffset` in `kafka-go`). Redpanda creates a new consumer cursor and replays the entire event log without impacting `bnpb-dashboard-group` or `bnpb-notifier-group`.
+* **Decoupled Consumer State**: Consumers maintain their own cursor position (`committed offset`) in the broker's `__consumer_offsets` topic. If `services/consumers/notifier` goes down for 30 seconds while `services/aggregator` ingests 10 new seismic alerts, the messages remain persistently stored in `bnpb.hazard-events`. When `notifier` restarts with the same group, it resumes from committed offsets if broker data and offsets remain available. Ordering is per partition, not global or necessarily event-time order; the process-local seen-ID set can suppress changed payloads.
+* **Dynamic 3rd Consumer Addition**: Adding a new downstream consumer requires zero changes to the publisher. A new consumer simply connects with a new group id (the demo script `scripts/test_consumer_recovery.sh` uses `bnpb-evaluator-audit-group`) and starts from the earliest offset (`auto_offset_reset: "earliest"`, `kafka.FirstOffset` in `kafka-go`). Redpanda creates a new consumer cursor and can replay the retained log without changing the other groups' offsets. Retention bounds replay; this is not a permanent revision history.
 
 ---
 
@@ -113,17 +118,8 @@ Kafka's log-centric architecture is ideally suited for Problem 5:
 ## Consequences & Requirements
 
 ### 1. Mandatory Idempotent Consumer Processing
-Kafka guarantees **at-least-once delivery**, meaning transient network retransmissions or consumer rebalances can cause a consumer to receive the same message twice.
-* **Requirement**: All downstream consumers (`services/consumers/*`) must enforce idempotency:
-  ```go
-  // Consumer deduplication check
-  if processedEvents.Contains(event.HazardID) {
-      log.Printf("[CONSUMER] Duplicate event %s ignored", event.HazardID)
-      return nil
-  }
-  processedEvents.Add(event.HazardID)
-  ```
-  **Milestone 1 status:** the pseudo-code above is illustrative. The implemented consumers keep a process-local `map[string]struct{}` guarded by a mutex (`services/consumers/dashboard/main.go`, `services/consumers/notifier/main.go`), which is reset on restart and is not shared between replicas (see [ADR 005](005-stateless-architecture-and-m2-readiness.md)). Backing it with a Redis set or a database table with a unique constraint on `hazard_id` is a Milestone 2 requirement before running more than one replica per group.
+This producer/manual-commit consumer design uses **at-least-once delivery semantics**: retransmissions, crashes, or rebalances can repeat delivery. Recovery still depends on retained broker data and available offsets; a single-node broker is not node-loss durable.
+* **Requirement and M1 limit**: Consumers must handle duplicate delivery. Both currently use an **unbounded**, mutex-protected process-local `map[string]struct{}` keyed by hazard ID, with no TTL/LRU or shared durable state. It resets on restart and suppresses **every later payload with that ID**, including legitimate severity/attribute changes. Dashboard counters also reset. M2 needs revision-aware processing and durable projection/idempotency semantics; storage technology remains unresolved (see [ADR 005](005-stateless-architecture-and-m2-readiness.md)).
 
-### 2. Synchronous Outbox Relay Decoupling
-To ensure that database transactions are not blocked by message broker network latency or transient broker outages, `services/aggregator` never publishes directly to Redpanda inside the HTTP request or polling transaction. Instead, it writes to an `outbox_events` table in PostgreSQL, which an asynchronous background relay publishes to Redpanda (see [ADR 003](003-canonical-storage-postgres-jsonb.md)).
+### 2. Asynchronous Outbox Relay Decoupling
+To ensure that database transactions are not blocked by message broker network latency or transient broker outages, `services/aggregator` never publishes directly to Redpanda inside the HTTP request or polling transaction. Instead, it upserts an `outbox_events` row in PostgreSQL, which an asynchronous background relay publishes to Redpanda (see [ADR 003](003-canonical-storage-postgres-jsonb.md)). Pending revisions can coalesce in that row; at-least-once retry does not mean every revision reaches the log. `hazard_id` with `kafka.Hash` gives partition affinity only for a fixed partition count; retries/concurrent relays do not guarantee event-time or revision order. Compose defaults to three partitions with replication factor one and producer acks=1; it does not demonstrate node-loss durability.

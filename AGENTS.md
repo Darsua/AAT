@@ -1,65 +1,59 @@
-# AI Agent Operating Guidelines & Guardrails (AGENTS.md)
+# Repository rules
 
-This repository implements the **BNPB Disaster Coordination Platform** for **IF4031 Milestone 1**.
-AI agents (Antigravity, Cursor, Claude Code, Copilot) assisting developers in this repository **must strictly follow these rules**.
+This is the BNPB Disaster Coordination Platform for IF4031. The runnable application is the **M1 baseline**; M2 work is in progress. Contracts and Kubernetes base resources do not imply that M2 features are implemented.
 
----
+## Service boundaries and contracts
 
-## 1. Non-Negotiable Course Constraints (DO NOT VIOLATE)
+- Each microservice is an independent Go module. Do not create shared `pkg/`, `shared/`, or `common/` application libraries, or import implementation packages across services. Duplicated transport structs are intentional.
+- The Aggregator exclusively owns canonical PostgreSQL storage, including future shards. Other application services must use its HTTP API or consume broker events, never connect to canonical storage. Enforce ownership through platform networking as well as code. A service needing its own durable state must declare its separate ownership and access policy.
+- **All files in `contracts/` are frozen**, including Audit API and coastal-sensor specifications. Do not change fields, endpoints, or types without explicit approval. Record discrepancies for resolution; do not silently adjust implementation requirements to fit existing code.
+- Preserve the Kafka contract: key = `hazard_id`; value = canonical HazardEvent JSON, without a wrapper; propagate `X-Correlation-ID`. Changing partition count or delivery behavior requires an explicit ordering/recovery assessment.
 
-1. **Zero Shared Code or Internal Libraries:**
-   - **DO NOT** create a `pkg/`, `shared/`, or `common/` package.
-   - **DO NOT** import packages across service boundaries (e.g. `client-api` must never import from `bnpb/aggregator`).
-   - Every microservice is an independent Go module and must be 100% self-contained. Struct duplication across services is intentional and required by course policy.
-2. **Strict Storage Ownership:**
-   - `canonical-db` (PostgreSQL) is owned **exclusively** by `services/aggregator`.
-   - `client-api` and downstream consumers must **never** connect directly to the database. All data retrieval goes through the Aggregator HTTP API (`http://aggregator:8083/internal/hazards`).
-3. **Frozen Contracts Are Read-Only:**
-   - Files in `contracts/` (`hazard_event.json`, `bmkg.yaml`, `pvmbg.yaml`, `aggregator_internal.yaml`, `client_api.yaml`, `auth_api.yaml`) are frozen.
-   - **DO NOT** modify contract field names, types, or endpoints without explicit developer instructions. Implement code to match the contracts, not vice versa.
-4. **Secret Handling & Configuration:**
-   - **DO NOT** hardcode credentials, tokens, or API keys in Go source code or test scripts.
-   - Always read credentials via environment variables. If a new variable is introduced, add it with a safe default to `.env.example` and `docker-compose.yml`.
+## Ownership and change scope
 
----
+GitHub issues are the work tracker. An issue's approved scope defines cross-service changes; default ownership is not permission for unrelated edits.
 
-## 2. Team RACI Scope Boundaries
+| Member | Default ownership | M2 workstreams |
+| :--- | :--- | :--- |
+| Aldoy | Agency mocks | Kubernetes foundation, DLQ/schema handling, satellite ingestion, autoscaling |
+| Darrel | Aggregator, canonical storage and migrations | Sharding/recovery, HA coordination, Audit API, optional AI summarizer |
+| Jenka | Auth, public API, consumers | Analytics, field-report submission, coastal integration, unified observability |
 
-Respect service ownership. When tasked with implementing or debugging a feature, **do not touch services outside the assigned member's scope**:
+Several M2 workstreams touch the Aggregator. Coordinate overlapping edits with its owner and identify the files/interfaces in the issue or PR; do not interpret the M1 service split as a ban on explicitly assigned M2 work. Documentation and orchestration are cross-cutting. Do not create branches, commits, releases, or tags without being asked.
 
-| Member | Assigned Services | Responsibilities |
-|---|---|---|
-| **Member A (Aldoy)** | `services/mock-bmkg/`<br/>`services/mock-pvmbg/` | Upstream mocks, historical seeds, dynamic event generator, latency injection, schema version toggle (`/admin/schema-version`), and outage toggle (`/admin/outage`). |
-| **Member B (Darrel)** | `services/aggregator/`<br/>`services/aggregator/migrations/` | Ingestion polling workers, canonical mapping, static volcano enrichment, Transactional Outbox relay, and `GET /internal/hazards`. |
-| **Member C (Jenka)** | `services/auth/`<br/>`services/client-api/`<br/>`services/consumers/` | JWT issuance & refresh (`POST /auth/*`), public API gateway & scope filtering (`GET /api/v1/hazards`), and downstream Kafka consumer groups (`dashboard`, `notifier`). |
+## Implementation conventions
 
----
+- Go 1.22 workspace (`go.work`); standard library first. Existing approved libraries: `pgx/v5`, `segmentio/kafka-go`, and `golang-jwt/jwt/v5`. Additional dependencies require justification and approval; illustrative ADR examples do not authorize them. Run `go work sync` when dependencies change.
+- Keep additive PVMBG fields in dynamic `attributes`/JSONB. Breaking schema changes require explicit validation/failure handling; do not silently discard rejected payloads or claim all upstream adapters preserve unknown fields.
+- Use UTC RFC3339 timestamps. Preserve correlation IDs across HTTP and Kafka; correlation IDs alone are not distributed traces.
+- Application Dockerfiles use multi-stage `golang:1.22-alpine` / `alpine:3.20` builds and run as `nobody:nobody`. This does not authorize modifying assistant-provided sensor/tester images.
+- Read credentials from environment/Secrets; never hardcode or print tokens. Keep `.env` and real kubeconfigs out of version control. Document new configuration in `.env.example`, applicable Compose wiring, and Kubernetes ConfigMap/Secret templates. Use empty/required placeholders for secrets, not usable credential defaults.
 
-## 3. Go Workspace & Code Conventions
+## M2 deployment and safety
 
-- **Workspace Mode:** This project uses a Go 1.22 multi-module workspace (`go.work`). Run `go work sync` if new dependencies are added to an individual module.
-- **Dependencies:** Standard library first (`net/http`). Only vetted libraries are permitted:
-  - PostgreSQL: `github.com/jackc/pgx/v5`
-  - Kafka / Redpanda: `github.com/segmentio/kafka-go`
-  - JWT Security: `github.com/golang-jwt/jwt/v5`
-- **Dynamic Fields (Problem 1):** PVMBG additive fields (like `confidence_level`) must be dynamically ingested into the canonical `attributes` (`map[string]any` / JSONB) without schema recompilation or dropping unmapped fields.
-- **Observability:** Propagate `X-Correlation-ID` through incoming/outgoing HTTP headers and Kafka message headers.
-- **Timestamps:** Always format and parse timestamps in UTC ISO-8601 (`time.RFC3339`).
-- **Dockerfiles:** Multi-stage builds using `golang:1.22-alpine` as builder and `alpine:3.20` as runtime. Always run containers as non-root `USER nobody:nobody`.
+- Application workloads belong to `sistem-informasi-kebencanaan-bnpb`, with the required `role` labels. Follow the [Kubernetes runbook](k8s/README.md) for component memory allocations and the pinned Tester Agent.
+- Demo nodes must have separate kernels. Store data must use node-local disks, not external/network storage that bypasses wipe tests. In a two-node setup, destructive node scenarios target only the non-control-plane worker.
+- Never block, replace, stop, or constrain the Tester Agent contrary to the course contract. Treat chaos tests as destructive; do not run them, change a live cluster, or restore snapshots during an assessed recovery window without the appropriate explicit instruction.
+- A complete, one-command M2 deployment is still pending. Do not present `kubectl apply -k k8s/base` as deployment of the application.
 
----
+## Documentation discipline
 
-## 4. Verification Commands
+- Root README: visitor-facing overview and honest implementation status.
+- `docs/development.md`: local setup and verification; service READMEs: service-specific essentials; `k8s/README.md`: cluster operations.
+- Contracts own API details; ADRs own decisions/trade-offs; issues own pending work and acceptance criteria. Link instead of copying schemas, ownership matrices, or task lists across documents.
+- Evidence is dated and milestone-specific, not current certification. Do not turn M1 logs into M2 proof or fabricate measurements. Keep report files unchanged until the team agrees on the M2 authoring workflow.
+- No new roadmap, tracker, or session-audit Markdown unless explicitly requested. Keep canonical diagram sources consistent with any embedded blocks; historical rendered/report figures are separate artifacts.
 
-Before concluding any code modification, always verify:
+## Verification
+
+Run the applicable checks, report failures/skips honestly, and inspect changes for credentials:
+
 ```bash
-# 1. Build and vet all Go services
-go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
 make test
-
-# 2. Validate Docker Compose syntax
 docker compose config --quiet
-
-# 3. Check for forbidden unencrypted .env files
-git status
+git diff --check
+git status --short
 ```
+
+Also validate changed documentation links/diagram synchronization. These checks do not prove M2 deployment, load capacity, or failure recovery; those require the relevant integration evidence. Do not run destructive demo scripts merely to validate documentation changes.

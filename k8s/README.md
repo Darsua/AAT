@@ -1,158 +1,103 @@
-# Kubernetes Operations & Deployment Runbook (Milestone 2)
+# Kubernetes operations
 
-This directory contains the Kubernetes manifests, deployment configurations, and operational runbooks for the BNPB Disaster Coordination Platform on multi-node Kubernetes.
+**Status:** this repository contains M2 **foundation resources**, not a deployable Kubernetes application. `base/` defines a namespace, network policies, a LimitRange, and ConfigMap/Secret templates; it contains no application workloads, database/broker deployments, Ingress, or Tester Agent installation. `kubectl apply -k k8s/base` is therefore **not** the required one-command deployment. Use [Compose for the runnable M1 baseline](../docs/development.md).
 
----
+Infrastructure and application work is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues), including [foundation #22](https://github.com/Darsua/AAT/issues/22), [storage #23](https://github.com/Darsua/AAT/issues/23), and [HA #25](https://github.com/Darsua/AAT/issues/25). Closing the foundation issue does not certify the running cluster.
 
-## 1. Cluster Architecture & Physical Topology
+## Documented environment
 
-To qualify for the **5-point physical multi-node bonus** in Milestone 2, the cluster runs across two distinct bare-metal server chassis on the local network switch, isolated inside KVM virtual machines with separate Linux 6.12 kernels:
+The existing team topology records two KVM VMs on separate physical hosts. This is a configuration record, **not a fresh live-cluster verification**:
 
-```
-[ Public Internet: Aldoy / Jenka / Darrel ]
-                   │
-                   ▼ (HTTPS 443 / Cloudflare Edge TLS)
-       [ Cloudflare Edge: darsu.dev ]
-       ├── k8s-aat.darsu.dev (Kubernetes API)
-       ├── aat.darsu.dev     (Traefik Web/HTTP)
-       └── *.aat.darsu.dev   (Microservice Ingress)
-                   │
-                   ▼ (Cloudflare Argo Tunnel)
-        [ Gateway: mainframe ]
-                   │
-                   ▼ (Physical LAN Switch / 1.0 ms RTT)
-      ┌────────────┴────────────┐
-      ▼                         ▼
-[ Physical Host 1 ]       [ Physical Host 2 ]
-Host: runner-1            Host: nexus
-IP: 10.5.24.115           IP: 10.5.24.118
-Debian 13 trixie          Debian 13 trixie
-      │                         │
-      ▼ (KVM Isolation)         ▼ (KVM Isolation)
-[ Node: aqua ]            [ Node: ruby ]
-IP: 10.5.27.240           IP: 10.5.27.241
-Role: Control Plane       Role: Worker Node
-2 vCPU | 3.5 GB RAM       2 vCPU | 3.5 GB RAM
-      │                         │
-┌─────┴─────────────────────────┴─────┐
-│       K3s v1.37.2+k3s1 Multi-Node   │
-│  CNI: Flannel (10.42.0.0/16)        │
-│  Storage: local-path-provisioner    │
-│  Ingress: Traefik (Ports 80/443)    │
-│  Chaos: sustuna/tester-agent (DS)   │
-└─────────────────────────────────────┘
-```
+| Kubernetes node | Physical host | Node role | VM resources | Node address |
+| :--- | :--- | :--- | :--- | :--- |
+| `aqua` | `runner-1` | Control plane and worker | 2 vCPU, 3.5 GB RAM | `10.5.27.240` |
+| `ruby` | `nexus` | Non-control-plane worker | 2 vCPU, 3.5 GB RAM | `10.5.27.241` |
 
-### Safety & Sandboxing Guarantees
-* **Chaos Containment:** The official `sustuna/tester-agent` runs with `hostPath: /` mounted to `/host`. Because the nodes are KVM virtual machines, node wipes (`wipeAndShutdown`), host reboots, and clock skews (`shiftClock`) are completely contained within `aqua` and `ruby`. Bare-metal hosts and personal workstations remain 100% protected.
-* **Auto-Recovery:** Both VMs run under systemd (`aat-aqua.service` and `aat-ruby.service`) and automatically start on physical machine boot.
-* **Disaster Recovery:** A golden state snapshot (`golden`) is preserved on both hypervisors for instant 2-second rollback if a chaos test zeroes out partitions.
+The physical hosts' CPU/RAM specifications still need to be recorded; VM allocations do not substitute for them. Verify Kubernetes/kernel versions, actual node capacity, storage placement, and reachability from the environment rather than relying on the former unverified version/latency claims.
 
----
+The documented access path is Cloudflare Tunnel through gateway `mainframe`, with `k8s-aat.darsu.dev` for the Kubernetes API and `aat.darsu.dev` / `*.aat.darsu.dev` for application ingress. DNS/tunnel availability does not establish that an application is deployed. TLS and bearer authentication are distinct; do not describe bearer-token access as mutual TLS.
 
-## 2. Team Remote Access (For Aldoy, Jenka & Darrel)
+### Storage and topology constraints
 
-No VPN, WireGuard, or SSH tunnels are required to access the cluster.
+- Demo nodes require separate kernels; shared-kernel multi-node container clusters are development-only.
+- `role=store` data must remain on the pod's node-local disk (local PV or hostPath), not network/external storage that bypasses node-loss testing.
+- **With two nodes, destructive node scenarios target only `ruby`, not the control plane.** A selector resolving to an arbitrary DaemonSet pod is not enough to establish a safe target.
+- P1 also requires no node to store the whole dataset, lossless worker-wipe recovery, redistribution without downtime, and restored tolerance of a subsequent loss. Two-node full-copy replication is not automatically a valid solution. Resolve placement/failure assumptions under #23 before claiming compliance.
+- Check scheduling headroom against the resource table below, including storage replicas, broker, >=3 Aggregators, system components, and the unrestricted Tester Agent. Current VM sizes are not a capacity proof.
 
-### Step 1: Create Your Local Kubeconfig
-1. Copy the sanitized template from this repository:
-   ```bash
-   cp k8s/kubeconfig.template.yaml ~/.kube/config-team17.yaml
-   ```
-2. Replace `<PASTE_TEAM17_BEARER_TOKEN_HERE>` in your copy with the team bearer token shared over our private channel.
+## Team access and read-only checks
 
-### Step 2: Set Kubeconfig in Your Shell
+Keep the real kubeconfig and token outside the repository. From the repository root, create a private copy without replacing an existing config:
+
 ```bash
-# In Bash/Zsh:
+mkdir -p ~/.kube
+cp -n k8s/kubeconfig.template.yaml ~/.kube/config-team17.yaml
+chmod 600 ~/.kube/config-team17.yaml
 export KUBECONFIG=~/.kube/config-team17.yaml
-
-# In Fish:
-set -x KUBECONFIG ~/.kube/config-team17.yaml
 ```
-*(Or append `--kubeconfig ~/.kube/config-team17.yaml` to your kubectl commands).*
 
-### Step 3: Verify Connection
+Populate the bearer-token placeholder through the team's private credential channel. Do not commit it, disable TLS verification, or print it in shared logs. In Fish, set the environment with `set -x KUBECONFIG ~/.kube/config-team17.yaml` instead.
+
 ```bash
-# Check physical nodes
 kubectl get nodes -o wide
-
-# Check core system services
 kubectl get pods -A
-
-# Check our application namespace
 kubectl get all -n sistem-informasi-kebencanaan-bnpb
+kubectl get networkpolicy,limitrange -n sistem-informasi-kebencanaan-bnpb
 ```
 
----
+These commands inspect a live cluster; they do not deploy or repair it. This documentation cleanup has not run them.
 
-## 3. Public Ingress & Endpoints
+## Workload conventions
 
-| Service | Public URL | Upstream Origin | Protocol |
-| :--- | :--- | :--- | :--- |
-| **Kubernetes API** | `https://k8s-aat.darsu.dev` | `https://10.5.27.240:6443` | HTTPS / mTLS Token |
-| **BNPB Hazard Web / API** | `https://aat.darsu.dev` | `http://10.5.27.240:80` | HTTP/2 Traefik Ingress |
-| **Wildcard Preview Services** | `https://*.aat.darsu.dev` | `http://10.5.27.240:80` | HTTP/2 Traefik Ingress |
+Application pods belong to `sistem-informasi-kebencanaan-bnpb` and carry a `role` label from `aggregator`, `store`, `broker`, `consumer`, `api`, `mock`, `sensor`, or `other`. Use ConfigMaps for configuration and Secrets for credentials. Empty Secret templates are not provisioned credentials, and a ConfigMap key is not proof that a process consumes it.
 
----
+Declare **memory requests and limits per workload/container according to its component class**. CPU allocation is optional under the course specification; generic LimitRange defaults alone do not satisfy the class-specific memory allocations.
 
-## 4. Disaster Simulation & Chaos Testing Runbook
+| Component class | Memory request | Memory limit |
+| :--- | :--- | :--- |
+| Aggregator | `256Mi` | `512Mi` |
+| Storage instance | `512Mi` | `1Gi` |
+| Broker or stream processor | `512Mi` | `1Gi` |
+| Consumer or event processor | `128Mi` | `256Mi` |
+| Auth / Client API | `128Mi` | `256Mi` |
+| BMKG / PVMBG mock | `64Mi` | `128Mi` |
+| Other components | `128Mi` | `256Mi` |
 
-The official tester agent is pre-deployed across both nodes as a privileged DaemonSet in namespace `tester-agent`.
+Load generators run outside application component pods. The course table has no separate sensor row; use the assistant's prescribed sensor manifest rather than inventing an image/resource override.
 
-### A. List Supported Chaos Scenarios
+Only Aggregator application pods may access canonical PostgreSQL. Store-to-store replication is separate infrastructure traffic. Verify enforcement from allowed and denied pods with the actual CNI; policy YAML alone is not proof. Preserve Tester Agent access. Broker policies must also accommodate approved field-report staging without opening canonical storage to the gateway (#27).
+
+Foundation policies/configuration still need integration checks as workloads are introduced: Auth listens on 8084, observability needs actual scrape/trace paths, and Go services currently consume `TOPIC`, not the future-topic ConfigMap names directly. Resolve wiring in the relevant implementation issue rather than claiming base resources are complete deployment wiring.
+
+## Tester Agent and destructive testing
+
+The prescribed image is:
+
+```text
+sustuna/tester-agent@sha256:b3143da159cf23a8744ede12b847da6208353754234d53a5a7b46d071cf277ec
+```
+
+Installation is a **privileged cluster change**, not a documentation-validation step. When explicitly authorized for the demo cluster, the specified installation command is:
+
 ```bash
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app list
+kubectl apply -f https://raw.githubusercontent.com/susTuna/if4031-tester-agent/ebb55261711123a9a211739ffbf140a275caa6da/manifest.yaml
 ```
-* `clock-skew` — Shifts kernel clock to validate leader lease expiration and token TTLs.
-* `kill-leader` — Terminates the active Aggregator leader pod to verify election failover.
-* `kill-store` — Terminates primary database instances to verify replica promotion.
-* `partition` — Injects `iptables` drop rules between `aqua` and `ruby` to simulate network split.
-* `schema` — Tests schema evolution handling and Dead Letter Queue (DLQ) ingestion.
-* `wipe-node` — Emulates complete node wipe and triggers VM reboot.
 
-### B. Practice Scenarios
+Do not change its image, stop it, or impede it through RBAC, NetworkPolicy, admission/Pod Security, taints, or resource restrictions. Verify it runs on every required node; installation/status is not asserted by this repository.
+
+Discover supported scenarios from the installed pinned agent rather than assuming an unverified exam CLI:
+
 ```bash
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run practice <scenario-name>
-
-# Example: test Aggregator leader failover
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run practice kill-leader
-
-# Example: test network partition tolerance
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run practice partition
+kubectl exec -n tester-agent daemonset/tester-agent -- /app list
+kubectl logs -n tester-agent daemonset/tester-agent
 ```
 
-### C. Official Exam Scenarios (Demo & Grading)
-```bash
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run exam <p1|p2|p3|p5>
+**Practice scenarios are destructive and require explicit authorization and target verification.** The specified invocation form is `kubectl exec -n tester-agent daemonset/tester-agent -- /app run practice <name>`; use the installed agent's supported targeting mechanism to ensure two-node node-disruption scenarios affect only the worker. Do not assume the location of the exec session selects the affected node.
 
-# Problem 1: Sharding & Node Wipe
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run exam p1
+Official exam keys, audit credentials, and test resources arrive through the assistants. Follow those instructions; do not invent exam-key flags or run exams without keys. Satellite P4 additionally requires live-feed processing during the recorded demo and full reference comparison, not just an offline clustering benchmark.
 
-# Problem 2: Aggregator High Availability & Clock Skew
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run exam p2
+VM isolation reduces risk but is not a guarantee of host safety: review disk passthrough, host mounts, networks, and privileges before testing. Backups/snapshots are preparation tools, **not permitted intervention during an assessed self-recovery window**. Neither automatic VM startup nor a snapshot proves application recovery time. Do not restore snapshots, repair data, restart components manually, or change code during that window.
 
-# Problem 3: Dead Letter Queue & Schema Evolution
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run exam p3
+## Verification boundary
 
-# Problem 5: Coastal Sensor Circuit Breaking
-kubectl exec -n tester-agent daemonset/tester-agent -c agent -- /app run exam p5
-```
-*(Note: Problem 4 is streaming satellite DBSCAN clustering, validated via offline benchmark scripts).*
-
----
-
-## 5. Milestone 2 Directory Structure
-
-Manifests for the upcoming sprint should be organized under this directory as follows:
-
-```
-k8s/
-├── README.md                      # This operations runbook
-├── kubeconfig.template.yaml       # Sanitized connection template
-├── base/                          # Namespaces, RBAC, common ConfigMaps
-├── storage/                       # StorageClasses & Local PersistentVolumes
-├── database/                      # Sharded PostgreSQL StatefulSets & Services
-├── messaging/                     # Redpanda cluster manifests
-├── apps/                          # Aggregator (HA deployment), Auth, Client API
-└── consumers/                     # Dashboard & Notifier consumers
-```
+A complete M2 deployment must eventually start from a documented initial state with one command, resolve secrets/configuration, install application workloads and ingress, and survive the required recovery/load scenarios. Until implemented and measured, this runbook is not a deployment or bonus certification. Update it from reproducible evidence as work lands; keep pending acceptance criteria in their GitHub issues.

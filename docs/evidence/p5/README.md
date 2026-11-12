@@ -1,12 +1,17 @@
-# Problem 5 Evidence: Pub-Sub Fan-Out, Consumer Downtime Recovery & Dynamic 3rd Consumer
+# Problem 5: Fan-out dan pemulihan consumer — bukti historis M1
 
-Folder ini memuat log bukti eksekusi pengujian otomatis untuk Problem 5 pada sistem BNPB Disaster Data Aggregator.
+**Konteks tanggal: 2026-10-08**, diturunkan dari epoch run ID `1791471484` pada log dan penggunaan `date +%s` di skrip, bukan timestamp payload sintetis. Bukti ini bukan validasi terkini atau jaminan M2. Tidak ada pengujian yang dijalankan ulang dalam cleanup dokumentasi ini.
 
-## Berkas Bukti
+## Eksekusi dan hasil yang tercatat
 
-1. [`consumer_recovery.log`](./consumer_recovery.log):
-   - Verifikasi broker Redpanda dan topik `bnpb.hazard-events` dengan 3 partisi.
-   - Penerbitan satu event bencana yang diterima secara paralel oleh dua consumer group independen (`bnpb-dashboard-group` dan `bnpb-notifier-group`).
-   - Simulasi downtime kontainer `dashboard-consumer`: producer tetap mempublikasikan event tanpa tertahan, `notifier-consumer` tetap memproses secara real-time, dan Redpanda mencatat akumulasi lag pada grup Dashboard.
-   - Pemulihan kontainer `dashboard-consumer`: membaca kembali dari committed offset, menyerap backlog yang tertinggal, hingga lag kembali ke 0.
-   - Penambahan consumer group ketiga secara dinamis (`bnpb-evaluator-audit-group`) ke topik yang sama tanpa mengubah kode atau merestart Aggregator Service.
+[`consumer_recovery.log`](consumer_recovery.log), dari [`test_consumer_recovery.sh`](../../../scripts/test_consumer_recovery.sh), mencatat **11 passed, 0 failed**:
+
+- Redpanda merespons dan topik `bnpb.hazard-events` memiliki **3 partisi**.
+- Event yang sama tercatat pada dua grup independen: `bnpb-dashboard-group` dan `bnpb-notifier-group`.
+- Saat Dashboard dihentikan, Notifier memproses event downtime dan lag grup Dashboard mencapai **5**.
+- Setelah Dashboard dijalankan kembali, event yang tertinggal diproses dan lag turun menjadi **0**.
+- Grup ketiga, `bnpb-evaluator-audit-group`, menerima event tanpa perubahan atau restart publisher/Aggregator.
+
+## Batas bukti
+
+Skrip menerbitkan event uji **langsung ke broker** memakai `rpk`; ini membuktikan jalur broker/consumer yang diamati, bukan ingestion atau relay outbox end-to-end. Pemulihan bergantung pada retensi pesan dan committed offset yang masih tersedia. Uji ini tidak membuktikan ketahanan kehilangan node, exactly-once effects, atau pemrosesan revisi hazard: deduplikasi hazard-ID dan counter consumer hanya tersimpan di memori proses. Lihat [ADR 002](../../adr/002-message-broker-redpanda.md) dan [ADR 005](../../adr/005-stateless-architecture-and-m2-readiness.md).

@@ -5,12 +5,12 @@ flowchart TD
         S1["1. Inject or preserve X-Correlation-ID"]:::svc
         S2["2. Validate JWT signature and claims"]:::svc
         S3["3. Enforce scope permissions"]:::svc
-        S4["4. Proxy request to aggregator"]:::svc
+        S4["4. Fetch list; get-by-ID scans pages of 500"]:::svc
         S1 --> S2 --> S3 --> S4
     end
     AGG["aggregator :8083"]:::svc
 
-    EXT -->|"GET /api/v1/hazards<br/>Authorization: Bearer JWT"| S1
+    EXT -->|"GET list or get-by-ID with Bearer JWT"| S1
     S4 -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
 
     classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545

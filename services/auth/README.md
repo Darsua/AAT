@@ -1,205 +1,69 @@
-# Service: Authentication & Token Authority (Auth)
+# Auth
 
-**Module Name:** `bnpb/auth`  
-**Default Port:** `8084`  
-**Dependencies:** `github.com/golang-jwt/jwt/v5`  
-**Contract:** [`contracts/auth_api.yaml`](../../contracts/auth_api.yaml)
+`bnpb/auth` issues HS256 access JWTs for environment-configured clients and
+rotates refresh tokens in process-local memory. The gateway verifies JWTs
+locally using the same signing secret; there is no username/password login
+or public-key mode.
 
----
+This is M1 read authorization. Role claims do not implement planned M2
+field-report writes or an Audit API. Shared refresh-state design remains
+unresolved; see [ADR 005](../../docs/adr/005-stateless-architecture-and-m2-readiness.md).
 
-## 1. Overview & Architecture Role
+## Routes and contract
 
-The `auth` service is the central security authority for the BNPB platform. It issues short-lived JSON Web Tokens (JWTs) and manages refresh token rotation. Downstream services such as `client-api` use the shared secret or public key to verify incoming client credentials without coupling to user databases.
+Base URL: `http://auth:8084` inside Compose.
+Full request/response shapes: frozen [Auth API](../../contracts/auth_api.yaml).
 
-### Project Structure
+| Route | Current behavior |
+| --- | --- |
+| `GET /health` | Process liveness. |
+| `POST /auth/token` | Authenticate `client_id` + `client_secret`; issue access and refresh tokens. |
+| `POST /auth/refresh` | Consume a refresh token and return a rotated token pair. |
 
-```text
-services/auth/
-├── main.go                     # HTTP, authentication, and token logic
-├── Dockerfile
-├── go.mod
-└── go.sum
-```
+`requested_scope` must match the client's configured role; a different role
+returns `403`. The role is mapped to the JWT `scope` checked by the gateway:
 
-The service is self-contained in one Go module. Other microservices communicate with Auth through its HTTP contract instead of importing its implementation.
+| Role | JWT scope |
+| --- | --- |
+| `media` | `hazards:read:summary` |
+| `field`, `internal` | `hazards:read:all` |
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Client or app
-    participant Auth as auth (:8084)
-    participant CAPI as client-api (:8080)
+## Configuration
 
-    Client->>Auth: POST /auth/token (credentials)
-    Auth-->>Client: access token (JWT, TTL 60 s) and refresh token
-    Client->>CAPI: GET /api/v1/hazards (Authorization: Bearer JWT)
-    Note over CAPI: Verifies signature and checks scopes locally (shared secret)
-    CAPI-->>Client: response
-```
+These are **process defaults**, not Compose credential fallbacks.
 
----
+| Variable | Default / requirement |
+| --- | --- |
+| `PORT` | `8084` |
+| `JWT_SECRET` | Required; must match `client-api`. |
+| `JWT_TTL_SECONDS` | `60`; positive integer. |
+| `AUTH_MEDIA_CLIENT_SECRET` | Required; no default. |
+| `AUTH_FIELD_CLIENT_SECRET` | Required; no default. |
+| `AUTH_INTERNAL_CLIENT_SECRET` | Required; no default. |
+| `AUTH_MEDIA_CLIENT_ID` | `test-media-client` |
+| `AUTH_FIELD_CLIENT_ID` | `test-field-client` |
+| `AUTH_INTERNAL_CLIENT_ID` | `test-internal-client` |
 
-## 2. Security & Token Specifications
+Supply secrets through the environment. Override Compose's development-only
+fallbacks and keep the development stack off untrusted networks.
 
-### 2.1 Networking & Port
-- **Port:** `8084` (configurable via `PORT=8084`).
-- Base URL: `http://localhost:8084` or `http://auth:8084` within Docker network.
+## Token-state limits
 
-### 2.2 JWT Signing Key & Algorithm
-- **Algorithm:** HMAC-SHA256 (`HS256`).
-- **Secret Key:** `JWT_SECRET` is required by the Auth process, which exits at startup when it is missing. Root Docker Compose provides `super-secret-jwt-key-2026` only as a local-development fallback; production deployments must override it.
+- Refresh tokens expire after 24 hours and are consumed on rotation.
+- Reusing a retained, already-used token revokes refresh tokens in that session.
+  Expired records are cleaned up; replay history is not permanent.
+- Refresh and revocation state is neither durable nor shared across replicas.
+  Restart loses outstanding refresh sessions.
+- **Issued access JWTs remain valid until expiry** despite refresh revocation,
+  credential changes, or an Auth restart, if the verification key is unchanged.
+  There is no access-token revocation lookup or separate revoke route.
 
-### 2.3 Access Token Lifetime
-- **TTL:** Defaults to **60 seconds** and can be configured with `JWT_TTL_SECONDS`, as defined by `contracts/auth_api.yaml`.
-- Short TTL minimizes the blast radius of compromised tokens and ensures near real-time revocation enforcement when permissions change.
+## Run, test, and code
 
-### 2.4 Token Claims Structure
-Tokens must include the following custom claims. **`scope` is the field `client-api` actually checks** (per `contracts/client_api.yaml`) — it must be one of the two literal OAuth-style scope strings below, never the bare role name. `role` is carried separately for audit/logging purposes only.
-```json
-{
-  "iss": "bnpb-auth-service",
-  "sub": "user_id_or_client_id",
-  "iat": 1758500000,
-  "exp": 1758500060,
-  "role": "field",
-  "scope": "hazards:read:all"
-}
-```
+See the [development guide](../../docs/development.md) for credential setup,
+Compose startup, token examples, and verification. With the required secrets
+exported, run `go run .` from this module. The listener binds all interfaces;
+use a trusted network/firewall.
 
-### 2.5 Scopes Definition
-| Role (`role` claim / `requested_scope` input) | JWT `scope` claim value (checked by `client-api`) | Intended Audience | Access Level |
-|---|---|---|---|
-| `media` | `hazards:read:summary` | Public press & news organizations | Summarized alerts only; forbidden (`403`) from accessing raw telemetry or internal notes |
-| `field` | `hazards:read:all` | First responders (TNI, POLRI, Basarnas, PMI) | Operational dispatches, rescue coordinates, responder telemetry |
-| `internal` | `hazards:read:all` | BNPB Operations Center (Pusdalops) | Unrestricted read access to all hazard event fields |
-
-> [!IMPORTANT]
-> `auth` is responsible for mapping the requested role (`media`/`field`/`internal`) to the correct `scope` claim value above when issuing a token. `client-api` only ever checks for the literal strings `hazards:read:summary` and `hazards:read:all` — it has no knowledge of `media`/`field`/`internal` as concepts.
-
----
-
-## 3. Refresh Token Flow & Rotation
-
-To maintain seamless client sessions despite the 60-second access token TTL, implement strict **Refresh Token Rotation**:
-
-1. **Issuance:** On successful initial login (`POST /auth/token`), return:
-   - `access_token` (expires in 60s)
-   - `refresh_token` (opaque secure random token, TTL: 24 hours)
-2. **Rotation on Refresh:** When client calls `POST /auth/refresh` with a valid refresh token:
-   - Validate that the refresh token exists and has not been revoked or used previously.
-   - **Invalidate (burn)** the presented refresh token immediately.
-   - Issue a **new access token** (60s TTL) and a **brand-new rotated refresh token**.
-3. **Replay Detection:** If an already-burned refresh token is submitted again, immediately invalidate all refresh tokens associated with that user session (compromise mitigation).
-
----
-
-## 4. Endpoints Contract
-
-### 4.1 `GET /health`
-Liveness check.
-- **Response `200 OK`:**
-  ```json
-  {
-    "status": "UP",
-    "service": "auth"
-  }
-  ```
-
-### 4.2 `POST /auth/token`
-Authenticate client credentials (e.g. `client_id` + `client_secret` or `username` + `password`). `requested_scope` accepts the role name (`media`/`field`/`internal`); the server maps it to the actual `hazards:read:*` scope string per the table in §2.5 and embeds that in both the JWT `scope` claim and the response body below.
-- **Request Body:**
-  ```json
-  {
-    "client_id": "field-unit-jakarta-01",
-    "client_secret": "<field-client-secret>",
-    "requested_scope": "field"
-  }
-  ```
-- **Response `200 OK`:**
-  ```json
-  {
-    "token_type": "Bearer",
-    "access_token": "eyJhbGciOiJIUzI1Ni...",
-    "expires_in": 60,
-    "refresh_token": "rt_8fbc2e7a...",
-    "scope": "hazards:read:all"
-  }
-  ```
-
-### 4.3 `POST /auth/refresh`
-Rotate refresh token and issue new 60s access token.
-- **Request Body:**
-  ```json
-  {
-    "refresh_token": "rt_8fbc2e7a..."
-  }
-  ```
-- **Response `200 OK`:**
-  ```json
-  {
-    "token_type": "Bearer",
-    "access_token": "eyJhbGciOiJIUzI1Ni...",
-    "expires_in": 60,
-    "refresh_token": "rt_new_9a12c4e..."
-  }
-  ```
-- **Response `401 Unauthorized` (expired or reused):**
-  ```json
-  {
-    "error": "invalid_grant",
-    "message": "Refresh token expired, invalid, or already rotated"
-  }
-  ```
-
----
-
-## 5. Development Runbook
-
-### Run Locally
-```bash
-# In services/auth
-export PORT=8084
-export JWT_SECRET="super-secret-jwt-key-2026"
-export AUTH_MEDIA_CLIENT_SECRET="media-secret-2026"
-export AUTH_FIELD_CLIENT_SECRET="field-secret-2026"
-export AUTH_INTERNAL_CLIENT_SECRET="internal-secret-2026"
-go run main.go
-```
-
-### Build & Run with Docker
-```bash
-docker build -t bnpb/auth:latest services/auth/
-docker run -p 8084:8084 \
-  -e JWT_SECRET="super-secret-jwt-key-2026" \
-  -e AUTH_MEDIA_CLIENT_SECRET="media-secret-2026" \
-  -e AUTH_FIELD_CLIENT_SECRET="field-secret-2026" \
-  -e AUTH_INTERNAL_CLIENT_SECRET="internal-secret-2026" \
-  bnpb/auth:latest
-```
-
-### Verification Commands
-```bash
-# 1. Health check
-curl -i http://localhost:8084/health
-
-# 2. Issue token stub
-curl -i -X POST http://localhost:8084/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"client_id":"test-media-client","client_secret":"media-secret-2026","requested_scope":"media"}'
-
-# 3. Refresh token stub
-curl -i -X POST http://localhost:8084/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token":"sample_token"}'
-```
-
----
-
-## 6. Implementation Checklist for Jenka
-
-- [x] Configure `jwt.SigningMethodHS256` using `JWT_SECRET`.
-- [x] Implement user/client credential validation table or in-memory store for `media`, `field`, and `internal` identities.
-- [x] Implement role → scope mapping (`media`→`hazards:read:summary`, `field`/`internal`→`hazards:read:all`) per §2.5, and embed the resulting string in the JWT `scope` claim — **not** the bare role name. This is what `client-api` actually validates.
-- [x] Implement JWT token generation with standard and custom claims (`scope`, `role`), with a default `exp` of 60 seconds.
-- [x] Implement in-memory or Redis-backed store for active refresh tokens.
-- [x] Implement refresh token rotation logic in `POST /auth/refresh` with reuse detection.
+- [Entrypoint, routes, token logic, and configuration](main.go)
+- [Canonical token-flow diagram](../../docs/diagrams/auth-flow.mmd)

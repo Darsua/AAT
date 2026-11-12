@@ -13,6 +13,6 @@ sequenceDiagram
     CAPI->>Agg: GET /internal/hazards?type=SEISMIC<br/>X-Correlation-ID: req-abc-123
     Agg->>DB: SELECT from hazards
     DB-->>Agg: Canonical records
-    Agg-->>CAPI: 200 OK (JSON array, degraded status)
+    Agg-->>CAPI: 200 OK (JSON object: data and meta, including degraded status)
     Note over CAPI: Media scope: drop raw fields (summary only)
     CAPI-->>Client: 200 OK (filtered JSON)

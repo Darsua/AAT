@@ -1,164 +1,57 @@
-# Service: Mock BMKG (Badan Meteorologi, Klimatologi, dan Geofisika)
+# Mock BMKG
 
-**Assigned Owner:** Member A (Aldoy)  
-**Module Name:** `bnpb/mock-bmkg`  
-**Default Port:** `8081`  
-**Contract:** [`contracts/bmkg.yaml`](../../contracts/bmkg.yaml)  
+`bnpb/mock-bmkg` simulates BMKG seismic events and tsunami warnings for M1
+Aggregator ingestion. It is not a live agency integration. Planned M2 sources
+in broader contracts do not add runtime routes to this mock.
 
----
+## Routes and contract
 
-## 1. Overview & Architecture Role
+Base URL: `http://mock-bmkg:8081` inside Compose.
+Full request/response shapes: frozen [BMKG API](../../contracts/bmkg.yaml).
 
-The `mock-bmkg` service acts as an upstream simulation of the Indonesian BMKG seismic and tsunami early warning API feeds. It provides earthquake event catalogs and tsunami warnings for the central BNPB `aggregator` service to ingest, normalize, and distribute.
+| Route | Authentication | Current behavior |
+| --- | --- | --- |
+| `GET /health` | None | Process health. |
+| `GET /seismic-events` | `X-BMKG-Key` | Seismic event list. |
+| `GET /tsunami-warnings` | `X-BMKG-Key` | Tsunami warning list. |
 
-```mermaid
-flowchart LR
-    AGG["aggregator :8083"]:::svc -->|"HTTP GET<br/>X-BMKG-Key"| BM["mock-bmkg :8081"]:::ext
+Both feed routes accept optional `since` timestamps in UTC RFC3339 and inject
+50–150 ms random latency. Missing or invalid keys return `401`.
+There are no admin chaos-toggle routes on this service.
 
-    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
-    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
-    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
-    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
-    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
-    classDef actor fill:#ffffff,stroke:#616161,color:#212121
-    classDef plan fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 3,color:#424242
-```
+## Configuration
 
----
+These are **process defaults**, not Compose credential fallbacks or host ports.
 
-## 2. Service Specifications
+| Variable | Default / requirement |
+| --- | --- |
+| `PORT` | `8081` |
+| `BMKG_API_KEY` | Required; no default. Startup fails if empty. |
 
-### 2.1 Networking & Port
-- **Port:** `8081` (configurable via environment variable `PORT=8081`).
-- Base URL: `http://localhost:8081` or `http://mock-bmkg:8081` inside Docker network.
+Supply the key through the environment. Compose provides a development-only
+fallback and passes the matching value to Aggregator as `BMKG_KEY`; override
+it rather than relying on it outside a trusted development stack.
 
-### 2.2 Authentication Requirement
-- All business endpoints (`/seismic-events`, `/tsunami-warnings`) must validate incoming requests against an API key passed in the custom header:
-  ```http
-  X-BMKG-Key: <BMKG_API_KEY>
-  ```
-- If missing or invalid, return `401 Unauthorized` with JSON:
-  ```json
-  {"error": "Unauthorized", "message": "Missing or invalid X-BMKG-Key header"}
-  ```
-- Configure the valid key via environment variable: `BMKG_API_KEY` (default: `bmkg-secret-key-2026`).
+## Dataset and process state
 
-### 2.3 Latency Injection Requirement
-- Real-world BMKG external feeds have network and computational delay.
-- In every request to `/seismic-events` and `/tsunami-warnings`, inject an artificial delay of **50ms to 150ms** (jittered randomly using `math/rand` or `crypto/rand`) before responding.
+- Startup loads embedded `seed.json` and validates at least 20 seismic records.
+- A background generator adds a seismic event every 10 seconds.
+- Generated records are in memory and lost on restart; embedded historical
+  seeds are reloaded. There is no durable/shared dataset across replicas.
+- Tsunami warnings correlate to seismic records by `related_event_id`.
+- Aggregator's BMKG adapter uses typed DTOs and discards unknown JSON fields.
+  Additive unknown-field capture is implemented for PVMBG only, not this feed.
 
----
+## Run, test, and code
 
-## 3. Endpoints Contract
+Use the [development guide](../../docs/development.md) for credential setup,
+Compose startup, feed queries, and verification. With `BMKG_API_KEY` exported,
+run `go run .` from this module.
 
-Refer to authoritative OpenAPI specification in [`contracts/bmkg.yaml`](../../contracts/bmkg.yaml).
+The HTTP process listens on all interfaces, and Compose's default mock port
+mapping is not loopback-only. Use a trusted network/firewall or restrict the
+host binding for standalone development.
 
-### 3.1 `GET /health`
-Liveness and readiness probe for container orchestrator / docker-compose.
-- **Auth:** None (Public)
-- **Response `200 OK`:**
-  ```json
-  {
-    "status": "UP",
-    "service": "mock-bmkg"
-  }
-  ```
-
-### 3.2 `GET /seismic-events`
-Returns list of seismic earthquake events in Indonesia.
-- **Auth:** Header `X-BMKG-Key` required.
-- **Query Parameters (Optional):**
-  - `since`: ISO 8601 UTC timestamp filter (e.g. `2026-09-05T15:30:00Z`).
-- **Latency:** 50ms - 150ms delay.
-- **Response `200 OK`:**
-  ```json
-  [
-    {
-      "event_id": "bmkg-seis-20260922-001",
-      "magnitude": 5.6,
-      "depth_km": 15.0,
-      "epicenter_lat": -7.5407,
-      "epicenter_lon": 110.4456,
-      "region_name": "124 km BaratDaya KAB-BANTUL-DIY",
-      "occurred_at": "2026-09-05T15:30:00Z",
-      "potential_tsunami": false
-    }
-  ]
-  ```
-
-### 3.3 `GET /tsunami-warnings`
-Returns active or recent tsunami alerts triggered by major undersea seismic events.
-- **Auth:** Header `X-BMKG-Key` required.
-- **Query Parameters (Optional):**
-  - `since`: ISO 8601 UTC timestamp filter (e.g. `2026-09-05T15:30:00Z`).
-- **Latency:** 50ms - 150ms delay.
-- **Response `200 OK`:**
-  ```json
-  [
-    {
-      "warning_id": "tsu-bmkg-20260922-01",
-      "related_event_id": "bmkg-seis-20260922-001",
-      "threat_level": "Waspada",
-      "affected_zones": [
-        "Pesisir Kulonprogo",
-        "Pesisir Kebumen"
-      ],
-      "estimated_arrival": "2026-09-05T15:55:00Z"
-    }
-  ]
-  ```
-
----
-
-## 4. Seed Data Requirements
-
-Aldoy should define his own initial seed dataset or generator containing ≥20 historical events matching `contracts/bmkg.yaml`.
-Aldoy's implementation tasks:
-1. Define and load seed events on application startup into memory.
-2. Provide dynamic event generation or continuous time advancement so events can appear newly generated when tested by the aggregator.
-3. Realistic coordinates across the Indonesian archipelago (Sumatra, Java, Sulawesi, Maluku, NTT, Papua).
-
-> [!IMPORTANT]
-> Per the official M1 spec, this mock must generate **at least 1 new event every 10 seconds** (rate may be increased for demo convenience). This is a hard, graded requirement — the Aggregator's polling and dedup logic needs a steady stream of genuinely new records to demonstrate against, not just a static seed set.
-
----
-
-## 5. Development Runbook
-
-### Run Locally (Go)
-```bash
-# From services/mock-bmkg
-export PORT=8081
-export BMKG_API_KEY=bmkg-secret-key-2026
-go run main.go
-```
-
-### Build & Run with Docker
-```bash
-# From workspace root
-docker build -t bnpb/mock-bmkg:latest services/mock-bmkg/
-docker run -p 8081:8081 -e BMKG_API_KEY=bmkg-secret-key-2026 bnpb/mock-bmkg:latest
-```
-
-### Verification Commands
-```bash
-# 1. Health check
-curl -i http://localhost:8081/health
-
-# 2. Check seismic events (with auth)
-curl -i -H "X-BMKG-Key: bmkg-secret-key-2026" http://localhost:8081/seismic-events
-
-# 3. Check tsunami warnings (with auth)
-curl -i -H "X-BMKG-Key: bmkg-secret-key-2026" http://localhost:8081/tsunami-warnings
-```
-
----
-
-## 6. Implementation Checklist for Aldoy
-
-- [x] Parse and validate incoming `X-BMKG-Key` against `BMKG_API_KEY`.
-- [x] Implement random latency generator between `50ms` and `150ms` before responding.
-- [x] Load seed dataset from `seed.json` on startup (minimum 20 records).
-- [x] Implement query filtering on `GET /seismic-events` via `since` RFC3339 timestamp.
-- [x] Implement `GET /tsunami-warnings` filtering via `since` RFC3339 timestamp.
-- [x] Implement background event generator producing new events at least once every 10 seconds.
+- [Entrypoint, routes, authentication, and generator](main.go)
+- [Embedded historical data](seed.json)
+- [Canonical context diagram](../../docs/diagrams/mock-bmkg-context.mmd)

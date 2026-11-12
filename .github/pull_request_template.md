@@ -1,38 +1,33 @@
-## Summary of Changes
+## Summary
 
-<!-- Provide a concise description of what this PR introduces, fixes, or integrates. -->
+<!-- What changed, why, and what remains unimplemented? -->
 
----
+## Scope and coordination
 
-### Workstream & Ownership (RACI Boundary)
-- [ ] **Member A (Aldoy):** `services/mock-bmkg/`, `services/mock-pvmbg/`
-- [ ] **Member B (Darrel):** `services/aggregator/`, database migrations, outbox producer
-- [ ] **Member C (Jenka):** `services/auth/`, `services/client-api/`, `services/consumers/`
-- [ ] **Cross-cutting / All:** Root orchestration, documentation, scripts
+- Related issue(s):
+- Milestone: M1 maintenance / M2
+- Affected services, files, and interfaces:
+- Coordination needed with other owners:
 
-> **Rule:** Ensure this PR only modifies files within your assigned service scope. Cross-service library sharing is strictly prohibited per course spec.
+<!-- GitHub issues define workstream scope. Cross-service work is allowed when explicitly scoped and coordinated; independent modules and storage ownership still apply. See AGENTS.md rather than copying its ownership table here. -->
 
----
+## Verification
 
-### Relevant Milestone 1 Problem
-- [ ] **Problem 1 (P1):** Live Schema Evolution & dynamic attributes
-- [ ] **Problem 2 (P2):** Concurrency, Availability & Graceful Degradation
-- [ ] **Problem 3 (P3):** RBAC Token Scopes & Cross-Credential Trust Isolation
-- [ ] **Problem 4 (P4):** Independent Service Rebuilds & Flexible Canonical Storage
-- [ ] **Problem 5 (P5):** Pub-Sub Event Fan-Out & Consumer Downtime Recovery
-- [ ] **Non-problem / Infrastructure / Documentation**
+<!-- List actual commands and results, including failures or skips. Use workspace paths or make test, not go test ./... at the repository root. -->
 
----
+- [ ] Applicable vet/tests and Compose validation run; failures/skips explained.
+- [ ] Frozen contracts respected; proposed discrepancies explicitly identified.
+- [ ] No credentials, real kubeconfigs, or `.env` files included.
+- [ ] Documentation links and canonical/embedded diagrams checked where changed.
+- [ ] Behavior/limitations and new configuration documented in the appropriate existing guide/templates.
 
-### Verification Checklist
-- [ ] Code compiles cleanly locally (`go build ./...` or `make test`).
-- [ ] Docker container builds without errors (`docker build ./services/<service-name>`).
-- [ ] Frozen data contracts in `contracts/` are respected and not arbitrarily modified.
-- [ ] No `.env` files or credentials are committed.
-- [ ] Local tests or demo runbook scripts pass.
+### M2 changes, if applicable
 
-### Evidence / Test Output
-<!-- Paste terminal outputs, log snippets, or test results demonstrating that the changes work. -->
-```bash
+- [ ] Runtime implementation distinguished from contract-only/planned behavior.
+- [ ] Canonical storage ownership, pod role labels, and component resource allocations respected.
+- [ ] Failure, ordering, durability, and recovery implications assessed.
+- [ ] No Tester Agent restrictions or unapproved live/destructive operations introduced.
 
-```
+## Evidence and remaining limitations
+
+<!-- Link dated, milestone-specific artifacts. Unit tests or M1 logs are not proof of M2 load capacity or recovery. Redact secrets, not meaningful error results. -->
