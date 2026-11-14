@@ -138,7 +138,7 @@ func TestHazardHandler_ValidationErrors(t *testing.T) {
 		{
 			name:        "Invalid type",
 			url:         "/internal/hazards?type=TSUNAMI",
-			expectedMsg: "SEISMIC or VOLCANIC",
+			expectedMsg: "SEISMIC, VOLCANIC, WILDFIRE, or COASTAL",
 		},
 		{
 			name:        "Invalid severity",
@@ -256,5 +256,54 @@ func TestHazardHandler_DegradedStatus(t *testing.T) {
 
 	if resp2.Meta.Degraded || resp2.Meta.StaleSince != nil {
 		t.Errorf("expected seismic query not degraded, got degraded=%v", resp2.Meta.Degraded)
+	}
+}
+
+type mockPartialQuerier struct {
+	mockHazardQuerier
+	partial bool
+	units   []string
+	since   *time.Time
+}
+
+func (m *mockPartialQuerier) StorageDegradedStatus() (bool, []string, *time.Time) {
+	return m.partial, m.units, m.since
+}
+
+func TestHazardHandler_AcceptsM2TypesAndPartialStorageHeaders(t *testing.T) {
+	since := time.Date(2026, 11, 14, 18, 0, 0, 0, time.UTC)
+	mockRepo := &mockPartialQuerier{
+		mockHazardQuerier: mockHazardQuerier{
+			events: []domain.HazardEvent{},
+			total:  0,
+		},
+		partial: true,
+		units:   []string{"shard-1-r1", "shard-2"},
+		since:   &since,
+	}
+
+	handler := NewHazardHandler(mockRepo)
+
+	for _, ht := range []string{"WILDFIRE", "COASTAL"} {
+		req := httptest.NewRequest(http.MethodGet, "/internal/hazards?type="+ht, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for type=%s, got %d", ht, rec.Code)
+		}
+		if rec.Header().Get("X-Storage-Partial") != "true" {
+			t.Errorf("expected X-Storage-Partial: true header, got %q", rec.Header().Get("X-Storage-Partial"))
+		}
+		if rec.Header().Get("X-Unavailable-Units") != "shard-1-r1,shard-2" {
+			t.Errorf("expected X-Unavailable-Units header, got %q", rec.Header().Get("X-Unavailable-Units"))
+		}
+		var resp HazardListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode response failed: %v", err)
+		}
+		if !resp.Meta.Degraded || resp.Meta.StaleSince == nil {
+			t.Errorf("expected meta.degraded=true and stale_since set on partial storage")
+		}
 	}
 }

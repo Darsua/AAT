@@ -28,6 +28,9 @@ data:
   AUTH_MEDIA_CLIENT_ID: "test-media-client"
   AUTH_FIELD_CLIENT_ID: "test-field-client"
   AUTH_INTERNAL_CLIENT_ID: "test-internal-client"
+  NODE_NAME: "local"
+  STORAGE_UNIT_ID: "shard-1"
+  AUDIT_ALL_SOURCES_LABEL: "ALL"
 
   # Redpanda / Kafka topic and consumer group definitions
   TOPIC: "bnpb.hazard-events"

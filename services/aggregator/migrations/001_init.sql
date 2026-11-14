@@ -66,3 +66,26 @@ ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;
+
+-- Composite indexes for deterministic cross-shard and Audit API ordering
+CREATE INDEX IF NOT EXISTS idx_hazards_occurred_id ON hazards(occurred_at DESC, hazard_id ASC);
+CREATE INDEX IF NOT EXISTS idx_hazards_ingested_id ON hazards(ingested_at ASC, hazard_id ASC);
+CREATE INDEX IF NOT EXISTS idx_hazards_source_ingested_id ON hazards(source, ingested_at ASC, hazard_id ASC);
+
+-- 4. Dead Letter Queue / Unprocessed Messages Table (#26 / #30 boundary)
+CREATE TABLE IF NOT EXISTS dlq_messages (
+    message_id VARCHAR(128) PRIMARY KEY,
+    source VARCHAR(32) NOT NULL,
+    raw_payload BYTEA NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reason TEXT NOT NULL,
+    retryable BOOLEAN NOT NULL DEFAULT FALSE,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(32) NOT NULL DEFAULT 'parked',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_messages_active
+    ON dlq_messages(received_at ASC, message_id ASC)
+    WHERE status IN ('retrying', 'parked');
