@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: redpanda
+    role: broker
+spec:
+  selector:
+    app: redpanda
+    role: broker
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: admin
+      port: 9644
+      targetPort: 9644
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: redpanda
+    role: broker
+spec:
+  serviceName: redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda
+      role: broker
+  template:
+    metadata:
+      labels:
+        app: redpanda
+        role: broker
+    spec:
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+          args:
+            - redpanda
+            - start
+            - --smp=1
+            - --memory=256M
+            - --overprovisioned
+            - --kafka-addr=internal://0.0.0.0:9092
+            - --advertise-kafka-addr=internal://redpanda:9092
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: admin
+              containerPort: 9644
+          resources:
+            requests:
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["rpk", "cluster", "info"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["rpk", "cluster", "info"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: redpanda-data
+              mountPath: /var/lib/redpanda/data
+      volumes:
+        - name: redpanda-data
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topic-init
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: redpanda-topic-init
+    role: broker
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: redpanda-topic-init
+        role: broker
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: topic-init
+          image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until rpk cluster info -X brokers=redpanda:9092 >/dev/null 2>&1; do
+                echo "Waiting for Redpanda broker..."
+                sleep 2
+              done
+              for topic in "${REDPANDA_TOPIC_HAZARDS}" "${REDPANDA_TOPIC_FIELD_REPORTS}" "${REDPANDA_TOPIC_DLQ}"; do
+                if rpk topic describe "${topic}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
+                  echo "Topic '${topic}' already exists"
+                else
+                  rpk topic create "${topic}" --partitions 3 --replicas 1 -X brokers=redpanda:9092
+                fi
+              done
+          env:
+            - name: REDPANDA_TOPIC_HAZARDS
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: REDPANDA_TOPIC_HAZARDS
+            - name: REDPANDA_TOPIC_FIELD_REPORTS
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: REDPANDA_TOPIC_FIELD_REPORTS
+            - name: REDPANDA_TOPIC_DLQ
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: REDPANDA_TOPIC_DLQ
+          resources:
+            requests:
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"

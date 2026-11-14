@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up down restart logs build test demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
+.PHONY: help up down restart logs build test k8s-validate k8s-deploy demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
 
 ## Display available make targets
 help:
@@ -22,6 +22,8 @@ help:
 	@echo "  logs         Tail follow logs from all Docker Compose services"
 	@echo "  build        Build or rebuild Docker Compose service images"
 	@echo "  test         Run unit and integration tests across all Go services"
+	@echo "  k8s-validate Render and validate Kubernetes manifests via kubectl kustomize"
+	@echo "  k8s-deploy   Deploy the full M2 Kubernetes stack with one command"
 	@echo "  demo-p1      Execute Problem 1 demo (PVMBG schema evolution & confidence level)"
 	@echo "  demo-p2      Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
 	@echo "  demo-p3      Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
@@ -54,6 +56,16 @@ build:
 ## Run Go unit tests
 test:
 	go test -v ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+
+## Validate rendered Kubernetes manifests
+k8s-validate:
+	@chmod +x ./scripts/deploy_k8s.sh
+	./scripts/deploy_k8s.sh --dry-run
+
+## Deploy Kubernetes workloads cleanly in one command
+k8s-deploy:
+	@chmod +x ./scripts/deploy_k8s.sh
+	./scripts/deploy_k8s.sh
 
 ## Problem 1: Schema change demonstration
 demo-p1:

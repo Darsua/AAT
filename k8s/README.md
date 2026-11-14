@@ -1,19 +1,27 @@
 # Kubernetes operations
 
-**Status:** this repository contains M2 **foundation resources**, not a deployable Kubernetes application. `base/` defines a namespace, network policies, a LimitRange, and ConfigMap/Secret templates; it contains no application workloads, database/broker deployments, Ingress, or Tester Agent installation. `kubectl apply -k k8s/base` is therefore **not** the required one-command deployment. Use [Compose for the runnable M1 baseline](../docs/development.md).
+**Status:** `base/` defines the M2 foundation policies, ConfigMap/Secret templates, 3-node sharded storage StatefulSets (`store-aqua`, `store-ruby`, `store-kana`), Redpanda broker + topic init job, 3-replica HA Aggregator Deployment, API/consumer/mock workloads, and Traefik Ingress. Provision cluster credentials (`bnpb-credentials`) before running the one-command deployment (`./scripts/deploy_k8s.sh` or `make k8s-deploy`). Live cluster isolation, failover, and load certification still require execution on the 3-node separate-kernel cluster. Use [Compose for the runnable M1 baseline](../docs/development.md).
 
-Infrastructure and application work is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues), including [foundation #22](https://github.com/Darsua/AAT/issues/22), [storage #23](https://github.com/Darsua/AAT/issues/23), and [HA #25](https://github.com/Darsua/AAT/issues/25). Closing the foundation issue does not certify the running cluster.
+Infrastructure and application work is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues), including [foundation #22](https://github.com/Darsua/AAT/issues/22), [storage #23](https://github.com/Darsua/AAT/issues/23), and [HA #25](https://github.com/Darsua/AAT/issues/25). Authoring manifests does not certify the running cluster until exercised live under `#31`.
 
 ## Documented environment
 
-The existing team topology records two KVM VMs on separate physical hosts. This is a configuration record, **not a fresh live-cluster verification**:
+The existing team topology records two KVM VMs on separate physical hosts, with a third worker node (`kana`) scheduled for M2 provisioning. This is a configuration record, **not a fresh live-cluster verification**:
 
 | Kubernetes node | Physical host | Node role | VM resources | Node address |
 | :--- | :--- | :--- | :--- | :--- |
 | `aqua` | `runner-1` | Control plane and worker | 2 vCPU, 3.5 GB RAM | `10.5.27.240` |
 | `ruby` | `nexus` | Non-control-plane worker | 2 vCPU, 3.5 GB RAM | `10.5.27.241` |
+| `kana` | TBD | Second worker (P1 3-node sharding) | TBD | TBD |
 
-The physical hosts' CPU/RAM specifications still need to be recorded; VM allocations do not substitute for them. Verify Kubernetes/kernel versions, actual node capacity, storage placement, and reachability from the environment rather than relying on the former unverified version/latency claims.
+The physical hosts' CPU/RAM specifications still need to be recorded; VM allocations do not substitute for them. Verify Kubernetes/kernel versions, actual node capacity, storage placement, and reachability from the environment rather than relying on unverified assumptions.
+
+### Sharded storage and one-command deployment
+
+- `storage.yaml` places one `role=store` StatefulSet per node (`store-aqua`, `store-ruby`, `store-kana`), each backed by node-local `hostPath` disk (`/var/lib/bnpb-store/store-<node>`).
+- `SHARD_CONFIG` distributes 3 logical shards with cross-node replication (`shard-1` primary `aqua` / replica `ruby`, `shard-2` primary `ruby` / replica `kana`, `shard-3` primary `kana` / replica `aqua`), so no single node stores the entire dataset while surviving a single worker loss. Override `STORE_NODE_1..3` in `bnpb-config` if hostnames change.
+- Validate rendered manifests locally with `./scripts/deploy_k8s.sh --dry-run` (or `make k8s-validate`).
+- Deploy the complete initial stack in one command (provisioning `bnpb-credentials` from `.env`/environment if absent) with `./scripts/deploy_k8s.sh` (or `make k8s-deploy`).
 
 The documented access path is Cloudflare Tunnel through gateway `mainframe`, with `k8s-aat.darsu.dev` for the Kubernetes API and `aat.darsu.dev` / `*.aat.darsu.dev` for application ingress. DNS/tunnel availability does not establish that an application is deployed. TLS and bearer authentication are distinct; do not describe bearer-token access as mutual TLS.
 

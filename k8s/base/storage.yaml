@@ -1,0 +1,315 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: store-init-scripts
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: storage-init
+data:
+  00_create_shards.sh: |
+    #!/bin/sh
+    set -eu
+    for db in ${SHARD_DBS:-}; do
+      exists="$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='${db}'" -U "${POSTGRES_USER}" -d postgres)"
+      if [ "${exists}" != "1" ]; then
+        psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER}" -d postgres -c "CREATE DATABASE \"${db}\";"
+      fi
+    done
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: store-aqua
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-aqua
+    role: store
+spec:
+  selector:
+    app: store-aqua
+    role: store
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store-aqua
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-aqua
+    role: store
+spec:
+  serviceName: store-aqua
+  replicas: 1
+  selector:
+    matchLabels:
+      app: store-aqua
+      role: store
+  template:
+    metadata:
+      labels:
+        app: store-aqua
+        role: store
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: aqua
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: SHARD_DBS
+              value: "bnpb_shard_1 bnpb_shard_3_r1"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_DB
+          resources:
+            requests:
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: store-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d/00_create_shards.sh
+              subPath: 00_create_shards.sh
+      volumes:
+        - name: store-data
+          hostPath:
+            path: /var/lib/bnpb-store/store-aqua
+            type: DirectoryOrCreate
+        - name: init-scripts
+          configMap:
+            name: store-init-scripts
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: store-ruby
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-ruby
+    role: store
+spec:
+  selector:
+    app: store-ruby
+    role: store
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store-ruby
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-ruby
+    role: store
+spec:
+  serviceName: store-ruby
+  replicas: 1
+  selector:
+    matchLabels:
+      app: store-ruby
+      role: store
+  template:
+    metadata:
+      labels:
+        app: store-ruby
+        role: store
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ruby
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: SHARD_DBS
+              value: "bnpb_shard_2 bnpb_shard_1_r1"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_DB
+          resources:
+            requests:
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: store-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d/00_create_shards.sh
+              subPath: 00_create_shards.sh
+      volumes:
+        - name: store-data
+          hostPath:
+            path: /var/lib/bnpb-store/store-ruby
+            type: DirectoryOrCreate
+        - name: init-scripts
+          configMap:
+            name: store-init-scripts
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: store-kana
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-kana
+    role: store
+spec:
+  selector:
+    app: store-kana
+    role: store
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: store-kana
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: store-kana
+    role: store
+spec:
+  serviceName: store-kana
+  replicas: 1
+  selector:
+    matchLabels:
+      app: store-kana
+      role: store
+  template:
+    metadata:
+      labels:
+        app: store-kana
+        role: store
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: kana
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: SHARD_DBS
+              value: "bnpb_shard_3 bnpb_shard_2_r1"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_DB
+          resources:
+            requests:
+              memory: "512Mi"
+            limits:
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d postgres"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: store-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d/00_create_shards.sh
+              subPath: 00_create_shards.sh
+      volumes:
+        - name: store-data
+          hostPath:
+            path: /var/lib/bnpb-store/store-kana
+            type: DirectoryOrCreate
+        - name: init-scripts
+          configMap:
+            name: store-init-scripts
+            defaultMode: 0755

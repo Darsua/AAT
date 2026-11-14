@@ -33,6 +33,11 @@ data:
   AUDIT_ALL_SOURCES_LABEL: "ALL"
   LEASE_TTL_SECS: "15"
   LEASE_RENEW_INTERVAL_SECS: "5"
+  DRAIN_DELAY_MS: "3000"
+  STORE_NODE_1: "aqua"
+  STORE_NODE_2: "ruby"
+  STORE_NODE_3: "kana"
+  SHARD_CONFIG: "shard-1=shard-1|${STORE_NODE_1}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-aqua:5432/bnpb_shard_1?sslmode=disable,shard-1-r1|${STORE_NODE_2}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-ruby:5432/bnpb_shard_1_r1?sslmode=disable;shard-2=shard-2|${STORE_NODE_2}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-ruby:5432/bnpb_shard_2?sslmode=disable,shard-2-r1|${STORE_NODE_3}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-kana:5432/bnpb_shard_2_r1?sslmode=disable;shard-3=shard-3|${STORE_NODE_3}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-kana:5432/bnpb_shard_3?sslmode=disable,shard-3-r1|${STORE_NODE_1}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-aqua:5432/bnpb_shard_3_r1?sslmode=disable"
 
   # Redpanda / Kafka topic and consumer group definitions
   TOPIC: "bnpb.hazard-events"
