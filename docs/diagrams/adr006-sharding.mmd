@@ -1,0 +1,31 @@
+flowchart TD
+    ING["aggregator: route by hazard_id on 64-vnode SHA-256 ring"]
+    ING -->|"Shard 1 key"| S1["shard-1"]
+    ING -->|"Shard 2 key"| S2["shard-2"]
+    ING -->|"Shard 3 key"| S3["shard-3"]
+
+    subgraph AQUA["Node: aqua"]
+        P1[("shard-1: primary")]
+        R3[("shard-3-r1: replica")]
+    end
+
+    subgraph RUBY["Node: ruby"]
+        P2[("shard-2: primary")]
+        R1[("shard-1-r1: replica")]
+    end
+
+    subgraph KANA["Node: kana"]
+        P3[("shard-3: primary")]
+        R2[("shard-2-r1: replica")]
+    end
+
+    S1 -->|"Write primary"| P1
+    S1 -->|"Replicate RF=2"| R1
+    S2 -->|"Write primary"| P2
+    S2 -->|"Replicate RF=2"| R2
+    S3 -->|"Write primary"| P3
+    S3 -->|"Replicate RF=2"| R3
+
+    P1 -.->|"SyncShardReplicas anti-entropy"| R1
+    P2 -.->|"SyncShardReplicas anti-entropy"| R2
+    P3 -.->|"SyncShardReplicas anti-entropy"| R3

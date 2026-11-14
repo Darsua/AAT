@@ -171,6 +171,37 @@ PVMBG_DELAY_MIN_MS=500 PVMBG_DELAY_MAX_MS=3000 docker compose up -d mock-pvmbg
 
 This is **not** the M2 sustained 10,000-VU/scaling test. Historical measurements are evidence of a particular run, not a guarantee for a new environment.
 
+## M2 sharded, HA, and Kubernetes workflows
+
+Beyond the M1 single-node Compose stack, local M2 tooling covers 3-node database sharding (`#23`), Internal Audit API verification (`#30`), HA Aggregator leasing/fencing (`#25`), and full Kubernetes manifest deployment (`#22`):
+
+```bash
+# Validate sharded Compose overlay and launch 3 Postgres stores + 3 HA aggregators
+make up-sharded
+make down-sharded
+
+# Validate rendered Kubernetes workloads and one-command deployment script
+make k8s-validate
+make k8s-deploy
+
+# Run historical catalog loading + regional spike skew comparison (JSON report)
+make catalog-bench
+
+# Run cross-language Go/Python SHA-256 checksum & Audit API verification
+make audit-verify
+```
+
+To verify a live running Aggregator endpoint directly against an exported or external catalog JSON file:
+
+```bash
+python3 scripts/verify_audit_and_catalog.py \
+  --url http://localhost:8083 \
+  --token "${AUDIT_TOKEN:-audit-secret-token-2026}" \
+  --json
+```
+
+See [docker-compose.sharded.yml](../docker-compose.sharded.yml), [the Kubernetes runbook](../k8s/README.md), [ADR 006](adr/006-sharded-storage-consistent-hashing-and-audit-api.md), and [ADR 007](adr/007-aggregator-ha-leader-leasing-and-fencing.md) for topology details and recorded benchmark measurements.
+
 ## Reports and architecture documentation
 
 `make report` builds the **M1** report with `tectonic`, producing `docs/report/m1/main.pdf` and `docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf`. Tectonic may download TeX dependencies. See the [report guide](report/README.md). M2 will also use LaTeX; its folders are reserved, with no manuscript or build target yet.
