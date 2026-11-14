@@ -89,3 +89,31 @@ CREATE TABLE IF NOT EXISTS dlq_messages (
 CREATE INDEX IF NOT EXISTS idx_dlq_messages_active
     ON dlq_messages(received_at ASC, message_id ASC)
     WHERE status IN ('retrying', 'parked');
+
+-- 5. Distributed Leader Leasing, Fencing Tokens & Source Checkpoints (#25 HA)
+ALTER TABLE hazards ADD COLUMN IF NOT EXISTS fencing_token BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS leader_leases (
+    lease_key VARCHAR(64) PRIMARY KEY,
+    holder_id VARCHAR(128) NOT NULL,
+    fencing_token BIGINT NOT NULL DEFAULT 1,
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    renewed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_checkpoints (
+    source VARCHAR(32) PRIMARY KEY,
+    last_occurred_at TIMESTAMPTZ NOT NULL,
+    last_source_ref_id VARCHAR(128) NOT NULL DEFAULT '',
+    fencing_token BIGINT NOT NULL DEFAULT 0,
+    holder_id VARCHAR(128) NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE IF NOT EXISTS source_fences (
+    source VARCHAR(32) PRIMARY KEY,
+    max_fencing_token BIGINT NOT NULL DEFAULT 0,
+    holder_id VARCHAR(128) NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);

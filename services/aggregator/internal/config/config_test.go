@@ -10,6 +10,11 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("PORT", "")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("POLL_INTERVAL_SECS", "")
+	t.Setenv("INSTANCE_ID", "")
+	t.Setenv("HOSTNAME", "")
+	t.Setenv("LEASE_TTL_SECS", "")
+	t.Setenv("LEASE_RENEW_INTERVAL_SECS", "")
+	t.Setenv("DRAIN_DELAY_MS", "")
 
 	cfg := Load()
 
@@ -37,6 +42,18 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.StorageUnitID != "shard-1" {
 		t.Errorf("expected default StorageUnitID shard-1, got %s", cfg.StorageUnitID)
 	}
+	if cfg.InstanceID == "" {
+		t.Error("expected non-empty fallback InstanceID")
+	}
+	if cfg.LeaseTTL != 15*time.Second {
+		t.Errorf("expected default LeaseTTL 15s, got %v", cfg.LeaseTTL)
+	}
+	if cfg.LeaseRenewInterval != 5*time.Second {
+		t.Errorf("expected default LeaseRenewInterval 5s, got %v", cfg.LeaseRenewInterval)
+	}
+	if cfg.DrainDelay != 0 {
+		t.Errorf("expected default DrainDelay 0, got %v", cfg.DrainDelay)
+	}
 }
 
 func TestLoad_CustomEnv(t *testing.T) {
@@ -50,6 +67,10 @@ func TestLoad_CustomEnv(t *testing.T) {
 	t.Setenv("NODE_NAME", "aqua")
 	t.Setenv("STORAGE_UNIT_ID", "shard-2")
 	t.Setenv("SHARD_CONFIG", "shard-1=shard-1|aqua|primary|postgres://a,shard-1-r1|ruby|replica|postgres://b")
+	t.Setenv("INSTANCE_ID", "aggregator-pod-1")
+	t.Setenv("LEASE_TTL_SECS", "20")
+	t.Setenv("LEASE_RENEW_INTERVAL_SECS", "4")
+	t.Setenv("DRAIN_DELAY_MS", "250")
 
 	cfg := Load()
 
@@ -82,5 +103,17 @@ func TestLoad_CustomEnv(t *testing.T) {
 	}
 	if cfg.ShardConfig == "" {
 		t.Error("expected non-empty ShardConfig")
+	}
+	if cfg.InstanceID != "aggregator-pod-1" {
+		t.Errorf("expected InstanceID aggregator-pod-1, got %s", cfg.InstanceID)
+	}
+	if cfg.LeaseTTL != 20*time.Second {
+		t.Errorf("expected LeaseTTL 20s, got %v", cfg.LeaseTTL)
+	}
+	if cfg.LeaseRenewInterval != 4*time.Second {
+		t.Errorf("expected LeaseRenewInterval 4s, got %v", cfg.LeaseRenewInterval)
+	}
+	if cfg.DrainDelay != 250*time.Millisecond {
+		t.Errorf("expected DrainDelay 250ms, got %v", cfg.DrainDelay)
 	}
 }
