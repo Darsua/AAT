@@ -8,6 +8,12 @@ resources:
   - network-policies.yaml
   - resource-limits.yaml
   - configmaps.yaml
+  - storage.yaml
+  - broker.yaml
+  - mocks.yaml
+  - aggregator.yaml
+  - apis-and-consumers.yaml
+  - ingress.yaml
 
 labels:
   - pairs:
