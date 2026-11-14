@@ -100,8 +100,10 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
-	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
-	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
+	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
+		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
+	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
+		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
 
 	var workerWg sync.WaitGroup
@@ -168,14 +170,24 @@ func main() {
 
 	// Wait for termination signal
 	sig := <-stopChan
-	log.Info("shutting down aggregator server gracefully", slog.String("signal", sig.String()))
+	log.Info("shutting down aggregator server gracefully",
+		slog.String("signal", sig.String()),
+		slog.String("instance_id", cfg.InstanceID),
+	)
 
-	// 1. Drain and stop background workers
+	// 1. Mark readiness probe unhealthy immediately so ingress drains new requests before shutdown
+	healthHandler.SetDraining(true)
+
+	// 2. Drain and stop background workers (releasing leader leases cleanly)
 	workerCancel()
 	workerWg.Wait()
 	log.Info("background polling and outbox workers stopped cleanly")
 
-	// 2. Stop HTTP server
+	if cfg.DrainDelay > 0 {
+		time.Sleep(cfg.DrainDelay)
+	}
+
+	// 3. Stop HTTP server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 

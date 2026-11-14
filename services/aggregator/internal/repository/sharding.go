@@ -28,6 +28,8 @@ var (
 	ErrAllStorageUnavailable = errors.New("all storage units are unavailable")
 	// ErrHazardNotFound indicates a record was definitively absent across reachable owning shard units.
 	ErrHazardNotFound = errors.New("hazard not found")
+	// ErrStaleFencingToken indicates a write or lease validation used an expired or superseded fencing token.
+	ErrStaleFencingToken = errors.New("stale or expired fencing token rejected by storage")
 )
 
 // UnitHazardQuery filters canonical hazards when querying an individual storage unit.
@@ -56,6 +58,15 @@ type UnitBackend interface {
 	MarkOutboxQuarantined(ctx context.Context, id int64, reason string) error
 	QueryUnprocessed(ctx context.Context, source *domain.Source) ([]domain.UnprocessedMessage, error)
 	SaveUnprocessedMessage(ctx context.Context, msg domain.UnprocessedMessage) error
+
+	AcquireOrRenewLease(ctx context.Context, leaseKey, holderID string, minToken int64, ttl time.Duration) (domain.LeaderLease, bool, error)
+	ReleaseLease(ctx context.Context, leaseKey, holderID string, fencingToken int64) error
+	ValidateLeaseFence(ctx context.Context, fence domain.WriteFence) error
+	AdvanceSourceFence(ctx context.Context, source domain.Source, fencingToken int64, holderID string) error
+	GetMaxSourceFence(ctx context.Context, source domain.Source) (int64, error)
+	SaveHazardWithFence(ctx context.Context, h *domain.HazardEvent, correlationID string, fence domain.WriteFence, withOutbox bool) error
+	GetSourceCheckpoint(ctx context.Context, source domain.Source) (*domain.SourceCheckpoint, error)
+	SaveSourceCheckpoint(ctx context.Context, cp domain.SourceCheckpoint) error
 }
 
 // UnitSpec describes the configuration of a single primary or replica storage unit.
@@ -330,22 +341,40 @@ func buildPlacementMetrics(name string, shardIDs []string, counts map[string]int
 
 // MemoryUnitBackend provides a thread-safe in-memory UnitBackend supporting failure and disk-wipe simulation.
 type MemoryUnitBackend struct {
-	mu      sync.RWMutex
-	healthy bool
-	hazards map[string]domain.HazardEvent
-	outbox  map[string]domain.OutboxEvent
-	dlq     map[string]domain.UnprocessedMessage
-	nextSeq int64
+	mu           sync.RWMutex
+	healthy      bool
+	clockOffset  time.Duration
+	hazards      map[string]domain.HazardEvent
+	outbox       map[string]domain.OutboxEvent
+	dlq          map[string]domain.UnprocessedMessage
+	leases       map[string]domain.LeaderLease
+	checkpoints  map[domain.Source]domain.SourceCheckpoint
+	sourceFences map[domain.Source]int64
+	nextSeq      int64
 }
 
 // NewMemoryUnitBackend creates a healthy, empty in-memory storage unit.
 func NewMemoryUnitBackend() *MemoryUnitBackend {
 	return &MemoryUnitBackend{
-		healthy: true,
-		hazards: make(map[string]domain.HazardEvent),
-		outbox:  make(map[string]domain.OutboxEvent),
-		dlq:     make(map[string]domain.UnprocessedMessage),
+		healthy:      true,
+		hazards:      make(map[string]domain.HazardEvent),
+		outbox:       make(map[string]domain.OutboxEvent),
+		dlq:          make(map[string]domain.UnprocessedMessage),
+		leases:       make(map[string]domain.LeaderLease),
+		checkpoints:  make(map[domain.Source]domain.SourceCheckpoint),
+		sourceFences: make(map[domain.Source]int64),
 	}
+}
+
+// AdvanceClock shifts the coordinator clock offset forward or backward for deterministic lease expiry tests.
+func (m *MemoryUnitBackend) AdvanceClock(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clockOffset += d
+}
+
+func (m *MemoryUnitBackend) nowLocked() time.Time {
+	return time.Now().UTC().Add(m.clockOffset)
 }
 
 // SetHealthy toggles simulated node/unit availability.
@@ -355,13 +384,16 @@ func (m *MemoryUnitBackend) SetHealthy(healthy bool) {
 	m.healthy = healthy
 }
 
-// Wipe deletes all persisted hazards, outbox records, and DLQ state on this unit to simulate local disk loss.
+// Wipe deletes all persisted hazards, outbox records, leases, checkpoints, fences, and DLQ state on this unit to simulate local disk loss.
 func (m *MemoryUnitBackend) Wipe() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.hazards = make(map[string]domain.HazardEvent)
 	m.outbox = make(map[string]domain.OutboxEvent)
 	m.dlq = make(map[string]domain.UnprocessedMessage)
+	m.leases = make(map[string]domain.LeaderLease)
+	m.checkpoints = make(map[domain.Source]domain.SourceCheckpoint)
+	m.sourceFences = make(map[domain.Source]int64)
 }
 
 // Count returns the number of canonical hazard records currently stored on this unit.
@@ -430,6 +462,9 @@ func (m *MemoryUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEven
 	stored.IngestedAt = stored.IngestedAt.UTC()
 
 	m.upsertHazardLocked(stored, true)
+	if stored.FencingToken > m.sourceFences[stored.Source] {
+		m.sourceFences[stored.Source] = stored.FencingToken
+	}
 	*h = cloneHazardEvent(stored)
 	return nil
 }
@@ -451,7 +486,15 @@ func (m *MemoryUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domain.
 	stored.IngestedAt = stored.IngestedAt.UTC()
 
 	m.upsertHazardLocked(stored, true)
+	if err := m.enqueueOutboxLocked(stored, correlationID); err != nil {
+		return err
+	}
 
+	*h = cloneHazardEvent(stored)
+	return nil
+}
+
+func (m *MemoryUnitBackend) enqueueOutboxLocked(stored domain.HazardEvent, correlationID string) error {
 	payload, err := json.Marshal(stored)
 	if err != nil {
 		return err
@@ -471,11 +514,9 @@ func (m *MemoryUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domain.
 			Payload:       payload,
 			CorrelationID: correlationID,
 			Published:     false,
-			CreatedAt:     time.Now().UTC(),
+			CreatedAt:     m.nowLocked(),
 		}
 	}
-
-	*h = cloneHazardEvent(stored)
 	return nil
 }
 
@@ -483,6 +524,9 @@ func (m *MemoryUnitBackend) upsertHazardLocked(h domain.HazardEvent, preserveIng
 	if existing, ok := m.findBySourceRefLocked(h.HazardID, h.Source, h.SourceRefID); ok {
 		if preserveIngested && !existing.IngestedAt.IsZero() {
 			h.IngestedAt = existing.IngestedAt
+		}
+		if existing.FencingToken > h.FencingToken {
+			h.FencingToken = existing.FencingToken
 		}
 		h.HazardID = existing.HazardID
 	}
@@ -726,6 +770,205 @@ func (m *MemoryUnitBackend) SaveUnprocessedMessage(ctx context.Context, msg doma
 		cp.RawPayload = slices.Clone(msg.RawPayload)
 	}
 	m.dlq[cp.MessageID] = cp
+	return nil
+}
+
+func (m *MemoryUnitBackend) AcquireOrRenewLease(ctx context.Context, leaseKey, holderID string, minToken int64, ttl time.Duration) (domain.LeaderLease, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return domain.LeaderLease{}, false, err
+	}
+	now := m.nowLocked()
+	existing, exists := m.leases[leaseKey]
+	if !exists || now.After(existing.ExpiresAt) {
+		nextToken := existing.FencingToken + 1
+		if minToken >= nextToken {
+			nextToken = minToken + 1
+		}
+		if nextToken < 1 {
+			nextToken = 1
+		}
+		lease := domain.LeaderLease{
+			LeaseKey:     leaseKey,
+			HolderID:     holderID,
+			FencingToken: nextToken,
+			AcquiredAt:   now,
+			RenewedAt:    now,
+			ExpiresAt:    now.Add(ttl),
+		}
+		m.leases[leaseKey] = lease
+		return lease, true, nil
+	}
+
+	if existing.HolderID == holderID && (minToken == 0 || existing.FencingToken == minToken) {
+		existing.RenewedAt = now
+		existing.ExpiresAt = now.Add(ttl)
+		m.leases[leaseKey] = existing
+		return existing, true, nil
+	}
+	return existing, false, nil
+}
+
+func (m *MemoryUnitBackend) GetLease(ctx context.Context, leaseKey string) (*domain.LeaderLease, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return nil, err
+	}
+	lease, ok := m.leases[leaseKey]
+	if !ok {
+		return nil, nil
+	}
+	cp := lease
+	return &cp, nil
+}
+
+func (m *MemoryUnitBackend) MirrorLease(ctx context.Context, lease domain.LeaderLease) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	if existing, ok := m.leases[lease.LeaseKey]; ok &&
+		(existing.FencingToken > lease.FencingToken ||
+			(existing.FencingToken == lease.FencingToken && existing.RenewedAt.After(lease.RenewedAt))) {
+		return nil
+	}
+	m.leases[lease.LeaseKey] = lease
+	return nil
+}
+
+func (m *MemoryUnitBackend) ReleaseLease(ctx context.Context, leaseKey, holderID string, fencingToken int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	existing, ok := m.leases[leaseKey]
+	if ok && existing.HolderID == holderID && (fencingToken == 0 || existing.FencingToken == fencingToken) {
+		existing.ExpiresAt = m.nowLocked().Add(-time.Millisecond)
+		m.leases[leaseKey] = existing
+	}
+	return nil
+}
+
+func (m *MemoryUnitBackend) ValidateLeaseFence(ctx context.Context, fence domain.WriteFence) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	if fence.FencingToken <= 0 {
+		return ErrStaleFencingToken
+	}
+	lease, ok := m.leases[fence.LeaseKey]
+	if !ok || m.nowLocked().After(lease.ExpiresAt) || lease.HolderID != fence.HolderID || lease.FencingToken != fence.FencingToken {
+		return ErrStaleFencingToken
+	}
+	if fence.Source != "" && m.sourceFences[fence.Source] > fence.FencingToken {
+		return ErrStaleFencingToken
+	}
+	return nil
+}
+
+func (m *MemoryUnitBackend) AdvanceSourceFence(ctx context.Context, source domain.Source, fencingToken int64, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	if fencingToken <= 0 || fencingToken < m.sourceFences[source] {
+		return ErrStaleFencingToken
+	}
+	m.sourceFences[source] = fencingToken
+	return nil
+}
+
+func (m *MemoryUnitBackend) GetMaxSourceFence(ctx context.Context, source domain.Source) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return 0, err
+	}
+	return m.sourceFences[source], nil
+}
+
+func (m *MemoryUnitBackend) SaveHazardWithFence(ctx context.Context, h *domain.HazardEvent, correlationID string, fence domain.WriteFence, withOutbox bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	if fence.FencingToken <= 0 || fence.FencingToken < m.sourceFences[h.Source] {
+		return ErrStaleFencingToken
+	}
+
+	stored := cloneHazardEvent(*h)
+	if existing, ok := m.findBySourceRefLocked(stored.HazardID, stored.Source, stored.SourceRefID); ok {
+		if existing.FencingToken > fence.FencingToken {
+			return ErrStaleFencingToken
+		}
+		if !existing.IngestedAt.IsZero() {
+			stored.IngestedAt = existing.IngestedAt
+		}
+	}
+	if stored.IngestedAt.IsZero() {
+		stored.IngestedAt = m.nowLocked()
+	}
+	stored.OccurredAt = stored.OccurredAt.UTC()
+	stored.IngestedAt = stored.IngestedAt.UTC()
+	stored.FencingToken = fence.FencingToken
+
+	m.sourceFences[h.Source] = fence.FencingToken
+	m.upsertHazardLocked(stored, true)
+	if withOutbox {
+		if err := m.enqueueOutboxLocked(stored, correlationID); err != nil {
+			return err
+		}
+	}
+	*h = cloneHazardEvent(stored)
+	return nil
+}
+
+func (m *MemoryUnitBackend) GetSourceCheckpoint(ctx context.Context, source domain.Source) (*domain.SourceCheckpoint, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return nil, err
+	}
+	cp, ok := m.checkpoints[source]
+	if !ok {
+		return nil, nil
+	}
+	out := cp
+	out.LastOccurredAt = out.LastOccurredAt.UTC()
+	out.UpdatedAt = out.UpdatedAt.UTC()
+	return &out, nil
+}
+
+func (m *MemoryUnitBackend) SaveSourceCheckpoint(ctx context.Context, cp domain.SourceCheckpoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	if cp.FencingToken <= 0 || cp.FencingToken < m.sourceFences[cp.Source] {
+		return ErrStaleFencingToken
+	}
+	if existing, ok := m.checkpoints[cp.Source]; ok {
+		if cp.FencingToken < existing.FencingToken {
+			return ErrStaleFencingToken
+		}
+		if existing.LastOccurredAt.After(cp.LastOccurredAt) {
+			cp.LastOccurredAt = existing.LastOccurredAt
+			cp.LastSourceRefID = existing.LastSourceRefID
+		}
+	}
+	cp.LastOccurredAt = cp.LastOccurredAt.UTC()
+	cp.UpdatedAt = m.nowLocked()
+	m.sourceFences[cp.Source] = cp.FencingToken
+	m.checkpoints[cp.Source] = cp
 	return nil
 }
 

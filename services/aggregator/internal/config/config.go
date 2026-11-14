@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -26,6 +27,10 @@ type Config struct {
 	StorageUnitID        string
 	ShardTopologyJSON    string
 	ShardConfig          string
+	InstanceID           string
+	LeaseTTL             time.Duration
+	LeaseRenewInterval   time.Duration
+	DrainDelay           time.Duration
 }
 
 // Load loads configuration from environment variables with safe defaults matching .env.example.
@@ -45,6 +50,30 @@ func Load() *Config {
 		minConns = 5
 	}
 
+	nodeName := getEnv("NODE_NAME", "local")
+	instanceID := getEnv("INSTANCE_ID", "")
+	if instanceID == "" {
+		instanceID = getEnv("HOSTNAME", "")
+	}
+	if instanceID == "" {
+		instanceID = fmt.Sprintf("%s-%d", nodeName, os.Getpid())
+	}
+
+	leaseTTLSecs := getEnvInt("LEASE_TTL_SECS", 15)
+	if leaseTTLSecs <= 0 {
+		leaseTTLSecs = 15
+	}
+
+	leaseRenewSecs := getEnvInt("LEASE_RENEW_INTERVAL_SECS", 5)
+	if leaseRenewSecs <= 0 {
+		leaseRenewSecs = 5
+	}
+
+	drainDelayMs := getEnvInt("DRAIN_DELAY_MS", 0)
+	if drainDelayMs < 0 {
+		drainDelayMs = 0
+	}
+
 	return &Config{
 		Port:                 getEnv("PORT", "8083"),
 		DatabaseURL:          getEnv("DATABASE_URL", ""),
@@ -60,10 +89,14 @@ func Load() *Config {
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 		AuditToken:           getEnv("AUDIT_TOKEN", ""),
 		AuditAllSourcesLabel: getEnv("AUDIT_ALL_SOURCES_LABEL", "ALL"),
-		NodeName:             getEnv("NODE_NAME", "local"),
+		NodeName:             nodeName,
 		StorageUnitID:        getEnv("STORAGE_UNIT_ID", "shard-1"),
 		ShardTopologyJSON:    getEnv("SHARD_TOPOLOGY_JSON", ""),
 		ShardConfig:          getEnv("SHARD_CONFIG", ""),
+		InstanceID:           instanceID,
+		LeaseTTL:             time.Duration(leaseTTLSecs) * time.Second,
+		LeaseRenewInterval:   time.Duration(leaseRenewSecs) * time.Second,
+		DrainDelay:           time.Duration(drainDelayMs) * time.Millisecond,
 	}
 }
 

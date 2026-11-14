@@ -78,10 +78,11 @@ type HazardEvent struct {
 	IngestedAt time.Time  `json:"ingested_at" db:"ingested_at"`
 
 	// Raw Fields (Restricted to Field Responder and Internal roles)
-	SourceRefID string         `json:"source_ref_id" db:"source_ref_id"`
-	Latitude    *float64       `json:"latitude,omitempty" db:"latitude"`
-	Longitude   *float64       `json:"longitude,omitempty" db:"longitude"`
-	Attributes  map[string]any `json:"attributes" db:"attributes"` // Dynamic schemaless bag (e.g. confidence_level, depth_km, magnitude)
+	SourceRefID  string         `json:"source_ref_id" db:"source_ref_id"`
+	Latitude     *float64       `json:"latitude,omitempty" db:"latitude"`
+	Longitude    *float64       `json:"longitude,omitempty" db:"longitude"`
+	Attributes   map[string]any `json:"attributes" db:"attributes"` // Dynamic schemaless bag (e.g. confidence_level, depth_km, magnitude)
+	FencingToken int64          `json:"-" db:"fencing_token"`
 }
 
 // VolcanoReference represents the static Indonesian volcano catalog for geographic enrichment.
@@ -139,4 +140,32 @@ type UnprocessedMessage struct {
 	Attempts   int               `json:"attempts" db:"attempts"`
 	Status     UnprocessedStatus `json:"status" db:"status"`
 	RawPayload []byte            `json:"-" db:"raw_payload"`
+}
+
+// LeaderLease represents a time-bounded distributed leadership lease backed by storage coordinator time.
+type LeaderLease struct {
+	LeaseKey     string    `json:"lease_key" db:"lease_key"`
+	HolderID     string    `json:"holder_id" db:"holder_id"`
+	FencingToken int64     `json:"fencing_token" db:"fencing_token"`
+	AcquiredAt   time.Time `json:"acquired_at" db:"acquired_at"`
+	RenewedAt    time.Time `json:"renewed_at" db:"renewed_at"`
+	ExpiresAt    time.Time `json:"expires_at" db:"expires_at"`
+}
+
+// SourceCheckpoint stores durable source collection progress paired with the leader's fencing token.
+type SourceCheckpoint struct {
+	Source          Source    `json:"source" db:"source"`
+	LastOccurredAt  time.Time `json:"last_occurred_at" db:"last_occurred_at"`
+	LastSourceRefID string    `json:"last_source_ref_id" db:"last_source_ref_id"`
+	FencingToken    int64     `json:"fencing_token" db:"fencing_token"`
+	HolderID        string    `json:"holder_id" db:"holder_id"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// WriteFence carries the monotonic fencing token and holder identity validated by storage before committing writes.
+type WriteFence struct {
+	LeaseKey     string
+	Source       Source
+	HolderID     string
+	FencingToken int64
 }

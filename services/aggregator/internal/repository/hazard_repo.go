@@ -463,6 +463,9 @@ func shouldReplaceCandidate(existing, incoming dedupCandidate) bool {
 	if existing.stale != incoming.stale {
 		return !incoming.stale
 	}
+	if existing.event.FencingToken != incoming.event.FencingToken {
+		return incoming.event.FencingToken > existing.event.FencingToken
+	}
 	if existing.role != incoming.role {
 		return incoming.role == domain.StorageRolePrimary
 	}
@@ -1335,6 +1338,58 @@ func (r *HazardRepository) SyncShardReplicas(ctx context.Context) error {
 		}
 	}
 
+	knownSources := []domain.Source{
+		domain.SourceBMKG,
+		domain.SourcePVMBG,
+		domain.SourceSatelit,
+		domain.SourceSensorPantai,
+	}
+	coordUnits := r.coordinatorUnits()
+	allUnits := r.allUnits()
+
+	for _, src := range knownSources {
+		if len(coordUnits) > 0 {
+			r.reconcileCoordinatorLease(ctx, coordUnits, LeaseKeyForSource(src))
+			if cp, err := r.GetSourceCheckpoint(ctx, src); err == nil && cp != nil {
+				for _, u := range coordUnits {
+					qCtx, cancel := context.WithTimeout(ctx, unitReadTimeout)
+					existingCP, qErr := u.Backend.GetSourceCheckpoint(qCtx, src)
+					cancel()
+					if qErr != nil {
+						continue
+					}
+					if existingCP != nil &&
+						existingCP.FencingToken >= cp.FencingToken &&
+						!existingCP.LastOccurredAt.Before(cp.LastOccurredAt) {
+						continue
+					}
+					wCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+					if err := u.Backend.SaveSourceCheckpoint(wCtx, *cp); err != nil && !errors.Is(err, ErrStaleFencingToken) {
+						syncErrs = append(syncErrs, fmt.Errorf("sync checkpoint %s to unit %s: %w", src, u.Unit, err))
+					}
+					cancel()
+				}
+			}
+		}
+
+		maxFence := r.maxObservedSourceFence(ctx, src)
+		if maxFence > 0 {
+			for _, u := range allUnits {
+				qCtx, cancel := context.WithTimeout(ctx, unitReadTimeout)
+				curFence, fErr := u.Backend.GetMaxSourceFence(qCtx, src)
+				cancel()
+				if fErr != nil || curFence >= maxFence {
+					continue
+				}
+				wCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+				if err := u.Backend.AdvanceSourceFence(wCtx, src, maxFence, ""); err != nil && !errors.Is(err, ErrStaleFencingToken) {
+					syncErrs = append(syncErrs, fmt.Errorf("sync source fence %s to unit %s: %w", src, u.Unit, err))
+				}
+				cancel()
+			}
+		}
+	}
+
 	return errors.Join(syncErrs...)
 }
 
@@ -1349,7 +1404,7 @@ func dlqMessagesEquivalent(a, b domain.UnprocessedMessage) bool {
 }
 
 func hazardsEquivalent(a, b domain.HazardEvent) bool {
-	if a.Severity != b.Severity || a.AreaName != b.AreaName || !a.OccurredAt.Equal(b.OccurredAt) {
+	if a.Severity != b.Severity || a.AreaName != b.AreaName || !a.OccurredAt.Equal(b.OccurredAt) || a.FencingToken != b.FencingToken {
 		return false
 	}
 	aJSON, _ := json.Marshal(a)
@@ -1545,7 +1600,7 @@ func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuer
 	dataSQL := fmt.Sprintf(`
 		SELECT
 			hazard_id, source, source_ref_id, hazard_type, severity,
-			area_name, latitude, longitude, attributes, occurred_at, ingested_at
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at, fencing_token
 		FROM hazards
 		WHERE %s
 		ORDER BY occurred_at DESC, hazard_id ASC;
@@ -1588,15 +1643,16 @@ func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEv
 	sql := `
 		INSERT INTO hazards (
 			hazard_id, source, source_ref_id, hazard_type, severity,
-			area_name, latitude, longitude, attributes, occurred_at, ingested_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at, fencing_token
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (source, source_ref_id) DO UPDATE SET
 			severity = EXCLUDED.severity,
 			area_name = EXCLUDED.area_name,
 			latitude = EXCLUDED.latitude,
 			longitude = EXCLUDED.longitude,
 			attributes = EXCLUDED.attributes,
-			occurred_at = EXCLUDED.occurred_at;
+			occurred_at = EXCLUDED.occurred_at,
+			fencing_token = GREATEST(hazards.fencing_token, EXCLUDED.fencing_token);
 	`
 
 	ingestedAt := h.IngestedAt.UTC()
@@ -1616,6 +1672,7 @@ func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEv
 		attrsJSON,
 		h.OccurredAt.UTC(),
 		ingestedAt,
+		h.FencingToken,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save hazard %q: %w", h.HazardID, err)
@@ -1663,15 +1720,16 @@ func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domai
 	hazardSQL := `
 		INSERT INTO hazards (
 			hazard_id, source, source_ref_id, hazard_type, severity,
-			area_name, latitude, longitude, attributes, occurred_at, ingested_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at, fencing_token
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (source, source_ref_id) DO UPDATE SET
 			severity = EXCLUDED.severity,
 			area_name = EXCLUDED.area_name,
 			latitude = EXCLUDED.latitude,
 			longitude = EXCLUDED.longitude,
 			attributes = EXCLUDED.attributes,
-			occurred_at = EXCLUDED.occurred_at;
+			occurred_at = EXCLUDED.occurred_at,
+			fencing_token = GREATEST(hazards.fencing_token, EXCLUDED.fencing_token);
 	`
 	_, err = tx.Exec(ctx, hazardSQL,
 		h.HazardID,
@@ -1685,6 +1743,7 @@ func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domai
 		attrsJSON,
 		h.OccurredAt.UTC(),
 		h.IngestedAt,
+		h.FencingToken,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert hazard %q: %w", h.HazardID, err)
@@ -1730,7 +1789,7 @@ func (p *postgresUnitBackend) GetHazardByID(ctx context.Context, hazardID string
 	sql := `
 		SELECT
 			hazard_id, source, source_ref_id, hazard_type, severity,
-			area_name, latitude, longitude, attributes, occurred_at, ingested_at
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at, fencing_token
 		FROM hazards
 		WHERE hazard_id = $1;
 	`
@@ -1747,7 +1806,7 @@ func (p *postgresUnitBackend) GetHazardBySourceRef(ctx context.Context, source d
 		return nil, err
 	}
 	sql := `
-		SELECT hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, attributes, occurred_at, ingested_at
+		SELECT hazard_id, source, source_ref_id, hazard_type, severity, area_name, latitude, longitude, attributes, occurred_at, ingested_at, fencing_token
 		FROM hazards
 		WHERE source = $1 AND source_ref_id = $2;
 	`
@@ -1808,6 +1867,7 @@ func scanHazardRow(row pgx.Row) (*domain.HazardEvent, error) {
 		&rawAttrs,
 		&h.OccurredAt,
 		&h.IngestedAt,
+		&h.FencingToken,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
