@@ -65,9 +65,9 @@ Declare **memory requests and limits per workload/container according to its com
 
 Load generators run outside application component pods. The course table has no separate sensor row; use the assistant's prescribed sensor manifest rather than inventing an image/resource override.
 
-Only Aggregator application pods may access canonical PostgreSQL. Store-to-store replication is separate infrastructure traffic. Verify enforcement from allowed and denied pods with the actual CNI; policy YAML alone is not proof. Preserve Tester Agent access. Broker policies must also accommodate approved field-report staging without opening canonical storage to the gateway (#27).
+Only Aggregator application pods may access canonical PostgreSQL. Store-to-store replication is separate infrastructure traffic. Verify enforcement from allowed and denied pods with the actual CNI; policy YAML alone is not proof. Preserve Tester Agent access. Broker policies permit `role=aggregator`, `role=consumer`, `role=broker`, and `role=api` (for `POST /field-reports` staging under #27) without opening canonical storage to the gateway.
 
-Foundation policies/configuration still need integration checks as workloads are introduced: Auth listens on 8084, observability needs actual scrape/trace paths, and Go services currently consume `TOPIC`, not the future-topic ConfigMap names directly. Resolve wiring in the relevant implementation issue rather than claiming base resources are complete deployment wiring.
+`kustomization.yaml` excludes `secrets.template.yaml` so `kubectl apply -k k8s/base` cannot overwrite provisioned cluster credentials with empty placeholders. `allow-ingress-controllers` permits port `8084` (`auth`) alongside `8080`, `8083`, and `3000`; `bnpb-config` and `secrets.template.yaml` include the runtime keys read directly by the Go services (`AUTH_URL`, `TOPIC`, `POLL_INTERVAL_SECS`, `JWT_TTL_SECONDS`, `AUTH_*_CLIENT_*`, `CONSUMER_GROUP_*`, `BMKG_KEY`, `PVMBG_TOKEN`) alongside M2 keys. Observability scrape/trace paths and M2 multi-topic routing still need integration verification as workloads land.
 
 ## Tester Agent and destructive testing
 

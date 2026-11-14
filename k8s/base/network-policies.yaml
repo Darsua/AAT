@@ -50,11 +50,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Broker accepts event ingestion from aggregator and subscriptions from consumers
+    # Broker accepts event ingestion from aggregator, field-report staging from api, and subscriptions from consumers
     - from:
         - podSelector:
             matchLabels:
               role: aggregator
+        - podSelector:
+            matchLabels:
+              role: api
         - podSelector:
             matchLabels:
               role: consumer
@@ -143,5 +146,7 @@ spec:
           port: 8080
         - protocol: TCP
           port: 8083
+        - protocol: TCP
+          port: 8084
         - protocol: TCP
           port: 3000

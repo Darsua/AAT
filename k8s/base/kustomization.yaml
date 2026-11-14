@@ -8,7 +8,6 @@ resources:
   - network-policies.yaml
   - resource-limits.yaml
   - configmaps.yaml
-  - secrets.template.yaml
 
 labels:
   - pairs:

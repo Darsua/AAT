@@ -13,6 +13,7 @@ data:
   AGGREGATOR_URL: "http://aggregator:8083"
   CLIENT_API_URL: "http://client-api:8080"
   AUTH_SERVICE_URL: "http://auth:8084"
+  AUTH_URL: "http://auth:8084"
   REDPANDA_BROKERS: "redpanda:9092"
 
   # Upstream simulation & feed addresses
@@ -21,7 +22,17 @@ data:
   SENSOR_PANTAI_URL: "http://sensor-pantai:8080"
   SATELLITE_URL: "https://satellite.naufarrel.dev"
 
-  # Redpanda / Kafka topic definitions
+  # Poller, JWT, and client identity settings
+  POLL_INTERVAL_SECS: "3"
+  JWT_TTL_SECONDS: "60"
+  AUTH_MEDIA_CLIENT_ID: "test-media-client"
+  AUTH_FIELD_CLIENT_ID: "test-field-client"
+  AUTH_INTERNAL_CLIENT_ID: "test-internal-client"
+
+  # Redpanda / Kafka topic and consumer group definitions
+  TOPIC: "bnpb.hazard-events"
   REDPANDA_TOPIC_HAZARDS: "bnpb.hazard-events"
   REDPANDA_TOPIC_FIELD_REPORTS: "bnpb.field-reports"
   REDPANDA_TOPIC_DLQ: "bnpb.dlq"
+  CONSUMER_GROUP_DASHBOARD: "bnpb-dashboard-group"
+  CONSUMER_GROUP_NOTIFIER: "bnpb-notifier-group"
