@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -184,8 +185,10 @@ func validateShardSpecs(specs []ShardSpec) error {
 		return errors.New("shard topology must define at least one shard")
 	}
 	seenShards := make(map[string]struct{}, len(specs))
-	for _, s := range specs {
-		if strings.TrimSpace(s.ShardID) == "" {
+	for i := range specs {
+		s := &specs[i]
+		s.ShardID = strings.TrimSpace(s.ShardID)
+		if s.ShardID == "" {
 			return errors.New("shard_id cannot be empty")
 		}
 		if _, dup := seenShards[s.ShardID]; dup {
@@ -195,8 +198,12 @@ func validateShardSpecs(specs []ShardSpec) error {
 		if len(s.Units) == 0 {
 			return fmt.Errorf("shard %q must define at least one storage unit", s.ShardID)
 		}
-		for _, u := range s.Units {
-			if strings.TrimSpace(u.Unit) == "" || strings.TrimSpace(u.Node) == "" || strings.TrimSpace(u.DSN) == "" {
+		for j := range s.Units {
+			s.Units[j].Unit = strings.TrimSpace(s.Units[j].Unit)
+			s.Units[j].Node = strings.TrimSpace(os.ExpandEnv(s.Units[j].Node))
+			s.Units[j].DSN = strings.TrimSpace(os.ExpandEnv(s.Units[j].DSN))
+			u := s.Units[j]
+			if u.Unit == "" || u.Node == "" || u.DSN == "" {
 				return fmt.Errorf("shard %q unit %q must specify non-empty unit, node, and dsn", s.ShardID, u.Unit)
 			}
 			if u.Role != domain.StorageRolePrimary && u.Role != domain.StorageRoleReplica {

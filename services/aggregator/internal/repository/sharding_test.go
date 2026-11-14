@@ -110,7 +110,21 @@ func TestParseShardTopology_AllModes(t *testing.T) {
 		t.Fatalf("unexpected JSON specs: %+v", jsonSpecs)
 	}
 
-	// 4. Empty config returns error
+	// 4. Environment variable expansion inside SHARD_CONFIG
+	t.Setenv("POSTGRES_USER", "u")
+	t.Setenv("POSTGRES_PASSWORD", "p")
+	t.Setenv("STORE_NODE_3", "kana")
+	expandedDSL := "shard-3=shard-3|${STORE_NODE_3}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-kana:5432/bnpb_shard_3?sslmode=disable"
+	expandedSpecs, err := ParseShardTopology("", expandedDSL, "", "", "")
+	if err != nil {
+		t.Fatalf("expanded SHARD_CONFIG parse failed: %v", err)
+	}
+	if expandedSpecs[0].Units[0].Node != "kana" ||
+		expandedSpecs[0].Units[0].DSN != "postgres://u:p@store-kana:5432/bnpb_shard_3?sslmode=disable" {
+		t.Fatalf("unexpected expanded SHARD_CONFIG specs: %+v", expandedSpecs)
+	}
+
+	// 5. Empty config returns error
 	if _, err := ParseShardTopology("", "", "", "", ""); err == nil {
 		t.Fatal("expected error for completely empty topology")
 	}

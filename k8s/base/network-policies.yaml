@@ -135,11 +135,14 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Permit HTTP ingress from Traefik / kube-system ingress controllers and cluster peers
+    # Permit HTTP ingress from Traefik / kube-system ingress controllers, tester-agent, and cluster peers
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tester-agent
         - podSelector: {}
       ports:
         - protocol: TCP

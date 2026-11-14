@@ -1,0 +1,297 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: auth
+    role: api
+spec:
+  selector:
+    app: auth
+    role: api
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: auth
+    role: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth
+      role: api
+  template:
+    metadata:
+      labels:
+        app: auth
+        role: api
+    spec:
+      containers:
+        - name: auth
+          image: bnpb-auth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8084
+          env:
+            - name: PORT
+              value: "8084"
+          envFrom:
+            - configMapRef:
+                name: bnpb-config
+            - secretRef:
+                name: bnpb-credentials
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-api
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: client-api
+    role: api
+spec:
+  selector:
+    app: client-api
+    role: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-api
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: client-api
+    role: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: client-api
+      role: api
+  template:
+    metadata:
+      labels:
+        app: client-api
+        role: api
+    spec:
+      containers:
+        - name: client-api
+          image: bnpb-client-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          envFrom:
+            - configMapRef:
+                name: bnpb-config
+            - secretRef:
+                name: bnpb-credentials
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: dashboard-consumer
+    role: consumer
+spec:
+  selector:
+    app: dashboard-consumer
+    role: consumer
+  ports:
+    - name: http
+      port: 8085
+      targetPort: 8085
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: dashboard-consumer
+    role: consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard-consumer
+      role: consumer
+  template:
+    metadata:
+      labels:
+        app: dashboard-consumer
+        role: consumer
+    spec:
+      containers:
+        - name: dashboard-consumer
+          image: bnpb-dashboard-consumer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8085
+          env:
+            - name: PORT
+              value: "8085"
+            - name: CONSUMER_GROUP
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: CONSUMER_GROUP_DASHBOARD
+          envFrom:
+            - configMapRef:
+                name: bnpb-config
+            - secretRef:
+                name: bnpb-credentials
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifier-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: notifier-consumer
+    role: consumer
+spec:
+  selector:
+    app: notifier-consumer
+    role: consumer
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: notifier-consumer
+    role: consumer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notifier-consumer
+      role: consumer
+  template:
+    metadata:
+      labels:
+        app: notifier-consumer
+        role: consumer
+    spec:
+      containers:
+        - name: notifier-consumer
+          image: bnpb-notifier-consumer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8086
+          env:
+            - name: PORT
+              value: "8086"
+            - name: CONSUMER_GROUP
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: CONSUMER_GROUP_NOTIFIER
+          envFrom:
+            - configMapRef:
+                name: bnpb-config
+            - secretRef:
+                name: bnpb-credentials
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
