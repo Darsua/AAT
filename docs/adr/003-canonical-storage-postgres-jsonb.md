@@ -4,7 +4,7 @@
 
 ## Status and scope
 
-This records M1 canonical storage and pending-message relay behavior, **not event sourcing or an audit history**. M2 contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34) are broader than the implemented runtime. Sharded storage ([#23](https://github.com/Darsua/AAT/issues/23), Darrel), Aggregator HA ([#25](https://github.com/Darsua/AAT/issues/25), Darrel), and audit ([#30](https://github.com/Darsua/AAT/issues/30), Darrel) remain future work. Historical measurements and their updated evidence links below are preserved.
+This records the M1 single-node PostgreSQL baseline. Milestone 2 sharding (`#23`), cross-shard Audit API (`#30`), and HA leader leasing/fencing (`#25`) extend this storage layer in [ADR 006](006-sharded-storage-consistent-hashing-and-audit-api.md) and [ADR 007](007-aggregator-ha-leader-leasing-and-fencing.md). Historical M1 measurements and their evidence links below are preserved.
 
 ## Context
 In the BNPB Disaster Coordination Platform, `services/aggregator` serves as the single source of truth for unified disaster intelligence. It addresses four interrelated requirements spanning Problems 1, 4, and 5:
