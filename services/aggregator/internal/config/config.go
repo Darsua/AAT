@@ -8,18 +8,24 @@ import (
 
 // Config represents the complete runtime configuration for the Aggregator service.
 type Config struct {
-	Port             string
-	DatabaseURL      string
-	DatabaseMaxConns int
-	DatabaseMinConns int
-	RedpandaBrokers  string
-	Topic            string
-	BMKGURL          string
-	BMKGKey          string
-	PVMBGURL         string
-	PVMBGToken       string
-	PollIntervalSecs time.Duration
-	LogLevel         string
+	Port                 string
+	DatabaseURL          string
+	DatabaseMaxConns     int
+	DatabaseMinConns     int
+	RedpandaBrokers      string
+	Topic                string
+	BMKGURL              string
+	BMKGKey              string
+	PVMBGURL             string
+	PVMBGToken           string
+	PollIntervalSecs     time.Duration
+	LogLevel             string
+	AuditToken           string
+	AuditAllSourcesLabel string
+	NodeName             string
+	StorageUnitID        string
+	ShardTopologyJSON    string
+	ShardConfig          string
 }
 
 // Load loads configuration from environment variables with safe defaults matching .env.example.
@@ -40,18 +46,24 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:             getEnv("PORT", "8083"),
-		DatabaseURL:      getEnv("DATABASE_URL", ""),
-		DatabaseMaxConns: maxConns,
-		DatabaseMinConns: minConns,
-		RedpandaBrokers:  getEnv("REDPANDA_BROKERS", "redpanda:9092"),
-		Topic:            getEnv("TOPIC", "bnpb.hazard-events"),
-		BMKGURL:          getEnv("BMKG_URL", "http://mock-bmkg:8081"),
-		BMKGKey:          getEnv("BMKG_KEY", ""),
-		PVMBGURL:         getEnv("PVMBG_URL", "http://mock-pvmbg:8082"),
-		PVMBGToken:       getEnv("PVMBG_TOKEN", ""),
-		PollIntervalSecs: time.Duration(pollSecs) * time.Second,
-		LogLevel:         getEnv("LOG_LEVEL", "info"),
+		Port:                 getEnv("PORT", "8083"),
+		DatabaseURL:          getEnv("DATABASE_URL", ""),
+		DatabaseMaxConns:     maxConns,
+		DatabaseMinConns:     minConns,
+		RedpandaBrokers:      getEnv("REDPANDA_BROKERS", "redpanda:9092"),
+		Topic:                getEnv("TOPIC", "bnpb.hazard-events"),
+		BMKGURL:              getEnv("BMKG_URL", "http://mock-bmkg:8081"),
+		BMKGKey:              getEnv("BMKG_KEY", ""),
+		PVMBGURL:             getEnv("PVMBG_URL", "http://mock-pvmbg:8082"),
+		PVMBGToken:           getEnv("PVMBG_TOKEN", ""),
+		PollIntervalSecs:     time.Duration(pollSecs) * time.Second,
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
+		AuditToken:           getEnv("AUDIT_TOKEN", ""),
+		AuditAllSourcesLabel: getEnv("AUDIT_ALL_SOURCES_LABEL", "ALL"),
+		NodeName:             getEnv("NODE_NAME", "local"),
+		StorageUnitID:        getEnv("STORAGE_UNIT_ID", "shard-1"),
+		ShardTopologyJSON:    getEnv("SHARD_TOPOLOGY_JSON", ""),
+		ShardConfig:          getEnv("SHARD_CONFIG", ""),
 	}
 }
 

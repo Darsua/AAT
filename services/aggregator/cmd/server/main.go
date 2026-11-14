@@ -38,36 +38,34 @@ func main() {
 	bootCtx, bootCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer bootCancel()
 
-	if cfg.DatabaseURL == "" {
-		log.Error("fatal: DATABASE_URL environment variable is required")
+	shardSpecs, err := repository.ParseShardTopology(
+		cfg.ShardTopologyJSON,
+		cfg.ShardConfig,
+		cfg.DatabaseURL,
+		cfg.NodeName,
+		cfg.StorageUnitID,
+	)
+	if err != nil {
+		log.Error("fatal: invalid storage shard configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Connect to PostgreSQL with retry backoff
-	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
+	// Connect to configured canonical storage shards with retry backoff
+	hazardRepo, primaryPool, err := connectShardsWithRetry(bootCtx, shardSpecs, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
 	if err != nil {
 		log.Error("fatal: could not connect to canonical database", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer hazardRepo.Close()
 
-	// Apply database migrations idempotently
-	log.Info("applying database migrations")
-	if err := repository.RunMigrations(bootCtx, pool); err != nil {
-		log.Error("fatal: database migration failed", "error", err)
-		os.Exit(1)
-	}
-	log.Info("database migrations applied successfully")
-
-	// Initialize repositories
-	volcanoRepo := repository.NewVolcanoRepository(pool)
+	// Initialize volcano reference cache from a healthy storage pool
+	volcanoRepo := repository.NewVolcanoRepository(primaryPool)
 	if err := volcanoRepo.LoadCache(bootCtx); err != nil {
 		log.Warn("warning: could not pre-populate volcano reference cache", "error", err)
 	} else {
 		log.Info("volcano catalog cached into memory successfully")
 	}
 
-	hazardRepo := repository.NewHazardRepository(pool)
 	brokerPinger := repository.NewTCPBrokerPinger(cfg.RedpandaBrokers)
 
 	// Initialize circuit status tracker and normalizer
@@ -121,14 +119,27 @@ func main() {
 		outboxRelay.Start(workerCtx)
 	}()
 
+	if hasReplicaUnits(shardSpecs) {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			runReplicaSyncLoop(workerCtx, hazardRepo, 30*time.Second, log)
+		}()
+	}
+
 	// Register HTTP routes
 	mux := http.NewServeMux()
 
-	healthHandler := api.NewHealthHandler(pool, brokerPinger)
+	healthHandler := api.NewHealthHandler(hazardRepo, brokerPinger)
 	hazardHandler := api.NewHazardHandler(hazardRepo, statusTracker)
+	auditHandler := api.NewAuditHandler(hazardRepo, cfg.AuditToken, cfg.AuditAllSourcesLabel)
 
 	mux.Handle("GET /health", healthHandler)
 	mux.Handle("GET /internal/hazards", hazardHandler)
+	mux.Handle("/internal/audit/events", auditHandler)
+	mux.Handle("/internal/audit/checksum", auditHandler)
+	mux.Handle("/internal/audit/location", auditHandler)
+	mux.Handle("/internal/audit/unprocessed", auditHandler)
 
 	// Middleware chaining: CorrelationID (outermost) -> Logging -> Recovery (innermost) -> Router
 	var handler http.Handler = mux
@@ -175,8 +186,37 @@ func main() {
 	}
 }
 
-func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns int, log *slog.Logger) (*pgxpool.Pool, error) {
-	var pool *pgxpool.Pool
+func hasReplicaUnits(specs []repository.ShardSpec) bool {
+	for _, s := range specs {
+		if len(s.Units) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func runReplicaSyncLoop(ctx context.Context, repo *repository.HazardRepository, interval time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := repo.SyncShardReplicas(ctx); err != nil {
+				log.Warn("replica sync cycle finished with degraded units", "error", err)
+			}
+		}
+	}
+}
+
+func connectShardsWithRetry(
+	ctx context.Context,
+	specs []repository.ShardSpec,
+	maxConns, minConns int,
+	log *slog.Logger,
+) (*repository.HazardRepository, *pgxpool.Pool, error) {
 	var err error
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -185,14 +225,19 @@ func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns 
 	for attempt := 1; attempt <= 15; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		default:
 		}
 
-		pool, err = repository.NewPostgresPool(ctx, connStr, maxConns, minConns)
+		var repo *repository.HazardRepository
+		var primaryPool *pgxpool.Pool
+		repo, primaryPool, err = repository.DialShardedRepository(ctx, specs, maxConns, minConns, log)
 		if err == nil {
-			log.Info("successfully established canonical postgres connection pool", slog.Int("attempt", attempt))
-			return pool, nil
+			log.Info("successfully established canonical postgres storage shards",
+				slog.Int("attempt", attempt),
+				slog.Int("shard_count", len(specs)),
+			)
+			return repo, primaryPool, nil
 		}
 
 		log.Warn("database connection attempt failed, retrying in 2s...",
@@ -202,10 +247,10 @@ func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns 
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}
 
-	return nil, err
+	return nil, nil, err
 }

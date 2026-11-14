@@ -110,6 +110,10 @@ services:
       PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
       PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
       POLL_INTERVAL_SECS: ${POLL_INTERVAL_SECS:-3}
+      AUDIT_TOKEN: ${AUDIT_TOKEN:-audit-secret-token-2026}
+      AUDIT_ALL_SOURCES_LABEL: ${AUDIT_ALL_SOURCES_LABEL:-ALL}
+      NODE_NAME: ${NODE_NAME:-local}
+      STORAGE_UNIT_ID: ${STORAGE_UNIT_ID:-shard-1}
     depends_on:
       canonical-db:
         condition: service_healthy

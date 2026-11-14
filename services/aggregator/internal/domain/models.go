@@ -9,9 +9,21 @@ import (
 type Source string
 
 const (
-	SourceBMKG  Source = "BMKG"
-	SourcePVMBG Source = "PVMBG"
+	SourceBMKG         Source = "BMKG"
+	SourcePVMBG        Source = "PVMBG"
+	SourceSatelit      Source = "SATELIT"
+	SourceSensorPantai Source = "SENSOR_PANTAI"
 )
+
+// IsValidSource checks whether s is a valid canonical HazardEvent source.
+func IsValidSource(s Source) bool {
+	switch s {
+	case SourceBMKG, SourcePVMBG, SourceSatelit, SourceSensorPantai:
+		return true
+	default:
+		return false
+	}
+}
 
 // HazardType represents the domain classification of the natural disaster.
 type HazardType string
@@ -19,7 +31,19 @@ type HazardType string
 const (
 	HazardTypeSeismic  HazardType = "SEISMIC"
 	HazardTypeVolcanic HazardType = "VOLCANIC"
+	HazardTypeWildfire HazardType = "WILDFIRE"
+	HazardTypeCoastal  HazardType = "COASTAL"
 )
+
+// IsValidHazardType checks whether ht is a valid canonical HazardType.
+func IsValidHazardType(ht HazardType) bool {
+	switch ht {
+	case HazardTypeSeismic, HazardTypeVolcanic, HazardTypeWildfire, HazardTypeCoastal:
+		return true
+	default:
+		return false
+	}
+}
 
 // Severity represents the standardized national alert level.
 type Severity string
@@ -30,6 +54,16 @@ const (
 	SeveritySiaga   Severity = "SIAGA"
 	SeverityAwas    Severity = "AWAS"
 )
+
+// IsValidSeverity checks whether sev is a valid canonical Severity level.
+func IsValidSeverity(sev Severity) bool {
+	switch sev {
+	case SeverityNormal, SeverityWaspada, SeveritySiaga, SeverityAwas:
+		return true
+	default:
+		return false
+	}
+}
 
 // HazardEvent represents the canonical disaster event model inside the BNPB ecosystem.
 // Classified into Summary Fields (accessible by Media) and Raw Fields (rejected with 403 for Media).
@@ -69,4 +103,40 @@ type OutboxEvent struct {
 	Published     bool            `json:"published" db:"published"`
 	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 	PublishedAt   *time.Time      `json:"published_at,omitempty" db:"published_at"`
+}
+
+// StorageRole describes whether a storage unit serves as primary or replica for a shard.
+type StorageRole string
+
+const (
+	StorageRolePrimary StorageRole = "primary"
+	StorageRoleReplica StorageRole = "replica"
+)
+
+// StorageLocation reports the cluster node, storage unit ID, and replication role holding a hazard record.
+type StorageLocation struct {
+	Node string      `json:"node"`
+	Unit string      `json:"unit"`
+	Role StorageRole `json:"role"`
+}
+
+// UnprocessedStatus represents the lifecycle state of a message parked in the Dead Letter Queue.
+type UnprocessedStatus string
+
+const (
+	UnprocessedStatusRetrying  UnprocessedStatus = "retrying"
+	UnprocessedStatusParked    UnprocessedStatus = "parked"
+	UnprocessedStatusRecovered UnprocessedStatus = "recovered"
+)
+
+// UnprocessedMessage represents an unprocessable or retrying message stored in dlq_messages.
+type UnprocessedMessage struct {
+	MessageID  string            `json:"message_id" db:"message_id"`
+	Source     Source            `json:"source" db:"source"`
+	ReceivedAt time.Time         `json:"received_at" db:"received_at"`
+	Reason     string            `json:"reason" db:"reason"`
+	Retryable  bool              `json:"retryable" db:"retryable"`
+	Attempts   int               `json:"attempts" db:"attempts"`
+	Status     UnprocessedStatus `json:"status" db:"status"`
+	RawPayload []byte            `json:"-" db:"raw_payload"`
 }
