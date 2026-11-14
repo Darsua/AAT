@@ -1,0 +1,129 @@
+# Sharded + High-Availability Compose overlay for local M2 rehearsal.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sharded.yml up --build -d
+
+x-store-base: &store-base
+  image: postgres:16-alpine
+  environment:
+    POSTGRES_USER: ${POSTGRES_USER:-bnpb_user}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bnpb_secret}
+    POSTGRES_DB: ${POSTGRES_DB:-bnpb_hazards}
+  volumes:
+    - ./scripts/init_sharded_postgres.sh:/docker-entrypoint-initdb.d/01-create-shards.sh:ro
+  networks:
+    - bnpb-internal
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-bnpb_user} -d $${POSTGRES_DB:-bnpb_hazards}"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+
+x-sharded-aggregator-env: &sharded-aggregator-env
+  PORT: 8083
+  DATABASE_URL: postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-aqua:5432/bnpb_shard_1?sslmode=disable
+  SHARD_CONFIG: >-
+    shard-1=shard-1|aqua|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-aqua:5432/bnpb_shard_1?sslmode=disable,shard-1-r1|ruby|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-ruby:5432/bnpb_shard_1_r1?sslmode=disable;shard-2=shard-2|ruby|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-ruby:5432/bnpb_shard_2?sslmode=disable,shard-2-r1|kana|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-kana:5432/bnpb_shard_2_r1?sslmode=disable;shard-3=shard-3|kana|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-kana:5432/bnpb_shard_3?sslmode=disable,shard-3-r1|aqua|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-aqua:5432/bnpb_shard_3_r1?sslmode=disable
+  REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
+  TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+  BMKG_URL: ${BMKG_URL:-http://mock-bmkg:8081}
+  BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
+  PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
+  PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
+  POLL_INTERVAL_SECS: ${POLL_INTERVAL_SECS:-3}
+  AUDIT_TOKEN: ${AUDIT_TOKEN:-audit-secret-token-2026}
+  AUDIT_ALL_SOURCES_LABEL: ${AUDIT_ALL_SOURCES_LABEL:-ALL}
+  NODE_NAME: ${NODE_NAME:-aqua}
+  STORAGE_UNIT_ID: ${STORAGE_UNIT_ID:-shard-1}
+  LEASE_TTL_SECS: ${LEASE_TTL_SECS:-15}
+  LEASE_RENEW_INTERVAL_SECS: ${LEASE_RENEW_INTERVAL_SECS:-5}
+  DRAIN_DELAY_MS: ${DRAIN_DELAY_MS:-3000}
+
+x-sharded-aggregator-deps: &sharded-aggregator-deps
+  store-aqua:
+    condition: service_healthy
+  store-ruby:
+    condition: service_healthy
+  store-kana:
+    condition: service_healthy
+  redpanda:
+    condition: service_healthy
+  redpanda-init:
+    condition: service_completed_successfully
+  mock-bmkg:
+    condition: service_healthy
+  mock-pvmbg:
+    condition: service_healthy
+
+services:
+  store-aqua:
+    <<: *store-base
+    ports:
+      - "127.0.0.1:${STORE_AQUA_PORT:-5433}:5432"
+    volumes:
+      - store-aqua-data:/var/lib/postgresql/data
+      - ./scripts/init_sharded_postgres.sh:/docker-entrypoint-initdb.d/01-create-shards.sh:ro
+
+  store-ruby:
+    <<: *store-base
+    ports:
+      - "127.0.0.1:${STORE_RUBY_PORT:-5434}:5432"
+    volumes:
+      - store-ruby-data:/var/lib/postgresql/data
+      - ./scripts/init_sharded_postgres.sh:/docker-entrypoint-initdb.d/01-create-shards.sh:ro
+
+  store-kana:
+    <<: *store-base
+    ports:
+      - "127.0.0.1:${STORE_KANA_PORT:-5435}:5432"
+    volumes:
+      - store-kana-data:/var/lib/postgresql/data
+      - ./scripts/init_sharded_postgres.sh:/docker-entrypoint-initdb.d/01-create-shards.sh:ro
+
+  aggregator:
+    environment:
+      <<: *sharded-aggregator-env
+      INSTANCE_ID: aggregator-1
+      NODE_NAME: aqua
+    depends_on:
+      <<: *sharded-aggregator-deps
+
+  aggregator-2:
+    build: ./services/aggregator
+    environment:
+      <<: *sharded-aggregator-env
+      INSTANCE_ID: aggregator-2
+      NODE_NAME: ruby
+    depends_on:
+      <<: *sharded-aggregator-deps
+    ports:
+      - "127.0.0.1:${AGGREGATOR_2_PORT:-18083}:8083"
+    networks:
+      - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  aggregator-3:
+    build: ./services/aggregator
+    environment:
+      <<: *sharded-aggregator-env
+      INSTANCE_ID: aggregator-3
+      NODE_NAME: kana
+    depends_on:
+      <<: *sharded-aggregator-deps
+    ports:
+      - "127.0.0.1:${AGGREGATOR_3_PORT:-28083}:8083"
+    networks:
+      - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  store-aqua-data:
+  store-ruby-data:
+  store-kana-data:
