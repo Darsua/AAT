@@ -2,7 +2,7 @@
 
 ## Status and chronology
 
-**M1 baseline; M2 design questions remain open.** This ADR originated with the 2026-09-22 scaffold and was aligned with the M1 implementation on 2026-10-10. Contract extensions frozen in [#34](https://github.com/Darsua/AAT/issues/34) describe intended interfaces, not completed runtime capabilities. [GitHub issues](https://github.com/Darsua/AAT/issues) own pending tasks and acceptance work; this ADR is not a backlog or deployment plan.
+**M1 baseline; Aggregator M2 sharding (`#23`), Audit API (`#30`), and HA leasing (`#25`) implemented.** This ADR originated with the 2026-09-22 scaffold and was aligned with the M1 implementation on 2026-10-10. For the implemented M2 sharded storage engine and HA leader-leasing architecture in `services/aggregator`, see [ADR 006](006-sharded-storage-consistent-hashing-and-audit-api.md) and [ADR 007](007-aggregator-ha-leader-leasing-and-fencing.md). [GitHub issues](https://github.com/Darsua/AAT/issues) track remaining cross-service M2 tasks (gateway write APIs, external sensors, shared auth sessions, and live 3-node cluster verification).
 
 [Historical measurements](../evidence/m1/adr-audit/README.md) do not establish multi-node capacity or failure guarantees.
 

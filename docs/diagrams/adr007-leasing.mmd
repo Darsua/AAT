@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    participant A1 as aggregator-1 (active leader)
+    participant A2 as aggregator-2 (standby replica)
+    participant COORD as coordinator shard (leader_leases)
+    participant SHARD as target shard (source_fences + hazards)
+
+    A1->>COORD: AcquireSourceLease(poll:BMKG, holder=agg-1)
+    COORD-->>A1: Granted fencing_token=N (PostgreSQL clock_timestamp + 15s)
+    A1->>SHARD: SaveHazardWithFence(token=N) + SaveSourceCheckpoint
+    SHARD-->>A1: Committed (max_fencing_token=N)
+
+    Note over A1: SIGSTOP or asymmetric stall past 15s TTL
+    A2->>COORD: AcquireSourceLease(poll:BMKG, holder=agg-2)
+    COORD-->>A2: Takeover granted fencing_token=N+1
+    A2->>SHARD: AdvanceSourceFence(BMKG, token=N+1)
+    A2->>SHARD: Poll from durable source_checkpoints (10s overlap)
+
+    Note over A1: Resumes and attempts stale zombie write
+    A1->>SHARD: SaveHazardWithFence(token=N)
+    SHARD-->>A1: Reject ErrStaleFencingToken (N < N+1)
