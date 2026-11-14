@@ -90,3 +90,25 @@ func TestHealthHandler_BrokerDown(t *testing.T) {
 		t.Errorf("unexpected health status payload when broker is down: %+v", resp)
 	}
 }
+
+func TestLivezHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
+	rec := httptest.NewRecorder()
+
+	LivezHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	var resp struct {
+		Status  string `json:"status"`
+		Service string `json:"service"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "UP" || resp.Service != "aggregator" {
+		t.Fatalf("unexpected livez payload: %+v", resp)
+	}
+}
