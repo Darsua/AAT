@@ -119,3 +119,13 @@ CREATE TABLE IF NOT EXISTS source_fences (
     holder_id VARCHAR(128) NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
+
+-- Satellite wildfire stream checkpoint (#28): engine snapshot paired with the last
+-- applied feed offset. Hazards are written before the checkpoint, so replaying from
+-- here re-applies idempotent upserts and never skips an event.
+CREATE TABLE IF NOT EXISTS satellite_checkpoints (
+    stream VARCHAR(64) PRIMARY KEY,
+    last_offset BIGINT NOT NULL,
+    state JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

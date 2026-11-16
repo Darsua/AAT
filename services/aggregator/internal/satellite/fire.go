@@ -76,6 +76,9 @@ func (e *Engine) buildFireFromKeys(id string, keys map[string]struct{}) Fire {
 	return f
 }
 
+// HazardIDFor returns the canonical hazard ID of a fire.
+func HazardIDFor(fireID string) string { return hazardIDPrefix + fireID }
+
 // AreaLocator names the area for a centroid, e.g. the nearest reference-province centroid.
 type AreaLocator func(lat, lon float64) string
 
@@ -90,7 +93,7 @@ func (f Fire) ToHazard(locate AreaLocator) domain.HazardEvent {
 	}
 	lat, lon := f.Latitude, f.Longitude
 	return domain.HazardEvent{
-		HazardID:    hazardIDPrefix + f.ID,
+		HazardID:    HazardIDFor(f.ID),
 		Source:      SourceSatelit,
 		SourceRefID: f.ID,
 		HazardType:  HazardTypeWildfire,

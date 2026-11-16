@@ -31,6 +31,12 @@ type Config struct {
 	LeaseTTL             time.Duration
 	LeaseRenewInterval   time.Duration
 	DrainDelay           time.Duration
+
+	// Satellite wildfire stream (#28); disabled unless explicitly enabled.
+	SatelliteEnabled  bool
+	SatelliteURL      string
+	SatelliteToken    string
+	SatelliteLateness time.Duration
 }
 
 // Load loads configuration from environment variables with safe defaults matching .env.example.
@@ -74,7 +80,7 @@ func Load() *Config {
 		drainDelayMs = 0
 	}
 
-	return &Config{
+	cfg := &Config{
 		Port:                 getEnv("PORT", "8083"),
 		DatabaseURL:          getEnv("DATABASE_URL", ""),
 		DatabaseMaxConns:     maxConns,
@@ -98,6 +104,14 @@ func Load() *Config {
 		LeaseRenewInterval:   time.Duration(leaseRenewSecs) * time.Second,
 		DrainDelay:           time.Duration(drainDelayMs) * time.Millisecond,
 	}
+
+	cfg.SatelliteEnabled = getEnv("SATELLITE_ENABLED", "false") == "true"
+	cfg.SatelliteURL = getEnv("SATELLITE_URL", "https://satellite.naufarrel.dev")
+	cfg.SatelliteToken = getEnv("SATELLITE_GROUP_TOKEN", "")
+	if mins := getEnvInt("SATELLITE_LATENESS_MINUTES", 0); mins > 0 {
+		cfg.SatelliteLateness = time.Duration(mins) * time.Minute
+	}
+	return cfg
 }
 
 func getEnv(key, defaultVal string) string {

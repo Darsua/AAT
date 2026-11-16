@@ -116,6 +116,10 @@ services:
       STORAGE_UNIT_ID: ${STORAGE_UNIT_ID:-shard-1}
       LEASE_TTL_SECS: ${LEASE_TTL_SECS:-15}
       LEASE_RENEW_INTERVAL_SECS: ${LEASE_RENEW_INTERVAL_SECS:-5}
+      SATELLITE_ENABLED: ${SATELLITE_ENABLED:-false}
+      SATELLITE_URL: ${SATELLITE_URL:-https://satellite.naufarrel.dev}
+      SATELLITE_GROUP_TOKEN: ${SATELLITE_GROUP_TOKEN:-}
+      SATELLITE_LATENESS_MINUTES: ${SATELLITE_LATENESS_MINUTES:-360}
     depends_on:
       canonical-db:
         condition: service_healthy

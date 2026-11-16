@@ -49,6 +49,10 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `REDPANDA_BROKERS` | `redpanda:9092` |
 | `TOPIC` | `bnpb.hazard-events` |
 | `POLL_INTERVAL_SECS` | `3` |
+| `SATELLITE_ENABLED` | `false` |
+| `SATELLITE_URL` | `https://satellite.naufarrel.dev` |
+| `SATELLITE_GROUP_TOKEN` | Required when enabled; secret, no default. |
+| `SATELLITE_LATENESS_MINUTES` | `360` (event-time watermark) |
 
 Compose maps `BMKG_API_KEY` to `BMKG_KEY` and `KAFKA_TOPIC_HAZARDS` to `TOPIC`.
 Override development credentials through the environment.
@@ -69,11 +73,25 @@ Override development credentials through the environment.
 - Kafka key: `hazard_id`; value: raw canonical HazardEvent JSON, without a
   wrapper; optional header: `X-Correlation-ID`. Hash partition affinity does
   not guarantee event-time/revision ordering across concurrent relays/retries.
-- The satellite wildfire package ([#28](https://github.com/Darsua/AAT/issues/28))
-  implements the clustering, severity, lifecycle, snapshot, and SSE-resume rules
-  as a library. It is **not wired** into the server yet: no satellite poller,
-  persistence, or checkpoint runs, and its feed field names are assumptions
-  until checked against the live feed.
+- The satellite wildfire stream ([#28](https://github.com/Darsua/AAT/issues/28))
+  runs only with `SATELLITE_ENABLED=true` and `SATELLITE_GROUP_TOKEN` set. Each
+  feed event updates connected fires; changed fires are upserted as `SATELIT` /
+  `WILDFIRE` hazards, then the engine snapshot and last offset are saved to
+  `satellite_checkpoints` (every 5 s and on shutdown). After a crash the worker
+  restores that checkpoint and replays the feed from its offset; hazard writes
+  are idempotent upserts, so replay cannot skip events but can re-emit Kafka
+  events. Merged or shrunken fires stay stored with
+  `attributes.lifecycle_status = "retired"` (plus `retired_reason`,
+  `merged_into`), because HazardEvent has no lifecycle field. Unparseable events
+  are logged with their offset and counted, not retried. Progress, lag, and p95
+  persist latency are logged as `satellite_progress` every 10 s.
+- Enable the stream on **one** Aggregator replica only until leader leasing
+  ([#25](https://github.com/Darsua/AAT/issues/25)) gates it. Compose keeps the
+  Aggregator on the internal-only network, so it cannot reach the external feed
+  there; use the Kubernetes deployment. Feed field names, the low-confidence
+  encoding, and retract payloads are assumptions until checked against the live
+  feed, and `area_name` falls back to a coordinate label until reference
+  province centroids are added.
 
 ## Run, test, and code
 

@@ -19,6 +19,7 @@ import (
 	"bnpb/aggregator/internal/logger"
 	"bnpb/aggregator/internal/normalizer"
 	"bnpb/aggregator/internal/repository"
+	"bnpb/aggregator/internal/satellite"
 	"bnpb/aggregator/internal/status"
 	"bnpb/aggregator/internal/worker"
 
@@ -108,6 +109,24 @@ func main() {
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
 
 	var workerWg sync.WaitGroup
+	if cfg.SatelliteEnabled {
+		if cfg.SatelliteToken == "" {
+			log.Error("SATELLITE_ENABLED is true but SATELLITE_GROUP_TOKEN is empty; satellite stream not started")
+		} else {
+			satelliteWorker := worker.NewSatelliteWorker(
+				satellite.NewClient(cfg.SatelliteURL, cfg.SatelliteToken),
+				hazardRepo,
+				satellite.Config{Lateness: cfg.SatelliteLateness},
+				nil,
+				log,
+			)
+			workerWg.Add(1)
+			go func() {
+				defer workerWg.Done()
+				satelliteWorker.Start(workerCtx)
+			}()
+		}
+	}
 	workerWg.Add(3)
 	go func() {
 		defer workerWg.Done()
