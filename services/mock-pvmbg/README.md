@@ -13,12 +13,25 @@ Full request/response shapes: frozen [PVMBG API](../../contracts/pvmbg.yaml).
 | --- | --- | --- |
 | `GET /health` | None | `200` normally; `503` / `DOWN` during simulated outage. |
 | `GET /volcanic-reports` | Bearer token | Reports; optional `since` (UTC RFC3339). |
-| `POST /admin/schema-version` | Same Bearer token | Toggle `include_confidence_level`. |
+| `POST /admin/schema-version` | Same Bearer token | Set `mode` and/or toggle `include_confidence_level`. |
 | `POST /admin/outage` | Same Bearer token | Toggle `is_outage`. |
 
-The contract also defines M2 incompatible-schema controls; those modes are **not implemented**
-by the current mock and remain tracked in [#26](https://github.com/Darsua/AAT/issues/26).
-The route table above describes the runnable M1 behavior, not those planned controls.
+`mode` selects how every report in `/volcanic-reports` is serialized (M2 P3,
+[#26](https://github.com/Darsua/AAT/issues/26)):
+
+| `mode` | Served reports |
+| --- | --- |
+| `additive` (default) | Nominal M1 schema. |
+| `rename_field` | `report_id` replaced by `event_id`, same value. |
+| `type_change` | `eruption_count_24h` sent as a decimal string, e.g. `"12"`. |
+| `missing_required_field` | `volcano_id` omitted. |
+
+The three incompatible modes are test fixtures for quarantine and replay, not
+accepted canonical data. A request without `mode` selects `additive`, so the M1
+`{"include_confidence_level": true}` request behaves as before; a request
+without `include_confidence_level` keeps its current value, so the flag
+combines with any mode. An unknown mode, a non-boolean flag, or a body with
+neither field returns `400` `INVALID_REQUEST` and changes nothing.
 
 All protected routes use `PVMBG_TOKEN`; there is no separate admin credential.
 Missing, malformed, or invalid tokens return `401`.
@@ -49,7 +62,9 @@ for a fixed three-second report delay.
   position in the filtered response, not a stable per-report measurement.
   Aggregator captures unknown additive PVMBG fields into `attributes`; breaking
   field removal/type changes are outside this policy.
-- Outage mode makes authenticated report requests immediately return `503`
+- Schema modes rewrite only the response; stored reports are unchanged, so
+  switching back to `additive` serves the same reports normally.
+- Outage mode takes priority over every schema mode. Outage mode makes authenticated report requests immediately return `503`
   instead of waiting for injected latency. Health also returns `503`, marking
   the Compose container unhealthy; authenticated admin toggles remain available
   so the outage can be cleared.
