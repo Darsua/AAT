@@ -67,7 +67,7 @@ build:
 
 ## Run Go unit tests
 test:
-	go test -v ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+	go test -v ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/consumers/summarizer/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
 
 ## Validate rendered Kubernetes manifests
 k8s-validate:

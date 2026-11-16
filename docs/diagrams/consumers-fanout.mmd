@@ -3,10 +3,12 @@ flowchart TD
     RP["redpanda: topic bnpb.hazard-events"]
     DASH["dashboard-consumer: process-local type and severity counters"]
     NOTI["notifier-consumer: alert decisions in logs only"]
-    LIMIT["Both: unbounded local seen-ID sets; reset on restart; later same-ID updates skipped"]
+    SUM["summarizer-consumer: bounded window + async LLM/extractive briefs (:8087)"]
+    LIMIT["Dashboard/Notifier: unbounded local seen-ID sets; reset on restart"]
 
     AGG -->|"publish hazard payloads"| RP
     RP -->|"group bnpb-dashboard-group"| DASH
     RP -->|"group bnpb-notifier-group"| NOTI
+    RP -->|"group bnpb-summarizer-group"| SUM
     DASH -.-> LIMIT
     NOTI -.-> LIMIT

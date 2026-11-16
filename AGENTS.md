@@ -50,7 +50,7 @@ Several M2 workstreams touch the Aggregator. Coordinate overlapping edits with i
 Run the applicable checks, report failures/skips honestly, and inspect changes for credentials:
 
 ```bash
-go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/consumers/summarizer/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
 make test
 docker compose config --quiet
 git diff --check

@@ -59,7 +59,8 @@ PostgreSQL is not published to the host. Use the internal container network for 
 | :--- | :--- |
 | Host ports | `CLIENT_API_PORT`, `AUTH_PORT`, `MOCK_BMKG_PORT`, `MOCK_PVMBG_PORT`, `AGGREGATOR_PORT`, `REDPANDA_PORT` |
 | PostgreSQL | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_URL` |
-| Broker and groups | `REDPANDA_BROKERS`, `KAFKA_TOPIC_HAZARDS`, `KAFKA_TOPIC_PARTITIONS`, `CONSUMER_GROUP_DASHBOARD`, `CONSUMER_GROUP_NOTIFIER` |
+| Broker and groups | `REDPANDA_BROKERS`, `KAFKA_TOPIC_HAZARDS`, `KAFKA_TOPIC_PARTITIONS`, `CONSUMER_GROUP_DASHBOARD`, `CONSUMER_GROUP_NOTIFIER`, `CONSUMER_GROUP_SUMMARIZER` |
+| AI summarizer (`#36`) | `AI_API_URL`, `AI_MODEL`, `AI_API_KEY`, `AI_TIMEOUT_MS`, `AI_MAX_CALLS_PER_MIN` |
 | Upstream polling | `BMKG_URL`, `BMKG_API_KEY`, `PVMBG_URL`, `PVMBG_TOKEN`, `POLL_INTERVAL_SECS` |
 | PVMBG latency | `PVMBG_DELAY_MIN_MS`, `PVMBG_DELAY_MAX_MS` |
 | Gateway and authentication | `AGGREGATOR_URL`, `JWT_SECRET`, `JWT_TTL_SECONDS`, `AUTH_MEDIA_CLIENT_ID`, `AUTH_MEDIA_CLIENT_SECRET`, `AUTH_FIELD_CLIENT_ID`, `AUTH_FIELD_CLIENT_SECRET`, `AUTH_INTERNAL_CLIENT_ID`, `AUTH_INTERNAL_CLIENT_SECRET` |
@@ -116,13 +117,13 @@ Tokens expire quickly. `POST /auth/refresh` rotates a refresh token; reuse inval
 Each service is an independent module registered in `go.work`. Use workspace-aware paths rather than assuming `go test ./...` from the root covers every module.
 
 ```bash
-go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
+go vet ./services/aggregator/... ./services/auth/... ./services/client-api/... ./services/consumers/dashboard/... ./services/consumers/notifier/... ./services/consumers/summarizer/... ./services/mock-bmkg/... ./services/mock-pvmbg/...
 make test
 docker compose config --quiet
 git status --short
 ```
 
-`make test` includes both consumer modules. CI also vets and builds all seven services, runs Go tests with race detection, and checks documentation links/diagrams, tracked-file hygiene, YAML/JSON syntax, empty Secret templates, and targeted contract-structure regressions. It does not perform full OpenAPI/JSON Schema semantic validation or prove Kubernetes deployment/recovery.
+`make test` includes all three consumer modules. CI also vets and builds all eight services, runs Go tests with race detection, and checks documentation links/diagrams, tracked-file hygiene, YAML/JSON syntax, empty Secret templates, and targeted contract-structure regressions. It does not perform full OpenAPI/JSON Schema semantic validation or prove Kubernetes deployment/recovery.
 
 Run the repository checks locally with Python 3 and the existing CI parser dependency, `PyYAML==6.0.3`:
 
@@ -200,7 +201,7 @@ python3 scripts/verify_audit_and_catalog.py \
   --json
 ```
 
-See [docker-compose.sharded.yml](../docker-compose.sharded.yml), [the Kubernetes runbook](../k8s/README.md), [ADR 006](adr/006-sharded-storage-consistent-hashing-and-audit-api.md), and [ADR 007](adr/007-aggregator-ha-leader-leasing-and-fencing.md) for topology details and recorded benchmark measurements.
+See [docker-compose.sharded.yml](../docker-compose.sharded.yml), [the Kubernetes runbook](../k8s/README.md), [ADR 006](adr/006-sharded-storage-consistent-hashing-and-audit-api.md), [ADR 007](adr/007-aggregator-ha-leader-leasing-and-fencing.md), and [ADR 008](adr/008-non-blocking-ai-situation-summarizer.md) for topology details and recorded benchmark measurements.
 
 ## Reports and architecture documentation
 
