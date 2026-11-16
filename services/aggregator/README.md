@@ -69,6 +69,11 @@ Override development credentials through the environment.
 - Kafka key: `hazard_id`; value: raw canonical HazardEvent JSON, without a
   wrapper; optional header: `X-Correlation-ID`. Hash partition affinity does
   not guarantee event-time/revision ordering across concurrent relays/retries.
+- The satellite wildfire package ([#28](https://github.com/Darsua/AAT/issues/28))
+  implements the clustering, severity, lifecycle, snapshot, and SSE-resume rules
+  as a library. It is **not wired** into the server yet: no satellite poller,
+  persistence, or checkpoint runs, and its feed field names are assumptions
+  until checked against the live feed.
 
 ## Run, test, and code
 
@@ -83,4 +88,5 @@ and the HTTP listener binds all interfaces.
 - [Sharding engine](internal/repository/sharding.go), [fencing & leases](internal/repository/fencing.go), [repository](internal/repository/hazard_repo.go), and [migrations](migrations/)
 - [Audit API handler](internal/api/audit_handler.go) and [health/drain handler](internal/api/health.go)
 - [Pollers](internal/worker/poller.go) and [outbox relay](internal/worker/outbox_relay.go)
+- [Satellite wildfire clustering and feed client](internal/satellite/)
 - [Canonical flow diagram](../../docs/diagrams/aggregator-flow.mmd)
