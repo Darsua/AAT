@@ -478,3 +478,65 @@ func TestQueryHazards_PrimaryFirstAndPaginationCount(t *testing.T) {
 		t.Fatalf("unexpected page2: total=%d len=%d first=%+v", total2, len(page2), page2)
 	}
 }
+
+func TestRecoveredDLQMessageIsNotReopenedByStaleReplica(t *testing.T) {
+	ctx := context.Background()
+	primary := NewMemoryUnitBackend()
+	replica := NewMemoryUnitBackend()
+	groups := []ShardGroup{
+		{
+			ShardID: "shard-1",
+			Units: []StorageUnit{
+				{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: primary},
+				{Unit: "shard-1-r1", Node: "ruby", Role: domain.StorageRoleReplica, Backend: replica},
+			},
+		},
+	}
+	repo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository failed: %v", err)
+	}
+
+	msg := domain.UnprocessedMessage{
+		MessageID:  "pvmbg-recover-1",
+		Source:     domain.SourcePVMBG,
+		RawPayload: []byte(`{"report_id":"r-1"}`),
+		ReceivedAt: time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC),
+		Reason:     "schema_incompatible: missing volcano_id",
+		Attempts:   5,
+		Status:     domain.UnprocessedStatusParked,
+	}
+	if err := repo.SaveUnprocessedMessage(ctx, msg); err != nil {
+		t.Fatalf("park failed: %v", err)
+	}
+
+	// The replica misses the replay's recovered write.
+	replica.SetHealthy(false)
+	msg.Status = domain.UnprocessedStatusRecovered
+	if err := repo.SaveUnprocessedMessage(ctx, msg); err != nil {
+		t.Fatalf("recover failed: %v", err)
+	}
+	replica.SetHealthy(true)
+
+	got, err := repo.QueryAuditUnprocessed(ctx, AuditUnprocessedFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("QueryAuditUnprocessed failed: %v", err)
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("expected the recovered message to stay hidden behind the stale replica, got %+v", got.Items)
+	}
+
+	// Sync from a repository that does not know the replica is stale must not reopen it.
+	freshRepo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("fresh NewShardedHazardRepository failed: %v", err)
+	}
+	_ = freshRepo.SyncShardReplicas(ctx)
+	active, err := primary.QueryUnprocessed(ctx, nil)
+	if err != nil {
+		t.Fatalf("primary QueryUnprocessed failed: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("expected the primary to keep the message recovered after sync, got %+v", active)
+	}
+}

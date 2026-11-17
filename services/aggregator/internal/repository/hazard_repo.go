@@ -1252,7 +1252,11 @@ func (r *HazardRepository) SaveUnprocessedMessage(ctx context.Context, msg domai
 		cancel()
 		if err == nil {
 			saved++
-		} else if firstErr == nil {
+			continue
+		}
+		// A unit that missed a DLQ status change must not be preferred by audit reads or sync.
+		r.markUnitStale(u.Unit, true)
+		if firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -1276,16 +1280,25 @@ func (r *HazardRepository) QueryAuditUnprocessed(ctx context.Context, filter Aud
 		return AuditUnprocessedResult{}, err
 	}
 
-	units := r.allUnits()
+	groups, _ := r.snapshotTopology()
+	type unitDLQResult struct {
+		shard int
+		stale bool
+		msgs  []domain.UnprocessedMessage
+		err   error
+	}
+	var results []unitDLQResult
+	var units []StorageUnit
+	for gi, g := range groups {
+		for _, u := range g.Units {
+			units = append(units, u)
+			results = append(results, unitDLQResult{shard: gi, stale: r.isUnitStale(u.Unit)})
+		}
+	}
 	if len(units) == 0 {
 		return AuditUnprocessedResult{}, ErrAllStorageUnavailable
 	}
 
-	type unitDLQResult struct {
-		msgs []domain.UnprocessedMessage
-		err  error
-	}
-	results := make([]unitDLQResult, len(units))
 	var wg sync.WaitGroup
 	wg.Add(len(units))
 	for i, u := range units {
@@ -1294,10 +1307,21 @@ func (r *HazardRepository) QueryAuditUnprocessed(ctx context.Context, filter Aud
 			readCtx, cancel := context.WithTimeout(ctx, unitReadTimeout)
 			defer cancel()
 			msgs, qErr := unit.Backend.QueryUnprocessed(readCtx, filter.Source)
-			results[idx] = unitDLQResult{msgs: msgs, err: qErr}
+			results[idx].msgs = msgs
+			results[idx].err = qErr
 		}(i, u)
 	}
 	wg.Wait()
+
+	// A stale unit may still list a message as retrying/parked after a fresh unit
+	// recorded it as recovered, so stale units are read only when no fresh unit of
+	// the same shard is reachable.
+	freshReachable := make(map[int]bool, len(groups))
+	for _, res := range results {
+		if res.err == nil && !res.stale {
+			freshReachable[res.shard] = true
+		}
+	}
 
 	byID := make(map[string]domain.UnprocessedMessage)
 	reachable := 0
@@ -1306,6 +1330,9 @@ func (r *HazardRepository) QueryAuditUnprocessed(ctx context.Context, filter Aud
 			continue
 		}
 		reachable++
+		if res.stale && freshReachable[res.shard] {
+			continue
+		}
 		for _, msg := range res.msgs {
 			if prev, ok := byID[msg.MessageID]; !ok || msg.Attempts > prev.Attempts {
 				byID[msg.MessageID] = msg
@@ -2440,7 +2467,8 @@ func (p *postgresUnitBackend) SaveUnprocessedMessage(ctx context.Context, msg do
 			retryable = EXCLUDED.retryable,
 			attempts = EXCLUDED.attempts,
 			status = EXCLUDED.status,
-			updated_at = NOW();
+			updated_at = NOW()
+		WHERE dlq_messages.status <> 'recovered';
 	`
 	_, err = pool.Exec(ctx, sql,
 		msg.MessageID,
