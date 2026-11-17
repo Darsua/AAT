@@ -93,21 +93,21 @@ docker compose down
 
 ## Project status
 
-The runnable Compose application is the **Milestone 1 baseline**. Work toward the multi-node Kubernetes system in **Milestone 2** is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues).
+The runnable Compose application covers the **Milestone 1 baseline**, while Milestone 2 sharding, Aggregator HA, Internal Audit API, and Kubernetes workload manifests are implemented in `services/aggregator`, `k8s/base/`, and `scripts/`. Remaining cross-service M2 features and live 3-node cluster verification are tracked in [GitHub issues](https://github.com/Darsua/AAT/issues).
 
 | Area | Current repository status |
 | :--- | :--- |
 | BMKG/PVMBG ingestion, hazard reads, authentication, and event consumers | Implemented baseline |
-| Satellite/coastal hazard types, field-report submission, and Audit API | M2 contract definitions exist; the corresponding runtime features are not yet implemented |
-| Kubernetes | Base namespace, network policies, configuration/secret templates, and resource defaults exist; a complete application deployment is still pending |
-| Sharded storage, Aggregator HA, analytics UI, and unified metrics/tracing | Planned M2 work, not capabilities of the local baseline |
+| Sharded canonical storage (`consistent_hash_64_vnodes`, `RF=2`, anti-entropy) and Audit API (`/internal/audit/*`) | Implemented in `services/aggregator` with catalog skew CLI (`make catalog-bench`) and verifier (`make audit-verify`); see [ADR 006](docs/adr/006-sharded-storage-consistent-hashing-and-audit-api.md) |
+| Aggregator HA (`replicas: 3`), storage-clock leader leasing, monotonic fencing, and drain probing | Implemented in `services/aggregator` and `docker-compose.sharded.yml`; see [ADR 007](docs/adr/007-aggregator-ha-leader-leasing-and-fencing.md) |
+| Kubernetes manifests & one-command deployment (`k8s/base/`, `scripts/deploy_k8s.sh`) | Rendered and validated offline (`make k8s-validate`); live 3-node cluster rollout/chaos drills pending |
+| Gateway field-report writes, shared Auth sessions, coastal/satellite pollers, analytics UI, and AI summarizer | Tracked M2 cross-service / bonus work |
 
 ### Prototype limitations
 
-- Auth refresh sessions, consumer deduplication, and dashboard counters are process-local. The dashboard consumer is not a browser UI, and the notifier currently logs decisions rather than delivering external notifications.
-- The outbox retries pending payloads, but it is not an immutable history of every hazard revision. Consumers currently suppress later payloads with the same hazard ID during their process lifetime.
-- Compose runs a single database and a single broker. It does not demonstrate node-loss durability or high availability.
-- The API definitions include planned M2 behavior. A published contract is not evidence that an endpoint or hazard type is already supported by the running code.
+- Auth refresh sessions, consumer deduplication, and dashboard counters remain process-local in M1 services. The dashboard consumer is not a browser UI, and the notifier currently logs decisions rather than delivering external notifications.
+- Default `docker compose up` runs single-node `canonical-db` and single-broker Redpanda; use [docker-compose.sharded.yml](docker-compose.sharded.yml) (`make up-sharded`) or [k8s/base/](k8s/base/) for the 3-node sharded and 3-replica HA Aggregator topology. Live multi-node node-loss drills require the 3-node Kubernetes cluster.
+- Published contracts include cross-service M2 extensions whose runtime handlers outside `services/aggregator` remain tracked in open issues.
 
 ## Explore the repository
 

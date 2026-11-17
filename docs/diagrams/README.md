@@ -14,7 +14,9 @@ These Markdown documents embed the corresponding source verbatim:
 | [adr002-fanout.mmd](adr002-fanout.mmd) | [ADR 002](../adr/002-message-broker-redpanda.md) |
 | [adr003-outbox.mmd](adr003-outbox.mmd) | [ADR 003](../adr/003-canonical-storage-postgres-jsonb.md) |
 | [adr004-sequence.mmd](adr004-sequence.mmd) | [ADR 004](../adr/004-internal-communication-rest.md) |
-| [adr005-scaleout.mmd](adr005-scaleout.mmd), [adr005-breaker.mmd](adr005-breaker.mmd) | [ADR 005](../adr/005-stateless-architecture-and-m2-readiness.md): pending scale-out requirements and an optional breaker concept, not selected implementations. |
+| [adr005-scaleout.mmd](adr005-scaleout.mmd), [adr005-breaker.mmd](adr005-breaker.mmd) | [ADR 005](../adr/005-stateless-architecture-and-m2-readiness.md): M1 scale-out design baseline and conceptual breaker model |
+| [adr006-sharding.mmd](adr006-sharding.mmd) | [ADR 006](../adr/006-sharded-storage-consistent-hashing-and-audit-api.md): M2 3-node consistent hash ring, RF=2 placement, and anti-entropy repair |
+| [adr007-leasing.mmd](adr007-leasing.mmd) | [ADR 007](../adr/007-aggregator-ha-leader-leasing-and-fencing.md): M2 storage-clock leader leasing, monotonic fencing tokens, and durable checkpoints |
 
 ## Service guide references
 
