@@ -29,9 +29,11 @@ const (
 
 // config contains runtime settings.
 type config struct {
-	Port          string
-	JWTSecret     string
-	AggregatorURL string
+	Port              string
+	JWTSecret         string
+	AggregatorURL     string
+	RedpandaBrokers   []string
+	FieldReportsTopic string
 }
 
 type healthResponse struct {
@@ -153,16 +155,24 @@ func NewRemoteAggregatorClient(baseURL string) *RemoteAggregatorClient {
 type apiHandler struct {
 	jwtSecret     []byte
 	hazardService HazardService
+	reportStager  FieldReportStager
+	idempotency   *idempotencyStore
 }
 
 func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
-	return newAPIHandlerWithService(jwtSecret, NewRemoteAggregatorClient(aggregatorURL))
+	return newAPIHandlerWithDeps(jwtSecret, NewRemoteAggregatorClient(aggregatorURL), nil)
 }
 
 func newAPIHandlerWithService(jwtSecret string, hazardService HazardService) *apiHandler {
+	return newAPIHandlerWithDeps(jwtSecret, hazardService, nil)
+}
+
+func newAPIHandlerWithDeps(jwtSecret string, hazardService HazardService, stager FieldReportStager) *apiHandler {
 	return &apiHandler{
 		jwtSecret:     []byte(jwtSecret),
 		hazardService: hazardService,
+		reportStager:  stager,
+		idempotency:   newIdempotencyStore(defaultIdempotencyTTL, defaultIdempotencyCap),
 	}
 }
 
@@ -171,6 +181,8 @@ func (h *apiHandler) routes() http.Handler {
 	mux.HandleFunc("GET /health", h.health)
 	mux.Handle("GET /api/v1/hazards", h.requireJWT(http.HandlerFunc(h.listHazards)))
 	mux.Handle("GET /api/v1/hazards/{id}", h.requireJWT(http.HandlerFunc(h.getHazardByID)))
+	mux.Handle("POST /api/v1/field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
+	mux.Handle("POST /field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
 	return correlationMiddleware(loggingMiddleware(mux))
 }
 
@@ -595,7 +607,30 @@ func loadConfig() (config, error) {
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return config{}, fmt.Errorf("AGGREGATOR_URL must be a valid HTTP or HTTPS URL")
 	}
-	return config{Port: port, JWTSecret: jwtSecret, AggregatorURL: aggregatorURL}, nil
+	rawBrokers := os.Getenv("REDPANDA_BROKERS")
+	if rawBrokers == "" {
+		rawBrokers = "redpanda:9092"
+	}
+	var brokers []string
+	for _, b := range strings.Split(rawBrokers, ",") {
+		if trimmed := strings.TrimSpace(b); trimmed != "" {
+			brokers = append(brokers, trimmed)
+		}
+	}
+	if len(brokers) == 0 {
+		return config{}, fmt.Errorf("REDPANDA_BROKERS must contain at least one broker address")
+	}
+	fieldReportsTopic := strings.TrimSpace(os.Getenv("REDPANDA_TOPIC_FIELD_REPORTS"))
+	if fieldReportsTopic == "" {
+		fieldReportsTopic = defaultFieldReportsTopic
+	}
+	return config{
+		Port:              port,
+		JWTSecret:         jwtSecret,
+		AggregatorURL:     aggregatorURL,
+		RedpandaBrokers:   brokers,
+		FieldReportsTopic: fieldReportsTopic,
+	}, nil
 }
 
 func main() {
@@ -604,7 +639,14 @@ func main() {
 		log.Fatalf("[client-api] Configuration error: %v", err)
 	}
 
-	handler := newAPIHandler(configuration.JWTSecret, configuration.AggregatorURL)
+	stager := NewKafkaFieldReportStager(configuration.RedpandaBrokers, configuration.FieldReportsTopic)
+	defer func() {
+		if err := stager.Close(); err != nil {
+			log.Printf("[client-api] Failed to close field report stager: %v", err)
+		}
+	}()
+
+	handler := newAPIHandlerWithDeps(configuration.JWTSecret, NewRemoteAggregatorClient(configuration.AggregatorURL), stager)
 	server := &http.Server{
 		Addr:         ":" + configuration.Port,
 		Handler:      handler.routes(),
