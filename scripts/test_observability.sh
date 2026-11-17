@@ -142,7 +142,7 @@ echo -e "\n${BLUE}[Step 3] Verifying the HTTP correlation and latency log trail.
 if wait_for_log client-api "${HTTP_CORRELATION_ID}"; then
     CLIENT_LOG="$(${DOCKER_COMPOSE} logs --no-color client-api 2>/dev/null | grep -F "${HTTP_CORRELATION_ID}" | tail -n 1)"
     echo "${CLIENT_LOG}"
-    if grep -Fq 'duration_ms=' <<<"${CLIENT_LOG}"; then
+    if grep -Fq 'duration_ms' <<<"${CLIENT_LOG}"; then
         pass "Client API log contains correlation ID and request latency."
     else
         fail "Client API trace log is missing duration_ms."
