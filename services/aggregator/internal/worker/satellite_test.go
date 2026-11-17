@@ -155,7 +155,7 @@ func TestSatelliteWorkerPersistsFiresAndLifecycle(t *testing.T) {
 	if active != 1 || retired != 1 {
 		t.Fatalf("active=%d retired=%d, hazards = %v", active, retired, summarize(store.hazards))
 	}
-	if st := w.Status(); st.RejectedEvents != 1 || st.LastAppliedOffset != 8 || st.LagEvents != 0 {
+	if st := w.Status(); st.RejectedEvents != 1 || st.LastAppliedOffset != 8 || st.LagEvents != 0 || st.ActiveFires != 1 {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -189,6 +189,9 @@ func TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun(t *testing.T) {
 				}
 				if store.cp.LastOffset != 8 {
 					t.Fatalf("final checkpoint = %d", store.cp.LastOffset)
+				}
+				if st := w.Status(); st.ActiveFires != 1 {
+					t.Fatalf("active fires after recovery = %d, want 1", st.ActiveFires)
 				}
 			})
 		}

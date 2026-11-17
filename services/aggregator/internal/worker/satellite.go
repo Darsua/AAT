@@ -67,6 +67,9 @@ type SatelliteWorker struct {
 	mu        sync.Mutex
 	status    SatelliteStatus
 	latencies []time.Duration
+	// active holds the IDs of current fires, maintained from engine changes so
+	// progress tracking stays O(1) per event instead of rebuilding every fire.
+	active map[string]struct{}
 }
 
 // NewSatelliteWorker creates a worker for one satellite stream.
@@ -94,6 +97,7 @@ func (w *SatelliteWorker) WithLeaseConfig(holderID string, leaseTTL, renewInterv
 func (w *SatelliteWorker) Status() SatelliteStatus {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.status.P95PersistMillis = w.p95Locked()
 	return w.status
 }
 
@@ -163,10 +167,16 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 	if err != nil {
 		return err
 	}
+	fires := engine.Fires()
 	w.mu.Lock()
 	w.status.LastAppliedOffset = offset
+	w.active = make(map[string]struct{}, len(fires))
+	for _, f := range fires {
+		w.active[f.ID] = struct{}{}
+	}
+	w.status.ActiveFires = len(w.active)
 	w.mu.Unlock()
-	w.log.Info("satellite stream resuming", slog.Int64("from_offset", offset), slog.Int("active_fires", len(engine.Fires())))
+	w.log.Info("satellite stream resuming", slog.Int64("from_offset", offset), slog.Int("active_fires", len(fires)))
 
 	lastCheckpoint := w.now()
 	dirty := false
@@ -192,7 +202,7 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 			}
 		}
 		offset, dirty, consistent = ev.Offset, true, true
-		w.observe(engine, offset, w.now().Sub(start))
+		w.observe(engine, changes, offset, w.now().Sub(start))
 		if disp == satellite.DispositionLate {
 			w.log.Info("satellite_detection_late", slog.Int64("offset", ev.Offset), slog.Time("watermark", engine.Watermark()))
 		}
@@ -231,23 +241,41 @@ func (w *SatelliteWorker) checkpoint(ctx context.Context, engine *satellite.Engi
 	return err
 }
 
-func (w *SatelliteWorker) observe(engine *satellite.Engine, offset int64, latency time.Duration) {
+func (w *SatelliteWorker) observe(engine *satellite.Engine, changes []satellite.Change, offset int64, latency time.Duration) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.latencies = append(w.latencies, latency)
-	if len(w.latencies) > satelliteLatencyWindow {
-		w.latencies = w.latencies[len(w.latencies)-satelliteLatencyWindow:]
+	if len(w.latencies) > 2*satelliteLatencyWindow {
+		w.latencies = append(w.latencies[:0], w.latencies[len(w.latencies)-satelliteLatencyWindow:]...)
 	}
-	sorted := append([]time.Duration(nil), w.latencies...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	w.status.P95PersistMillis = float64(sorted[(len(sorted)*95-1)/100]) / float64(time.Millisecond)
+	for _, c := range changes {
+		if c.Kind == satellite.ChangeRetire {
+			delete(w.active, c.Fire.ID)
+		} else {
+			w.active[c.Fire.ID] = struct{}{}
+		}
+	}
 	w.status.LastAppliedOffset = offset
 	if w.status.LatestOffset < offset {
 		w.status.LatestOffset = offset
 	}
 	w.status.LagEvents = w.status.LatestOffset - offset
 	w.status.Engine = engine.Stats()
-	w.status.ActiveFires = len(engine.Fires())
+	w.status.ActiveFires = len(w.active)
+}
+
+// p95Locked returns the p95 of the last satelliteLatencyWindow per-event apply-and-persist times.
+func (w *SatelliteWorker) p95Locked() float64 {
+	window := w.latencies
+	if len(window) > satelliteLatencyWindow {
+		window = window[len(window)-satelliteLatencyWindow:]
+	}
+	if len(window) == 0 {
+		return 0
+	}
+	sorted := append([]time.Duration(nil), window...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	return float64(sorted[(len(sorted)*95-1)/100]) / float64(time.Millisecond)
 }
 
 // report refreshes the feed's latest offset and logs progress so processing lag is visible.
@@ -268,6 +296,7 @@ func (w *SatelliteWorker) report(ctx context.Context) {
 			w.status.LatestOffset = session.LatestOffset
 		}
 		w.status.LagEvents = w.status.LatestOffset - w.status.LastAppliedOffset
+		w.status.P95PersistMillis = w.p95Locked()
 		st := w.status
 		w.mu.Unlock()
 		if err != nil {
