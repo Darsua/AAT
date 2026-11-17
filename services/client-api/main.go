@@ -413,10 +413,12 @@ func parseListQuery(query url.Values) (queryOptions, error) {
 		options.Filter.Since = raw
 	}
 	if raw := query.Get("type"); raw != "" {
-		if raw != "SEISMIC" && raw != "VOLCANIC" {
-			return queryOptions{}, fmt.Errorf("Invalid query parameter 'type': must be SEISMIC or VOLCANIC")
+		switch raw {
+		case "SEISMIC", "VOLCANIC", "WILDFIRE", "COASTAL":
+			options.Filter.HazardType = raw
+		default:
+			return queryOptions{}, fmt.Errorf("Invalid query parameter 'type': must be SEISMIC, VOLCANIC, WILDFIRE, or COASTAL")
 		}
-		options.Filter.HazardType = raw
 	}
 	if raw := query.Get("severity"); raw != "" {
 		switch raw {
