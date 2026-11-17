@@ -65,3 +65,65 @@ func TestHazardEvent_JSONSerialization(t *testing.T) {
 		t.Errorf("expected dynamic field preserved, got %v", attrs["extra_custom_field"])
 	}
 }
+
+func TestValidationHelpers_M2Enums(t *testing.T) {
+	for _, s := range []Source{SourceBMKG, SourcePVMBG, SourceSatelit, SourceSensorPantai} {
+		if !IsValidSource(s) {
+			t.Errorf("expected source %q to be valid", s)
+		}
+	}
+	if IsValidSource(Source("FIELD_REPORT")) || IsValidSource(Source("")) {
+		t.Error("expected unknown/empty source to be invalid")
+	}
+
+	for _, ht := range []HazardType{HazardTypeSeismic, HazardTypeVolcanic, HazardTypeWildfire, HazardTypeCoastal} {
+		if !IsValidHazardType(ht) {
+			t.Errorf("expected hazard type %q to be valid", ht)
+		}
+	}
+	if IsValidHazardType(HazardType("TSUNAMI")) || IsValidHazardType(HazardType("")) {
+		t.Error("expected unknown/empty hazard type to be invalid")
+	}
+
+	for _, sev := range []Severity{SeverityNormal, SeverityWaspada, SeveritySiaga, SeverityAwas} {
+		if !IsValidSeverity(sev) {
+			t.Errorf("expected severity %q to be valid", sev)
+		}
+	}
+	if IsValidSeverity(Severity("CRITICAL")) {
+		t.Error("expected unknown severity to be invalid")
+	}
+}
+
+func TestUnprocessedMessage_JSONExcludesRawPayload(t *testing.T) {
+	now := time.Date(2026, 11, 12, 2, 40, 11, 0, time.UTC)
+	msg := UnprocessedMessage{
+		MessageID:  "msg-31c9",
+		Source:     SourcePVMBG,
+		ReceivedAt: now,
+		Reason:     "schema_incompatible",
+		Retryable:  false,
+		Attempts:   3,
+		Status:     UnprocessedStatusParked,
+		RawPayload: []byte(`{"broken":true}`),
+	}
+
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("failed to marshal UnprocessedMessage: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal UnprocessedMessage: %v", err)
+	}
+	if _, exists := decoded["RawPayload"]; exists {
+		t.Error("RawPayload must not be exposed in JSON")
+	}
+	if _, exists := decoded["raw_payload"]; exists {
+		t.Error("raw_payload must not be exposed in JSON")
+	}
+	if decoded["status"] != "parked" {
+		t.Errorf("expected status parked, got %v", decoded["status"])
+	}
+}
