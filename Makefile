@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up down restart logs build test k8s-validate k8s-deploy demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
+.PHONY: help up up-sharded down down-sharded restart logs build test k8s-validate k8s-deploy catalog-bench audit-verify demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
 
 ## Display available make targets
 help:
@@ -16,30 +16,42 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  up           Start all services in detached mode via Docker Compose"
-	@echo "  down         Stop all services and remove containers, networks, volumes"
-	@echo "  restart      Restart all running Docker Compose services"
-	@echo "  logs         Tail follow logs from all Docker Compose services"
-	@echo "  build        Build or rebuild Docker Compose service images"
-	@echo "  test         Run unit and integration tests across all Go services"
-	@echo "  k8s-validate Render and validate Kubernetes manifests via kubectl kustomize"
-	@echo "  k8s-deploy   Deploy the full M2 Kubernetes stack with one command"
-	@echo "  demo-p1      Execute Problem 1 demo (PVMBG schema evolution & confidence level)"
-	@echo "  demo-p2      Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
-	@echo "  demo-p3      Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
-	@echo "  demo-p4      Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
-	@echo "  demo-p5      Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
-	@echo "  load-test    Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
-	@echo "  report       Compile modular LaTeX report to PDF via tectonic"
+	@echo "  up            Start all services in detached mode via Docker Compose"
+	@echo "  up-sharded    Start 3-node sharded Postgres + 3-replica HA Aggregator stack"
+	@echo "  down          Stop all services and remove containers, networks, volumes"
+	@echo "  down-sharded  Stop sharded Compose stack and remove volumes"
+	@echo "  restart       Restart all running Docker Compose services"
+	@echo "  logs          Tail follow logs from all Docker Compose services"
+	@echo "  build         Build or rebuild Docker Compose service images"
+	@echo "  test          Run unit and integration tests across all Go services"
+	@echo "  k8s-validate  Render and validate Kubernetes manifests via kubectl kustomize"
+	@echo "  k8s-deploy    Deploy the full M2 Kubernetes stack with one command"
+	@echo "  catalog-bench Load historical earthquake catalog + spike skew benchmark (JSON)"
+	@echo "  audit-verify  Run independent SHA-256 checksum & Audit API cross-verification"
+	@echo "  demo-p1       Execute Problem 1 demo (PVMBG schema evolution & confidence level)"
+	@echo "  demo-p2       Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
+	@echo "  demo-p3       Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
+	@echo "  demo-p4       Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
+	@echo "  demo-p5       Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
+	@echo "  load-test     Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
+	@echo "  report        Compile modular LaTeX report to PDF via tectonic"
 	@echo "========================================================================"
 
 ## Start services in background
 up:
 	$(DOCKER_COMPOSE) up -d --build
 
+## Start sharded 3-node Postgres + 3-replica HA Aggregator stack
+up-sharded:
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.sharded.yml up --build -d
+
 ## Stop services and remove volumes
 down:
 	$(DOCKER_COMPOSE) down -v
+
+## Stop sharded Compose stack and remove volumes
+down-sharded:
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.sharded.yml down -v
 
 ## Restart services
 restart:
@@ -66,6 +78,14 @@ k8s-validate:
 k8s-deploy:
 	@chmod +x ./scripts/deploy_k8s.sh
 	./scripts/deploy_k8s.sh
+
+## Load historical catalog and measure shard/node skew
+catalog-bench:
+	cd services/aggregator && go run ./cmd/catalog-loader --in-memory --json
+
+## Run independent SHA-256 checksum and Audit API cross-verification
+audit-verify:
+	python3 scripts/verify_audit_and_catalog.py --self-test --json
 
 ## Problem 1: Schema change demonstration
 demo-p1:
