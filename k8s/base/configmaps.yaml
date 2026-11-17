@@ -31,6 +31,8 @@ data:
   NODE_NAME: "local"
   STORAGE_UNIT_ID: "shard-1"
   AUDIT_ALL_SOURCES_LABEL: "ALL"
+  LEASE_TTL_SECS: "15"
+  LEASE_RENEW_INTERVAL_SECS: "5"
 
   # Redpanda / Kafka topic and consumer group definitions
   TOPIC: "bnpb.hazard-events"

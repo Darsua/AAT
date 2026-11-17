@@ -127,3 +127,34 @@ func TestUnprocessedMessage_JSONExcludesRawPayload(t *testing.T) {
 		t.Errorf("expected status parked, got %v", decoded["status"])
 	}
 }
+
+func TestHazardEvent_JSONExcludesFencingToken(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	event := HazardEvent{
+		HazardID:     "haz-bmkg-fence-1",
+		Source:       SourceBMKG,
+		SourceRefID:  "ref-fence-1",
+		HazardType:   HazardTypeSeismic,
+		Severity:     SeverityNormal,
+		AreaName:     "Bantul",
+		Attributes:   map[string]any{},
+		OccurredAt:   now,
+		IngestedAt:   now,
+		FencingToken: 42,
+	}
+
+	raw, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("failed to marshal HazardEvent: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal HazardEvent: %v", err)
+	}
+	if _, exists := decoded["fencing_token"]; exists {
+		t.Error("fencing_token must not be exposed in HazardEvent JSON wire format")
+	}
+	if _, exists := decoded["FencingToken"]; exists {
+		t.Error("FencingToken must not be exposed in HazardEvent JSON wire format")
+	}
+}

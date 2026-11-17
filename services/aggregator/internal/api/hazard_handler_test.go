@@ -307,3 +307,30 @@ func TestHazardHandler_AcceptsM2TypesAndPartialStorageHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthHandler_DrainingReturns503(t *testing.T) {
+	handler := NewHealthHandler(&mockPinger{}, &mockBrokerPinger{})
+
+	req1 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 before drain, got %d", rec1.Code)
+	}
+
+	handler.SetDraining(true)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 while draining, got %d", rec2.Code)
+	}
+	var status HealthStatus
+	if err := json.Unmarshal(rec2.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode draining health response: %v", err)
+	}
+	if status.Status != "DOWN" {
+		t.Errorf("expected DOWN status while draining, got %q", status.Status)
+	}
+}
