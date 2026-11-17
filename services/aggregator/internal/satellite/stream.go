@@ -55,6 +55,8 @@ type Client struct {
 	HTTP       *http.Client
 	MinBackoff time.Duration
 	MaxBackoff time.Duration
+	// OnReconnect, if set, is called before each reconnect with the reason and the wait.
+	OnReconnect func(err error, lastApplied int64, wait time.Duration)
 }
 
 // NewClient returns a client with streaming-safe defaults (no overall request timeout).
@@ -155,6 +157,9 @@ func (c *Client) Run(ctx context.Context, lastApplied int64, handle func(Event) 
 		if errors.As(err, &se) && se.retryAfter > wait {
 			wait = se.retryAfter
 		}
+		if c.OnReconnect != nil {
+			c.OnReconnect(err, lastApplied, wait)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -204,7 +209,9 @@ func (c *Client) streamOnce(ctx context.Context, lastApplied *int64, handle func
 
 	progressed := false
 	err = readSSE(resp.Body, func(ev Event) error {
-		if ev.Type == EventHeartbeat || ev.Offset <= *lastApplied {
+		// Heartbeats with an id occupy an offset on the live feed (2026-11-17), so they
+		// advance the position like any other event; id-less heartbeats are ignored.
+		if (ev.Type == EventHeartbeat && ev.Offset < 0) || ev.Offset <= *lastApplied {
 			return nil
 		}
 		if ev.Offset != *lastApplied+1 {
@@ -244,12 +251,14 @@ func readSSE(body io.Reader, emit func(Event) error) error {
 			typ = "message"
 		}
 		ev := Event{Type: typ, Data: []byte(strings.Join(data, "\n"))}
-		if typ != EventHeartbeat {
-			off, err := strconv.ParseInt(id, 10, 64)
-			if err != nil {
-				return nil
-			}
+		off, err := strconv.ParseInt(id, 10, 64)
+		switch {
+		case err == nil:
 			ev.Offset = off
+		case typ == EventHeartbeat:
+			ev.Offset = -1 // id-less heartbeat: keep-alive only
+		default:
+			return nil
 		}
 		return emit(ev)
 	}
@@ -297,6 +306,9 @@ var identityFields = map[string]bool{"satellite": true, "acq_date": true, "acq_t
 
 // ApplyEvent applies a feed event to the engine.
 func ApplyEvent(e *Engine, ev Event) (Disposition, []Change, error) {
+	if ev.Type == EventHeartbeat {
+		return DispositionHeartbeat, nil, nil
+	}
 	var env envelope
 	if err := json.Unmarshal(ev.Data, &env); err != nil {
 		return "", nil, fmt.Errorf("decode %s: %w", ev.Type, err)

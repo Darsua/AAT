@@ -1,9 +1,14 @@
 package satellite
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // Payload shapes as observed on the live feed (2026-11-17).
@@ -111,5 +116,62 @@ func TestRunStartsAtOffsetZero(t *testing.T) {
 	}
 	if f.conns[0] != "0" {
 		t.Fatalf("first request from=%q, want 0", f.conns[0])
+	}
+}
+
+// On the live feed a heartbeat with an id occupies an offset; the stream must step over
+// it instead of treating the next event as a gap.
+type heartbeatFeed struct{}
+
+func (heartbeatFeed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	fmt.Fprint(w, "id: 0\nevent: detection\ndata: "+detectionData(0)+"\n\n")
+	fmt.Fprint(w, "id: 1\nevent: heartbeat\ndata: {\"offset\":1,\"virtual_now\":\"2026-11-28T02:34:26Z\"}\n\n")
+	fmt.Fprint(w, "event: heartbeat\ndata: {}\n\n")
+	fmt.Fprint(w, "id: 2\nevent: detection\ndata: "+detectionData(2)+"\n\n")
+	w.(http.Flusher).Flush()
+	<-r.Context().Done()
+}
+
+func TestRunStepsOverHeartbeatOffsets(t *testing.T) {
+	srv := httptest.NewServer(heartbeatFeed{})
+	defer srv.Close()
+	c := NewClient(srv.URL, "group-token")
+	reconnects := 0
+	c.OnReconnect = func(error, int64, time.Duration) { reconnects++ }
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var got []string
+	_ = c.Run(ctx, -1, func(ev Event) error {
+		got = append(got, fmt.Sprintf("%d:%s", ev.Offset, ev.Type))
+		if disp, _, err := ApplyEvent(NewEngine(Config{}), ev); err != nil {
+			t.Errorf("offset %d: %s %v", ev.Offset, disp, err)
+		}
+		if ev.Offset == 2 {
+			cancel()
+		}
+		return nil
+	})
+	if want := []string{"0:detection", "1:heartbeat", "2:detection"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if reconnects != 0 {
+		t.Fatalf("reconnected %d times", reconnects)
+	}
+}
+
+func TestPlainDecimal(t *testing.T) {
+	for in, want := range map[string]string{
+		"1.9e-4": "0.00019", "-4.6e-4": "-0.00046", "9.4E-4": "0.00094", "1.20e-3": "0.0012",
+		"1.5e2": "150", "-2.5e1": "-25", "115.03373": "115.03373", "1.10": "1.10", "0": "0",
+	} {
+		if got, err := plainDecimal(in); err != nil || got != want {
+			t.Errorf("plainDecimal(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	// The detection key then matches the key the feed uses in updates and retracts.
+	d, err := ParseDetection([]byte(`{"acq_date":"2026-11-29","acq_time":2155,"confidence":"l","frp":54.16,"latitude":1.9e-4,"longitude":102.82128,"satellite":"N21"}`))
+	if err != nil || d.Key() != "N21|2026-11-29|2155|0.00019|102.82128" {
+		t.Fatalf("key = %q, %v", d.Key(), err)
 	}
 }

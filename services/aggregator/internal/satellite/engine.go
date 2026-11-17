@@ -53,6 +53,7 @@ const (
 	DispositionLowConfidence Disposition = "low_confidence"
 	DispositionLate          Disposition = "late_beyond_watermark"
 	DispositionUnknown       Disposition = "unknown_detection"
+	DispositionHeartbeat     Disposition = "heartbeat"
 )
 
 // ChangeKind says whether a fire hazard must be written or retired.

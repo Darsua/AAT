@@ -96,8 +96,14 @@ Override development credentials through the environment.
   checked against the live feed on 2026-11-17: offsets start at 0, detections
   arrive as `{"offset","detection":{...}}` with a numeric `acq_time`, and updates
   as `{"offset","key","changes":{...}}` patches. Confidence `l` is excluded from
-  fires but kept, so a later update can raise it. Retracts are assumed to carry
-  the same `key` (none were seen in the sample). `area_name` is the nearest centroid from
+  fires but kept, so a later update can raise it. Retracts are
+  `{"offset","reason","key"}`. Heartbeats with an `id` occupy an offset and are
+  stepped over. Coordinates near zero can arrive in exponent form (`1.9e-4`)
+  while keys spell them `0.00019`, so exponent text is rewritten to plain
+  decimal without rounding. The feed allows **one stream connection per group
+  token**: a second connection (another replica, a laptop, `curl`) closes the
+  first with `too_many_connections`, so only the lease holder may stream.
+  `area_name` is the nearest centroid from
   `SATELLITE_PROVINCE_CENTROIDS_FILE`, and falls back to a coordinate label
   while that reference table is not configured.
 

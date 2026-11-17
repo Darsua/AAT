@@ -124,8 +124,12 @@ func main() {
 			} else {
 				log.Warn("SATELLITE_PROVINCE_CENTROIDS_FILE not set; wildfire area_name falls back to coordinates")
 			}
+			feed := satellite.NewClient(cfg.SatelliteURL, cfg.SatelliteToken)
+			feed.OnReconnect = func(err error, lastApplied int64, wait time.Duration) {
+				log.Warn("satellite stream reconnecting", "error", err, "last_applied_offset", lastApplied, "retry_in", wait)
+			}
 			satelliteWorker := worker.NewSatelliteWorker(
-				satellite.NewClient(cfg.SatelliteURL, cfg.SatelliteToken),
+				feed,
 				hazardRepo,
 				satellite.Config{Lateness: cfg.SatelliteLateness},
 				locate,

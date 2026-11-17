@@ -66,7 +66,59 @@ func ParseDetection(payload []byte) (Detection, error) {
 			return Detection{}, fmt.Errorf("frp: %w", err)
 		}
 	}
-	return NewDetection(raw.Satellite, raw.AcqDate, acqTime, raw.Latitude.String(), raw.Longitude.String(), confidence, frp)
+	lat, err := plainDecimal(raw.Latitude.String())
+	if err != nil {
+		return Detection{}, fmt.Errorf("latitude: %w", err)
+	}
+	lon, err := plainDecimal(raw.Longitude.String())
+	if err != nil {
+		return Detection{}, fmt.Errorf("longitude: %w", err)
+	}
+	return NewDetection(raw.Satellite, raw.AcqDate, acqTime, lat, lon, confidence, frp)
+}
+
+// plainDecimal rewrites a JSON number in exponent form into plain decimal text by moving
+// the decimal point, so no digit is rounded. The live feed sends some coordinates near
+// zero as e.g. 1.9e-4 while its own keys spell them 0.00019 (seen 2026-11-17). Numbers
+// without an exponent are returned unchanged, keeping their exact text.
+func plainDecimal(num string) (string, error) {
+	mant, expText, found := strings.Cut(strings.ToLower(num), "e")
+	if !found {
+		return num, nil
+	}
+	exp, err := strconv.Atoi(expText)
+	if err != nil {
+		return "", fmt.Errorf("invalid exponent in %q", num)
+	}
+	sign := ""
+	if strings.HasPrefix(mant, "-") || strings.HasPrefix(mant, "+") {
+		if mant[0] == '-' {
+			sign = "-"
+		}
+		mant = mant[1:]
+	}
+	intPart, fracPart, _ := strings.Cut(mant, ".")
+	digits := intPart + fracPart
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
+		return "", fmt.Errorf("invalid number %q", num)
+	}
+	point := len(intPart) + exp // position of the decimal point within digits
+	switch {
+	case point <= 0:
+		digits = strings.Repeat("0", 1-point) + digits
+		point = 1
+	case point > len(digits):
+		digits += strings.Repeat("0", point-len(digits))
+	}
+	whole := strings.TrimLeft(digits[:point], "0")
+	if whole == "" {
+		whole = "0"
+	}
+	frac := strings.TrimRight(digits[point:], "0")
+	if frac == "" {
+		return sign + whole, nil
+	}
+	return sign + whole + "." + frac, nil
 }
 
 // scalarText returns a JSON string or number as its text, so "0905" and 905 are both accepted.
