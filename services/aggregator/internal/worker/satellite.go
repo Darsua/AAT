@@ -24,11 +24,13 @@ const (
 	satelliteLatencyWindow      = 1000
 )
 
-// SatelliteStore persists wildfire hazards and the stream checkpoint.
+// SatelliteStore persists wildfire hazards and the stream checkpoint. When it also
+// implements FencedCoordinator, the worker streams only while it holds the SATELIT
+// lease and every write is fenced, so one aggregator replica streams at a time.
 type SatelliteStore interface {
-	SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error
+	HazardSaver
 	LoadSatelliteCheckpoint(ctx context.Context, stream string) (*repository.SatelliteCheckpoint, error)
-	SaveSatelliteCheckpoint(ctx context.Context, stream string, lastOffset int64, state []byte) error
+	SaveSatelliteCheckpoint(ctx context.Context, cp repository.SatelliteCheckpoint, fence *domain.WriteFence) error
 }
 
 // SatelliteFeed is the subset of satellite.Client the worker uses.
@@ -56,6 +58,7 @@ type SatelliteWorker struct {
 	store              SatelliteStore
 	engineCfg          satellite.Config
 	locate             satellite.AreaLocator
+	lease              leaseGuard
 	checkpointInterval time.Duration
 	reportInterval     time.Duration
 	log                *slog.Logger
@@ -73,11 +76,18 @@ func NewSatelliteWorker(feed SatelliteFeed, store SatelliteStore, cfg satellite.
 		store:              store,
 		engineCfg:          cfg,
 		locate:             locate,
+		lease:              newLeaseGuard(store, domain.SourceSatelit, log.With(slog.String("worker", "satellite"))),
 		checkpointInterval: defaultSatelliteCheckpoint,
 		reportInterval:     defaultSatelliteReportEvery,
 		log:                log.With(slog.String("worker", "satellite")),
 		now:                time.Now,
 	}
+}
+
+// WithLeaseConfig overrides replica holder identity, lease TTL, and renewal cadence.
+func (w *SatelliteWorker) WithLeaseConfig(holderID string, leaseTTL, renewInterval time.Duration) *SatelliteWorker {
+	w.lease.configure(holderID, leaseTTL, renewInterval)
+	return w
 }
 
 // Status returns a copy of the current progress.
@@ -87,23 +97,42 @@ func (w *SatelliteWorker) Status() SatelliteStatus {
 	return w.status
 }
 
-// Start runs until ctx is canceled, restarting from the durable checkpoint after failures.
+// Start runs until ctx is canceled. A replica streams only while it holds the SATELIT
+// lease; standbys retry the lease every renew interval. Each leadership term and each
+// failure restarts from the durable checkpoint.
 func (w *SatelliteWorker) Start(ctx context.Context) {
-	w.log.Info("starting satellite stream worker")
+	w.log.Info("starting satellite stream worker", slog.String("holder_id", w.lease.holderID))
 	go w.report(ctx)
 	for {
-		err := w.runOnce(ctx)
+		fence, streamCtx, stopRenew, leader, err := w.lease.acquireCycle(ctx)
+		wait := w.lease.renewInterval
+		if err == nil && leader {
+			err = w.runOnce(streamCtx, fence)
+			lostLease := streamCtx.Err() != nil && ctx.Err() == nil
+			stopRenew()
+			switch {
+			case ctx.Err() != nil:
+			case lostLease || errors.Is(err, repository.ErrStaleFencingToken):
+				w.log.Warn("satellite lease lost; standing by", "error", err)
+			default:
+				wait = satelliteRetryWait
+				if errors.Is(err, satellite.ErrUnauthorized) || errors.Is(err, satellite.ErrBadRequest) {
+					wait = satelliteFatalWait
+				}
+				w.log.Error("satellite stream stopped; restarting from checkpoint", "error", err, "retry_in", wait)
+			}
+		} else if err != nil {
+			w.log.Warn("satellite lease check failed", "error", err)
+		}
 		if ctx.Err() != nil {
+			w.lease.releaseOnShutdown()
 			w.log.Info("stopping satellite stream worker")
 			return
 		}
-		wait := satelliteRetryWait
-		if errors.Is(err, satellite.ErrUnauthorized) || errors.Is(err, satellite.ErrBadRequest) {
-			wait = satelliteFatalWait
-		}
-		w.log.Error("satellite stream stopped; restarting from checkpoint", "error", err, "retry_in", wait)
 		select {
 		case <-ctx.Done():
+			w.lease.releaseOnShutdown()
+			w.log.Info("stopping satellite stream worker")
 			return
 		case <-time.After(wait):
 		}
@@ -129,7 +158,7 @@ func (w *SatelliteWorker) restore(ctx context.Context) (*satellite.Engine, int64
 	return engine, cp.LastOffset, nil
 }
 
-func (w *SatelliteWorker) runOnce(ctx context.Context) error {
+func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence) error {
 	engine, offset, err := w.restore(ctx)
 	if err != nil {
 		return err
@@ -158,7 +187,7 @@ func (w *SatelliteWorker) runOnce(ctx context.Context) error {
 		}
 		for _, c := range changes {
 			h := satelliteHazard(c, w.locate)
-			if err := w.store.SaveHazardWithOutbox(ctx, &h, fmt.Sprintf("satelit-%d", ev.Offset)); err != nil {
+			if err := w.lease.saveHazard(ctx, &h, fmt.Sprintf("satelit-%d", ev.Offset), fence); err != nil {
 				return fmt.Errorf("persist %s at offset %d: %w", h.HazardID, ev.Offset, err)
 			}
 		}
@@ -168,7 +197,7 @@ func (w *SatelliteWorker) runOnce(ctx context.Context) error {
 			w.log.Info("satellite_detection_late", slog.Int64("offset", ev.Offset), slog.Time("watermark", engine.Watermark()))
 		}
 		if w.now().Sub(lastCheckpoint) >= w.checkpointInterval {
-			if err := w.checkpoint(ctx, engine, offset); err != nil {
+			if err := w.checkpoint(ctx, engine, offset, fence); err != nil {
 				return err
 			}
 			lastCheckpoint, dirty = w.now(), false
@@ -178,7 +207,7 @@ func (w *SatelliteWorker) runOnce(ctx context.Context) error {
 
 	if dirty && consistent {
 		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := w.checkpoint(saveCtx, engine, offset); err != nil {
+		if err := w.checkpoint(saveCtx, engine, offset, fence); err != nil {
 			w.log.Error("final satellite checkpoint failed", "error", err)
 		}
 		cancel()
@@ -186,12 +215,20 @@ func (w *SatelliteWorker) runOnce(ctx context.Context) error {
 	return runErr
 }
 
-func (w *SatelliteWorker) checkpoint(ctx context.Context, engine *satellite.Engine, offset int64) error {
+func (w *SatelliteWorker) checkpoint(ctx context.Context, engine *satellite.Engine, offset int64, fence *domain.WriteFence) error {
 	state, err := json.Marshal(engine.Snapshot())
 	if err != nil {
 		return fmt.Errorf("encode satellite checkpoint: %w", err)
 	}
-	return w.store.SaveSatelliteCheckpoint(ctx, satelliteStream, offset, state)
+	err = w.store.SaveSatelliteCheckpoint(ctx, repository.SatelliteCheckpoint{
+		Stream:     satelliteStream,
+		LastOffset: offset,
+		State:      state,
+	}, fence)
+	if errors.Is(err, repository.ErrStaleFencingToken) {
+		w.lease.fencingToken = 0
+	}
+	return err
 }
 
 func (w *SatelliteWorker) observe(engine *satellite.Engine, offset int64, latency time.Duration) {
@@ -251,11 +288,14 @@ func (w *SatelliteWorker) report(ctx context.Context) {
 
 // satelliteHazard maps an engine change to the canonical hazard. The frozen HazardEvent
 // has no lifecycle field, so retirement is carried in attributes (additional properties
-// are allowed) and the hazard row is kept rather than deleted.
+// are allowed) and the hazard row is kept rather than deleted. A retired fire drops to
+// NORMAL so consumers see a de-escalation instead of a repeated alert.
 func satelliteHazard(c satellite.Change, locate satellite.AreaLocator) domain.HazardEvent {
 	h := c.Fire.ToHazard(locate)
 	h.Attributes["lifecycle_status"] = "active"
 	if c.Kind == satellite.ChangeRetire {
+		h.Severity = domain.SeverityNormal
+		h.Attributes["severity_before_retire"] = string(c.Fire.Severity)
 		h.Attributes["lifecycle_status"] = "retired"
 		h.Attributes["retired_reason"] = c.Reason
 		if c.MergedTo != "" {

@@ -34,10 +34,10 @@ func TestSatelliteCheckpointPostgres(t *testing.T) {
 	if cp, err := repo.LoadSatelliteCheckpoint(ctx, "test"); err != nil || cp != nil {
 		t.Fatalf("empty load = %+v, %v", cp, err)
 	}
-	if err := repo.SaveSatelliteCheckpoint(ctx, "test", 5, []byte(`{"detections":[]}`)); err != nil {
+	if err := repo.SaveSatelliteCheckpoint(ctx, SatelliteCheckpoint{Stream: "test", LastOffset: 5, State: []byte(`{"detections":[]}`)}, nil); err != nil {
 		t.Fatalf("save 5: %v", err)
 	}
-	if err := repo.SaveSatelliteCheckpoint(ctx, "test", 3, []byte(`{"stale":true}`)); err != nil {
+	if err := repo.SaveSatelliteCheckpoint(ctx, SatelliteCheckpoint{Stream: "test", LastOffset: 3, State: []byte(`{"stale":true}`)}, nil); err != nil {
 		t.Fatalf("save stale: %v", err)
 	}
 	cp, err := repo.LoadSatelliteCheckpoint(ctx, "test")

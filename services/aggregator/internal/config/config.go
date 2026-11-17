@@ -37,6 +37,8 @@ type Config struct {
 	SatelliteURL      string
 	SatelliteToken    string
 	SatelliteLateness time.Duration
+	// JSON array of {"name","latitude","longitude"} reference-province centroids for area_name.
+	SatelliteProvinceFile string
 }
 
 // Load loads configuration from environment variables with safe defaults matching .env.example.
@@ -108,6 +110,7 @@ func Load() *Config {
 	cfg.SatelliteEnabled = getEnv("SATELLITE_ENABLED", "false") == "true"
 	cfg.SatelliteURL = getEnv("SATELLITE_URL", "https://satellite.naufarrel.dev")
 	cfg.SatelliteToken = getEnv("SATELLITE_GROUP_TOKEN", "")
+	cfg.SatelliteProvinceFile = getEnv("SATELLITE_PROVINCE_CENTROIDS_FILE", "")
 	if mins := getEnvInt("SATELLITE_LATENESS_MINUTES", 0); mins > 0 {
 		cfg.SatelliteLateness = time.Duration(mins) * time.Minute
 	}

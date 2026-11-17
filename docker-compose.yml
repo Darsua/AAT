@@ -120,6 +120,7 @@ services:
       SATELLITE_URL: ${SATELLITE_URL:-https://satellite.naufarrel.dev}
       SATELLITE_GROUP_TOKEN: ${SATELLITE_GROUP_TOKEN:-}
       SATELLITE_LATENESS_MINUTES: ${SATELLITE_LATENESS_MINUTES:-360}
+      SATELLITE_PROVINCE_CENTROIDS_FILE: ${SATELLITE_PROVINCE_CENTROIDS_FILE:-}
     depends_on:
       canonical-db:
         condition: service_healthy

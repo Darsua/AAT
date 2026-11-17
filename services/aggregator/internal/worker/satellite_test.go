@@ -71,14 +71,23 @@ func (s *fakeSatelliteStore) LoadSatelliteCheckpoint(context.Context, string) (*
 	return &cp, nil
 }
 
-func (s *fakeSatelliteStore) SaveSatelliteCheckpoint(_ context.Context, _ string, offset int64, state []byte) error {
+func (s *fakeSatelliteStore) SaveSatelliteCheckpoint(_ context.Context, cp repository.SatelliteCheckpoint, _ *domain.WriteFence) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cp != nil && s.cp.LastOffset > offset {
+	if s.cp != nil && s.cp.LastOffset > cp.LastOffset {
 		return nil
 	}
-	s.cp = &repository.SatelliteCheckpoint{LastOffset: offset, State: append([]byte(nil), state...)}
+	cp.State = append([]byte(nil), cp.State...)
+	s.cp = &cp
 	return nil
+}
+
+func (s *fakeSatelliteStore) GetHazardBySourceRef(context.Context, domain.Source, string) (*domain.HazardEvent, error) {
+	return nil, nil
+}
+
+func (s *fakeSatelliteStore) GetLatestOccurredAt(context.Context, domain.Source) (*time.Time, error) {
+	return nil, nil
 }
 
 func satEvent(offset int64, typ, lat, hhmm, conf string, frp float64) satellite.Event {
@@ -116,7 +125,7 @@ func summarize(hazards map[string]domain.HazardEvent) map[string]string {
 func TestSatelliteWorkerPersistsFiresAndLifecycle(t *testing.T) {
 	store := &fakeSatelliteStore{hazards: map[string]domain.HazardEvent{}}
 	w := newTestSatelliteWorker(store, 0)
-	if err := w.runOnce(context.Background()); !errors.Is(err, errFeedDrained) {
+	if err := w.runOnce(context.Background(), nil); !errors.Is(err, errFeedDrained) {
 		t.Fatalf("runOnce = %v", err)
 	}
 	if store.cp == nil || store.cp.LastOffset != 8 {
@@ -138,6 +147,9 @@ func TestSatelliteWorkerPersistsFiresAndLifecycle(t *testing.T) {
 			if h.Attributes["retired_reason"] != satellite.RetireBelowThreshold {
 				t.Fatalf("retired = %v", h.Attributes)
 			}
+			if h.Severity != domain.SeverityNormal {
+				t.Fatalf("retired fire severity = %s, want NORMAL", h.Severity)
+			}
 		}
 	}
 	if active != 1 || retired != 1 {
@@ -150,7 +162,7 @@ func TestSatelliteWorkerPersistsFiresAndLifecycle(t *testing.T) {
 
 func TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun(t *testing.T) {
 	reference := &fakeSatelliteStore{hazards: map[string]domain.HazardEvent{}}
-	if err := newTestSatelliteWorker(reference, 0).runOnce(context.Background()); !errors.Is(err, errFeedDrained) {
+	if err := newTestSatelliteWorker(reference, 0).runOnce(context.Background(), nil); !errors.Is(err, errFeedDrained) {
 		t.Fatalf("reference run = %v", err)
 	}
 	want := summarize(reference.hazards)
@@ -163,13 +175,13 @@ func TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun(t *testing.T) {
 			t.Run(fmt.Sprintf("interval=%s/crash=%d", interval, crashAt), func(t *testing.T) {
 				store := &fakeSatelliteStore{hazards: map[string]domain.HazardEvent{}, failOffset: crashAt}
 				w := newTestSatelliteWorker(store, interval)
-				if err := w.runOnce(context.Background()); err == nil || errors.Is(err, errFeedDrained) {
+				if err := w.runOnce(context.Background(), nil); err == nil || errors.Is(err, errFeedDrained) {
 					t.Fatalf("first run should fail at offset %d, got %v", crashAt, err)
 				}
 				if store.cp != nil && store.cp.LastOffset >= crashAt {
 					t.Fatalf("checkpoint %d moved past the failed offset %d", store.cp.LastOffset, crashAt)
 				}
-				if err := w.runOnce(context.Background()); !errors.Is(err, errFeedDrained) {
+				if err := w.runOnce(context.Background(), nil); !errors.Is(err, errFeedDrained) {
 					t.Fatalf("recovery run = %v", err)
 				}
 				if got := summarize(store.hazards); !reflect.DeepEqual(got, want) {
@@ -181,4 +193,105 @@ func TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun(t *testing.T) {
 			})
 		}
 	}
+}
+
+// blockingFeed replays the script, then holds the stream open until the caller stops it.
+type blockingFeed struct {
+	events []satellite.Event
+	mu     sync.Mutex
+	froms  []int64
+}
+
+func (f *blockingFeed) GetSession(context.Context) (satellite.Session, error) {
+	return satellite.Session{LatestOffset: int64(len(f.events))}, nil
+}
+
+func (f *blockingFeed) Run(ctx context.Context, lastApplied int64, handle func(satellite.Event) error) error {
+	f.mu.Lock()
+	f.froms = append(f.froms, lastApplied)
+	f.mu.Unlock()
+	for _, ev := range f.events {
+		if ev.Offset <= lastApplied {
+			continue
+		}
+		if err := handle(ev); err != nil {
+			return err
+		}
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (f *blockingFeed) runs() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int64(nil), f.froms...)
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestSatelliteWorkerStreamsOnlyOnLeaseHolderAndFailsOver(t *testing.T) {
+	primary := repository.NewMemoryUnitBackend()
+	replica := repository.NewMemoryUnitBackend()
+	repo, err := repository.NewShardedHazardRepository([]repository.ShardGroup{{
+		ShardID: "shard-1",
+		Units: []repository.StorageUnit{
+			{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: primary},
+			{Unit: "shard-1-r1", Node: "ruby", Role: domain.StorageRoleReplica, Backend: replica},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	feedA := &blockingFeed{events: satelliteScript()}
+	feedB := &blockingFeed{events: satelliteScript()}
+	workerA := NewSatelliteWorker(feedA, repo, satellite.Config{}, nil, logger).
+		WithLeaseConfig("agg-a", time.Second, 20*time.Millisecond)
+	workerB := NewSatelliteWorker(feedB, repo, satellite.Config{}, nil, logger).
+		WithLeaseConfig("agg-b", time.Second, 20*time.Millisecond)
+	workerA.checkpointInterval, workerB.checkpointInterval = 0, 0
+
+	ctxA, stopA := context.WithCancel(context.Background())
+	doneA := make(chan struct{})
+	go func() { workerA.Start(ctxA); close(doneA) }()
+	waitFor(t, "agg-a to stream", func() bool { return len(feedA.runs()) == 1 })
+
+	ctxB, stopB := context.WithCancel(context.Background())
+	defer stopB()
+	doneB := make(chan struct{})
+	go func() { workerB.Start(ctxB); close(doneB) }()
+
+	waitFor(t, "agg-a to checkpoint offset 8", func() bool {
+		cp, err := repo.LoadSatelliteCheckpoint(context.Background(), satelliteStream)
+		return err == nil && cp != nil && cp.LastOffset == 8
+	})
+	time.Sleep(100 * time.Millisecond) // several renew intervals for agg-b to try the lease
+	if runs := feedB.runs(); len(runs) != 0 {
+		t.Fatalf("standby streamed while agg-a held the lease: %v", runs)
+	}
+	cp, _ := repo.LoadSatelliteCheckpoint(context.Background(), satelliteStream)
+	if cp.HolderID != "agg-a" || cp.FencingToken <= 0 {
+		t.Fatalf("checkpoint not fenced by agg-a: holder=%q token=%d", cp.HolderID, cp.FencingToken)
+	}
+	// agg-a shuts down and releases the lease; agg-b resumes from the checkpoint.
+	stopA()
+	<-doneA
+	waitFor(t, "agg-b to take over", func() bool { return len(feedB.runs()) == 1 })
+	if from := feedB.runs()[0]; from != 8 {
+		t.Fatalf("agg-b resumed from offset %d, want 8", from)
+	}
+
+	stopB()
+	<-doneB
 }

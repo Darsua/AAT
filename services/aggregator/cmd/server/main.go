@@ -113,13 +113,24 @@ func main() {
 		if cfg.SatelliteToken == "" {
 			log.Error("SATELLITE_ENABLED is true but SATELLITE_GROUP_TOKEN is empty; satellite stream not started")
 		} else {
+			var locate satellite.AreaLocator
+			if cfg.SatelliteProvinceFile != "" {
+				centroids, err := satellite.LoadProvinceCentroids(cfg.SatelliteProvinceFile)
+				if err != nil {
+					log.Error("fatal: invalid SATELLITE_PROVINCE_CENTROIDS_FILE", "error", err)
+					os.Exit(1)
+				}
+				locate = satellite.NearestCentroidLocator(centroids)
+			} else {
+				log.Warn("SATELLITE_PROVINCE_CENTROIDS_FILE not set; wildfire area_name falls back to coordinates")
+			}
 			satelliteWorker := worker.NewSatelliteWorker(
 				satellite.NewClient(cfg.SatelliteURL, cfg.SatelliteToken),
 				hazardRepo,
 				satellite.Config{Lateness: cfg.SatelliteLateness},
-				nil,
+				locate,
 				log,
-			)
+			).WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
 			workerWg.Add(1)
 			go func() {
 				defer workerWg.Done()
