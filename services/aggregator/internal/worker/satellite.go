@@ -149,7 +149,7 @@ func (w *SatelliteWorker) restore(ctx context.Context) (*satellite.Engine, int64
 		return nil, 0, err
 	}
 	if cp == nil {
-		return satellite.NewEngine(w.engineCfg), 0, nil
+		return satellite.NewEngine(w.engineCfg), -1, nil // feed offsets start at 0
 	}
 	var st satellite.State
 	if err := json.Unmarshal(cp.State, &st); err != nil {

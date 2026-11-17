@@ -31,6 +31,7 @@ type State struct {
 	Detections   []DetectionState `json:"detections"`
 	Components   []ComponentState `json:"components"`
 	Late         []DetectionState `json:"late"`
+	Low          []DetectionState `json:"low,omitempty"`
 	UsedIDs      []string         `json:"used_ids"`
 	MaxEventTime time.Time        `json:"max_event_time"`
 	Stats        Stats            `json:"stats"`
@@ -52,6 +53,9 @@ func (e *Engine) Snapshot() State {
 	}
 	for _, k := range sortedKeys(keySet(e.late)) {
 		st.Late = append(st.Late, toState(e.late[k]))
+	}
+	for _, k := range sortedKeys(keySet(e.low)) {
+		st.Low = append(st.Low, toState(e.low[k]))
 	}
 	seen := make(map[*component]struct{})
 	for _, c := range e.compOf {
@@ -84,6 +88,13 @@ func Restore(cfg Config, st State) (*Engine, error) {
 			return nil, fmt.Errorf("restore late detection: %w", err)
 		}
 		e.late[d.Key()] = d
+	}
+	for _, ds := range st.Low {
+		d, err := ds.detection()
+		if err != nil {
+			return nil, fmt.Errorf("restore low-confidence detection: %w", err)
+		}
+		e.low[d.Key()] = d
 	}
 	for _, cs := range st.Components {
 		c := &component{id: cs.ID, keys: make(map[string]struct{}, len(cs.Keys))}

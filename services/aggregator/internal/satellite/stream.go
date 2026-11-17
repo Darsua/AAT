@@ -178,13 +178,21 @@ func isTransient(err error) bool {
 }
 
 func (c *Client) streamOnce(ctx context.Context, lastApplied *int64, handle func(Event) error) (bool, error) {
-	q := url.Values{"from": {strconv.FormatInt(*lastApplied, 10)}}
+	// Offsets start at 0, so a negative lastApplied means nothing has been applied yet.
+	// from= is honoured as inclusive by the feed; already-applied offsets are dropped below.
+	from := *lastApplied
+	if from < 0 {
+		from = 0
+	}
+	q := url.Values{"from": {strconv.FormatInt(from, 10)}}
 	req, err := c.newRequest(ctx, "/v1/stream", q)
 	if err != nil {
 		return false, handlerError{err}
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Last-Event-ID", strconv.FormatInt(*lastApplied, 10))
+	if *lastApplied >= 0 {
+		req.Header.Set("Last-Event-ID", strconv.FormatInt(*lastApplied, 10))
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return false, err
@@ -270,40 +278,73 @@ func readSSE(body io.Reader, emit func(Event) error) error {
 	return sc.Err()
 }
 
-// ApplyEvent applies a feed event to the engine.
+// envelope is the feed's event payload. Observed on the live feed (2026-11-17):
 //
-// Assumption, to verify against the feed: retract payloads carry either a "detection_key"
-// (or "key") field or the full detection fields from which the key is derived.
+//	detection: {"offset":0,"detection":{"satellite":"N21","acq_date":"2026-11-27","acq_time":2352,...}}
+//	update:    {"offset":36,"key":"N21|2026-11-27|2352|1.12035|115.03373","changes":{"confidence":"l","frp":2.45}}
+//
+// Retracts are expected to carry the same "key". A bare detection object, or
+// "detection_key", is still accepted.
+type envelope struct {
+	Detection    json.RawMessage            `json:"detection"`
+	Key          string                     `json:"key"`
+	DetectionKey string                     `json:"detection_key"`
+	Changes      map[string]json.RawMessage `json:"changes"`
+}
+
+// identityFields cannot change through an update: they make up the detection key.
+var identityFields = map[string]bool{"satellite": true, "acq_date": true, "acq_time": true, "latitude": true, "longitude": true}
+
+// ApplyEvent applies a feed event to the engine.
 func ApplyEvent(e *Engine, ev Event) (Disposition, []Change, error) {
+	var env envelope
+	if err := json.Unmarshal(ev.Data, &env); err != nil {
+		return "", nil, fmt.Errorf("decode %s: %w", ev.Type, err)
+	}
+	key := env.Key
+	if key == "" {
+		key = env.DetectionKey
+	}
 	switch ev.Type {
 	case EventDetection:
-		d, err := ParseDetection(ev.Data)
+		payload := ev.Data
+		if len(env.Detection) > 0 {
+			payload = env.Detection
+		}
+		d, err := ParseDetection(payload)
 		if err != nil {
 			return "", nil, err
 		}
 		disp, changes := e.Add(d)
 		return disp, changes, nil
 	case EventUpdate:
-		d, err := ParseDetection(ev.Data)
+		if key == "" {
+			// Full-record update without a key.
+			d, err := ParseDetection(ev.Data)
+			if err != nil {
+				return "", nil, fmt.Errorf("update without key: %w", err)
+			}
+			disp, changes := e.Update(d)
+			return disp, changes, nil
+		}
+		base, ok := e.Lookup(key)
+		if !ok {
+			e.stats.Unknown++
+			return DispositionUnknown, nil, nil
+		}
+		d, err := patchDetection(base, env.Changes)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("update %s: %w", key, err)
 		}
 		disp, changes := e.Update(d)
 		return disp, changes, nil
 	case EventRetract:
-		var ref struct {
-			DetectionKey string `json:"detection_key"`
-			Key          string `json:"key"`
-		}
-		if err := json.Unmarshal(ev.Data, &ref); err != nil {
-			return "", nil, fmt.Errorf("decode retract: %w", err)
-		}
-		key := ref.DetectionKey
 		if key == "" {
-			key = ref.Key
-		}
-		if key == "" {
-			d, err := ParseDetection(ev.Data)
+			payload := ev.Data
+			if len(env.Detection) > 0 {
+				payload = env.Detection
+			}
+			d, err := ParseDetection(payload)
 			if err != nil {
 				return "", nil, fmt.Errorf("retract without key: %w", err)
 			}
@@ -313,4 +354,28 @@ func ApplyEvent(e *Engine, ev Event) (Disposition, []Change, error) {
 		return disp, changes, nil
 	}
 	return "", nil, fmt.Errorf("unsupported event type %q", ev.Type)
+}
+
+// patchDetection applies an update's changed fields to the stored detection. Fields the
+// engine does not use (brightness, scan, track) are ignored; identity fields may not change.
+func patchDetection(base Detection, changes map[string]json.RawMessage) (Detection, error) {
+	for field := range changes {
+		if identityFields[field] {
+			return Detection{}, fmt.Errorf("identity field %q cannot change", field)
+		}
+	}
+	confidence, frp := base.Confidence, base.FRP
+	if raw, ok := changes["confidence"]; ok {
+		c, err := scalarText(raw)
+		if err != nil {
+			return Detection{}, fmt.Errorf("confidence: %w", err)
+		}
+		confidence = c
+	}
+	if raw, ok := changes["frp"]; ok {
+		if err := json.Unmarshal(raw, &frp); err != nil {
+			return Detection{}, fmt.Errorf("frp: %w", err)
+		}
+	}
+	return NewDetection(base.Satellite, base.AcqDate, base.AcqTime, base.Latitude, base.Longitude, confidence, frp)
 }

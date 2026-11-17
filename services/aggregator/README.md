@@ -92,9 +92,12 @@ Override development credentials through the environment.
   retried. Progress, lag, and p95 persist latency are logged as
   `satellite_progress` every 10 s.
 - Compose keeps the Aggregator on the internal-only network, so it cannot reach
-  the external feed there; use the Kubernetes deployment. Feed field names, the
-  low-confidence encoding, and retract payloads are assumptions until checked
-  against the live feed. `area_name` is the nearest centroid from
+  the external feed there; use the Kubernetes deployment. The payload format was
+  checked against the live feed on 2026-11-17: offsets start at 0, detections
+  arrive as `{"offset","detection":{...}}` with a numeric `acq_time`, and updates
+  as `{"offset","key","changes":{...}}` patches. Confidence `l` is excluded from
+  fires but kept, so a later update can raise it. Retracts are assumed to carry
+  the same `key` (none were seen in the sample). `area_name` is the nearest centroid from
   `SATELLITE_PROVINCE_CENTROIDS_FILE`, and falls back to a coordinate label
   while that reference table is not configured.
 

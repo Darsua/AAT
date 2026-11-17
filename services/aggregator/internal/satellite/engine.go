@@ -105,6 +105,7 @@ type Engine struct {
 	strips       map[int64]map[string]struct{}
 	usedIDs      map[string]struct{}
 	late         map[string]Detection
+	low          map[string]Detection // low-confidence detections, kept so updates can patch them
 	maxEventTime time.Time
 	stats        Stats
 }
@@ -118,7 +119,20 @@ func NewEngine(cfg Config) *Engine {
 		strips:     make(map[int64]map[string]struct{}),
 		usedIDs:    make(map[string]struct{}),
 		late:       make(map[string]Detection),
+		low:        make(map[string]Detection),
 	}
+}
+
+// Lookup returns the stored detection for key, whether clustered, late, or low-confidence.
+func (e *Engine) Lookup(key string) (Detection, bool) {
+	if d, ok := e.detections[key]; ok {
+		return d, true
+	}
+	if d, ok := e.late[key]; ok {
+		return d, true
+	}
+	d, ok := e.low[key]
+	return d, ok
 }
 
 // Watermark is the oldest acquisition time a new detection may have and still be clustered.
@@ -153,7 +167,12 @@ func (e *Engine) Add(d Detection) (Disposition, []Change) {
 		e.stats.Duplicates++
 		return DispositionDuplicate, nil
 	}
+	if _, ok := e.low[key]; ok {
+		e.stats.Duplicates++
+		return DispositionDuplicate, nil
+	}
 	if d.LowConfidence() {
+		e.low[key] = d
 		e.stats.LowConfidence++
 		return DispositionLowConfidence, nil
 	}
@@ -178,12 +197,28 @@ func (e *Engine) Update(d Detection) (Disposition, []Change) {
 		e.stats.Updated++
 		return DispositionUpdated, nil
 	}
+	if _, ok := e.low[key]; ok {
+		e.stats.Updated++
+		if d.LowConfidence() {
+			e.low[key] = d
+			return DispositionUpdated, nil
+		}
+		// Raised above low confidence: it now takes part in clustering.
+		delete(e.low, key)
+		disp, changes := e.Add(d)
+		if disp == DispositionAccepted {
+			disp = DispositionUpdated
+		}
+		return disp, changes
+	}
 	if _, ok := e.detections[key]; !ok {
 		return e.Add(d)
 	}
 	if d.LowConfidence() {
 		e.stats.Updated++
-		return DispositionUpdated, e.remove(key)
+		changes := e.remove(key)
+		e.low[key] = d
+		return DispositionUpdated, changes
 	}
 	e.detections[key] = d
 	e.stats.Updated++
@@ -198,6 +233,11 @@ func (e *Engine) Update(d Detection) (Disposition, []Change) {
 func (e *Engine) Retract(key string) (Disposition, []Change) {
 	if _, ok := e.late[key]; ok {
 		delete(e.late, key)
+		e.stats.Retracted++
+		return DispositionRetracted, nil
+	}
+	if _, ok := e.low[key]; ok {
+		delete(e.low, key)
 		e.stats.Retracted++
 		return DispositionRetracted, nil
 	}
