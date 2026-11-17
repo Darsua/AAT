@@ -1,0 +1,77 @@
+=== policy on (aliases + coercion), after first replay cycle @ 2026-11-17T12:12:36Z
+pvmbg_hazards: 38
+dlq rows (status | count):
+  parked | 9
+  recovered | 11
+dlq reasons (status | reason | attempts):
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+GET /internal/audit/unprocessed:
+  items: 9
+  - pvmbg-ba6d575a4624d31456c3b3c3f773bc8a parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-cc4bfa73fa84342eaf8ed08d03788a1d parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-21e0264b020ae6f0112b29f106f4b3a7 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-b7c1609a593d6c56c0eaaea3f06099a5 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-4a37d636c1f1f4af0d2c294eba90def1 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-1f502048e37f0214acc5fcd4ea27fdfa parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-087b634dd3a0c1fa7e1b544c072c7f9f parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-98b2861a32549ef897a29b82560258bd parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-e1c6013c55f46fe34edf5b86f6569031 parked schema_incompatible: missing required field 'volcano_id'
+>>> POST /admin/schema-version {"mode":"rename_field"}
+{"include_confidence_level":false,"message":"Dynamic schema updated successfully","mode":"rename_field","status":"updated"}
+
+=== policy on, after 25 s of live rename_field @ 2026-11-17T12:13:01Z
+pvmbg_hazards: 40
+dlq rows (status | count):
+  parked | 9
+  recovered | 11
+dlq reasons (status | reason | attempts):
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: missing required field 'report_id' | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  recovered | schema_incompatible: field 'eruption_count_24h' changed from integer to string | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+  parked | schema_incompatible: missing required field 'volcano_id' | 1
+GET /internal/audit/unprocessed:
+  items: 9
+  - pvmbg-ba6d575a4624d31456c3b3c3f773bc8a parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-cc4bfa73fa84342eaf8ed08d03788a1d parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-21e0264b020ae6f0112b29f106f4b3a7 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-b7c1609a593d6c56c0eaaea3f06099a5 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-4a37d636c1f1f4af0d2c294eba90def1 parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-1f502048e37f0214acc5fcd4ea27fdfa parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-087b634dd3a0c1fa7e1b544c072c7f9f parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-98b2861a32549ef897a29b82560258bd parked schema_incompatible: missing required field 'volcano_id'
+  - pvmbg-e1c6013c55f46fe34edf5b86f6569031 parked schema_incompatible: missing required field 'volcano_id'
