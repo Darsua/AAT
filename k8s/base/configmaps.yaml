@@ -46,3 +46,10 @@ data:
   REDPANDA_TOPIC_DLQ: "bnpb.dlq"
   CONSUMER_GROUP_DASHBOARD: "bnpb-dashboard-group"
   CONSUMER_GROUP_NOTIFIER: "bnpb-notifier-group"
+  CONSUMER_GROUP_SUMMARIZER: "bnpb-summarizer-group"
+
+  # Non-blocking AI situation summarizer configuration (#36)
+  AI_API_URL: "http://10.5.24.125:11434/v1/chat/completions"
+  AI_MODEL: "qwen3.5:9b"
+  AI_TIMEOUT_MS: "20000"
+  AI_MAX_CALLS_PER_MIN: "12"

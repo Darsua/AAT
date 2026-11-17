@@ -100,8 +100,9 @@ The runnable Compose application covers the **Milestone 1 baseline**, while Mile
 | BMKG/PVMBG ingestion, hazard reads, authentication, and event consumers | Implemented baseline |
 | Sharded canonical storage (`consistent_hash_64_vnodes`, `RF=2`, anti-entropy) and Audit API (`/internal/audit/*`) | Implemented in `services/aggregator` with catalog skew CLI (`make catalog-bench`) and verifier (`make audit-verify`); see [ADR 006](docs/adr/006-sharded-storage-consistent-hashing-and-audit-api.md) |
 | Aggregator HA (`replicas: 3`), storage-clock leader leasing, monotonic fencing, and drain probing | Implemented in `services/aggregator` and `docker-compose.sharded.yml`; see [ADR 007](docs/adr/007-aggregator-ha-leader-leasing-and-fencing.md) |
-| Kubernetes manifests & one-command deployment (`k8s/base/`, `scripts/deploy_k8s.sh`) | Rendered and validated offline (`make k8s-validate`); live 3-node cluster rollout/chaos drills pending |
-| Gateway field-report writes, shared Auth sessions, coastal/satellite pollers, analytics UI, and AI summarizer | Tracked M2 cross-service / bonus work |
+| Kubernetes manifests & one-command deployment (`k8s/base/`, `scripts/deploy_k8s.sh`) | Deployed on 3-node cluster (`aqua`, `ruby`, `akane`); chaos drills & 10k VU load verification (`#31`) pending |
+| Non-blocking AI situation summarizer (`services/consumers/summarizer`) | Implemented asynchronously via Kafka with bounded queue, circuit breaker, quota gate, and extractive fallback (`#36`); see [ADR 008](docs/adr/008-non-blocking-ai-situation-summarizer.md) |
+| Gateway field-report writes, shared Auth sessions, coastal/satellite pollers, analytics UI | Tracked M2 cross-service work (`#24`, `#26`–`#29`, `#35`) |
 
 ### Prototype limitations
 

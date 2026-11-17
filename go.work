@@ -6,6 +6,7 @@ use (
 	./services/client-api
 	./services/consumers/dashboard
 	./services/consumers/notifier
+	./services/consumers/summarizer
 	./services/mock-bmkg
 	./services/mock-pvmbg
 )

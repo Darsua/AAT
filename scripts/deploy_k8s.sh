@@ -105,6 +105,7 @@ if ! kubectl get secret bnpb-credentials -n "${NAMESPACE}" >/dev/null 2>&1; then
     --from-literal=AUTH_MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET}" \
     --from-literal=AUTH_FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET}" \
     --from-literal=AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET}" \
+    --from-literal=AI_API_KEY="${AI_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 else
   echo "[k8s-deploy] Preserving existing bnpb-credentials Secret in ${NAMESPACE}."
@@ -162,7 +163,7 @@ kubectl rollout status statefulset/redpanda -n "${NAMESPACE}" --timeout=180s
 kubectl wait --for=condition=complete job/redpanda-topic-init -n "${NAMESPACE}" --timeout=180s
 
 echo "[k8s-deploy] Waiting for application Deployments..."
-for deploy in mock-bmkg mock-pvmbg aggregator auth client-api dashboard-consumer notifier-consumer; do
+for deploy in mock-bmkg mock-pvmbg aggregator auth client-api dashboard-consumer notifier-consumer summarizer-consumer; do
   kubectl rollout status "deployment/${deploy}" -n "${NAMESPACE}" --timeout=180s
 done
 

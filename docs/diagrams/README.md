@@ -17,6 +17,7 @@ These Markdown documents embed the corresponding source verbatim:
 | [adr005-scaleout.mmd](adr005-scaleout.mmd), [adr005-breaker.mmd](adr005-breaker.mmd) | [ADR 005](../adr/005-stateless-architecture-and-m2-readiness.md): M1 scale-out design baseline and conceptual breaker model |
 | [adr006-sharding.mmd](adr006-sharding.mmd) | [ADR 006](../adr/006-sharded-storage-consistent-hashing-and-audit-api.md): M2 3-node consistent hash ring, RF=2 placement, and anti-entropy repair |
 | [adr007-leasing.mmd](adr007-leasing.mmd) | [ADR 007](../adr/007-aggregator-ha-leader-leasing-and-fencing.md): M2 storage-clock leader leasing, monotonic fencing tokens, and durable checkpoints |
+| [adr008-summarizer.mmd](adr008-summarizer.mmd) | [ADR 008](../adr/008-non-blocking-ai-situation-summarizer.md): M2 non-blocking AI situation summarizer, quota/circuit gate, and extractive fallback |
 
 ## Service guide references
 

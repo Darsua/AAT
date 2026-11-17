@@ -295,3 +295,85 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summarizer-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: summarizer-consumer
+    role: consumer
+spec:
+  selector:
+    app: summarizer-consumer
+    role: consumer
+  ports:
+    - name: http
+      port: 8087
+      targetPort: 8087
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-consumer
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: summarizer-consumer
+    role: consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summarizer-consumer
+      role: consumer
+  template:
+    metadata:
+      labels:
+        app: summarizer-consumer
+        role: consumer
+    spec:
+      containers:
+        - name: summarizer-consumer
+          image: bnpb-summarizer-consumer:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8087
+          env:
+            - name: PORT
+              value: "8087"
+            - name: CONSUMER_GROUP
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: CONSUMER_GROUP_SUMMARIZER
+            - name: FIELD_REPORTS_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: bnpb-config
+                  key: REDPANDA_TOPIC_FIELD_REPORTS
+          envFrom:
+            - configMapRef:
+                name: bnpb-config
+            - secretRef:
+                name: bnpb-credentials
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8087
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8087
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
