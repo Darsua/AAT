@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -257,19 +258,29 @@ func (s *authService) issueTokenPair(clientID, role, scope, sessionID string) (t
 
 // HTTP handlers.
 type authHandler struct {
-	service *authService
+	service  *authService
+	registry *Registry
+	tracer   *Tracer
+	logger   *slog.Logger
 }
 
 func newAuthHandler(service *authService) *authHandler {
-	return &authHandler{service: service}
+	logger := newJSONLogger("auth")
+	return &authHandler{
+		service:  service,
+		registry: newRegistry(),
+		tracer:   newTracer("auth", logger),
+		logger:   logger,
+	}
 }
 
 func (h *authHandler) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.health)
+	mux.HandleFunc("GET /metrics", h.registry.Handler())
 	mux.HandleFunc("POST /auth/token", h.issueToken)
 	mux.HandleFunc("POST /auth/refresh", h.refreshToken)
-	return mux
+	return correlationMiddleware(observabilityMiddleware("auth", h.registry, h.tracer, h.logger, mux))
 }
 
 func (h *authHandler) health(w http.ResponseWriter, _ *http.Request) {
@@ -290,13 +301,17 @@ func (h *authHandler) issueToken(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.authenticate(request.ClientID, request.ClientSecret, request.RequestedScope)
 	switch {
 	case errors.Is(err, errInvalidCredentials):
+		h.registry.IncCounter("auth_token_failures_total", map[string]string{"service": "auth", "reason": "invalid_credentials"}, 1)
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "UNAUTHORIZED", Message: "Invalid client_id or client_secret"})
 	case errors.Is(err, errForbiddenScope):
+		h.registry.IncCounter("auth_token_failures_total", map[string]string{"service": "auth", "reason": "forbidden_scope"}, 1)
 		writeJSON(w, http.StatusForbidden, errorResponse{Error: "FORBIDDEN", Message: "Client is not authorized to request this scope"})
 	case err != nil:
+		h.registry.IncCounter("auth_token_failures_total", map[string]string{"service": "auth", "reason": "internal_error"}, 1)
 		log.Printf("[auth] issue token: %v", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "INTERNAL_ERROR", Message: "Unable to issue token"})
 	default:
+		h.registry.IncCounter("auth_tokens_issued_total", map[string]string{"service": "auth", "grant_type": "client_credentials"}, 1)
 		writeJSON(w, http.StatusOK, response)
 	}
 }
@@ -311,11 +326,14 @@ func (h *authHandler) refreshToken(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.refresh(request.RefreshToken)
 	switch {
 	case errors.Is(err, errInvalidGrant):
+		h.registry.IncCounter("auth_token_failures_total", map[string]string{"service": "auth", "reason": "invalid_grant"}, 1)
 		writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "invalid_grant", Message: "Refresh token expired, invalid, or already rotated"})
 	case err != nil:
+		h.registry.IncCounter("auth_token_failures_total", map[string]string{"service": "auth", "reason": "internal_error"}, 1)
 		log.Printf("[auth] rotate refresh token: %v", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "INTERNAL_ERROR", Message: "Unable to issue token"})
 	default:
+		h.registry.IncCounter("auth_tokens_issued_total", map[string]string{"service": "auth", "grant_type": "refresh_token"}, 1)
 		writeJSON(w, http.StatusOK, response)
 	}
 }

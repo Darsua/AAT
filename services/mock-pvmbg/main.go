@@ -147,12 +147,16 @@ func newService(data seedData) *service {
 }
 
 func (s *service) routes(token string) http.Handler {
+	logger := newJSONLogger("mock-pvmbg")
+	reg := newRegistry()
+	tracer := newTracer("mock-pvmbg", logger)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /metrics", reg.Handler())
 	mux.Handle("GET /volcanic-reports", requireBearerToken(token, http.HandlerFunc(s.handleReports)))
 	mux.Handle("POST /admin/schema-version", requireBearerToken(token, http.HandlerFunc(s.handleSchemaVersion)))
 	mux.Handle("POST /admin/outage", requireBearerToken(token, http.HandlerFunc(s.handleOutage)))
-	return mux
+	return correlationMiddleware(observabilityMiddleware("mock-pvmbg", reg, tracer, logger, mux))
 }
 
 func (s *service) runGenerator(ctx context.Context) {

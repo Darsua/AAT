@@ -129,11 +129,15 @@ func newService(data seedData) *service {
 }
 
 func (s *service) routes(apiKey string) http.Handler {
+	logger := newJSONLogger("mock-bmkg")
+	reg := newRegistry()
+	tracer := newTracer("mock-bmkg", logger)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /metrics", reg.Handler())
 	mux.Handle("GET /seismic-events", requireAPIKey(apiKey, http.HandlerFunc(s.handleSeismicEvents)))
 	mux.Handle("GET /tsunami-warnings", requireAPIKey(apiKey, http.HandlerFunc(s.handleTsunamiWarnings)))
-	return mux
+	return correlationMiddleware(observabilityMiddleware("mock-bmkg", reg, tracer, logger, mux))
 }
 
 func (s *service) runGenerator(ctx context.Context) {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -167,20 +167,42 @@ func messageHeader(message kafka.Message, name string) string {
 }
 
 func consume(ctx context.Context, reader messageReader, notifier *Notifier) error {
+	logger := newJSONLogger("notifier-consumer")
+	return consumeWithTelemetry(ctx, reader, notifier, newRegistry(), newTracer("notifier-consumer", logger), logger)
+}
+
+func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *Notifier, reg *Registry, tracer *Tracer, logger *slog.Logger) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
 			return err
 		}
 
+		started := time.Now()
+		correlationID := messageHeader(message, correlationHeader)
+		msgCtx := ctx
+		if tp := messageHeader(message, traceparentHeader); tp != "" {
+			msgCtx = contextWithTraceparent(msgCtx, tp)
+		}
+		msgCtx, span := tracer.StartSpan(msgCtx, "kafka.consume "+message.Topic, spanKindConsumer,
+			SpanAttr{Key: "messaging.system", Value: "kafka"},
+			SpanAttr{Key: "messaging.destination", Value: message.Topic},
+			SpanAttr{Key: "correlation_id", Value: correlationID},
+		)
+		st := traceFromContext(msgCtx)
+
 		event, err := decodeEvent(message.Value)
 		if err != nil {
-			log.Printf(
-				"[notifier] correlation_id=%q skipped invalid message partition=%d offset=%d error=%q",
-				messageHeader(message, correlationHeader),
-				message.Partition,
-				message.Offset,
-				err,
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "invalid"}, 1)
+			reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "notifier-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+			span.End(400, err.Error())
+			logger.Warn("skipped invalid message",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.Int("partition", message.Partition),
+				slog.Int64("offset", message.Offset),
+				slog.String("error", err.Error()),
 			)
 			if err := reader.CommitMessages(ctx, message); err != nil {
 				return fmt.Errorf("commit invalid message: %w", err)
@@ -188,22 +210,38 @@ func consume(ctx context.Context, reader messageReader, notifier *Notifier) erro
 			continue
 		}
 
-		correlationID := messageHeader(message, correlationHeader)
 		result := notifier.Process(event)
 		switch {
 		case result.Duplicate:
-			log.Printf("[notifier] correlation_id=%q skipped duplicate hazard_id=%s", correlationID, event.HazardID)
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "duplicate"}, 1)
+			reg.IncCounter("kafka_consumer_dedup_skipped_total", map[string]string{"service": "notifier-consumer"}, 1)
+			logger.Info("skipped duplicate hazard event",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
+			)
 		case result.Alert:
-			log.Printf(
-				"[notifier] correlation_id=%q ALERT hazard_id=%s area=%q reason=%q",
-				correlationID,
-				event.HazardID,
-				event.AreaName,
-				result.Reason,
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "alert"}, 1)
+			logger.Info("ALERT triggered",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
+				slog.String("area", event.AreaName),
+				slog.String("reason", result.Reason),
 			)
 		default:
-			log.Printf("[notifier] correlation_id=%q no alert hazard_id=%s", correlationID, event.HazardID)
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "processed"}, 1)
+			logger.Info("processed hazard event without alert",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
+			)
 		}
+		reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "notifier-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+		span.End(200, "")
 
 		if err := reader.CommitMessages(ctx, message); err != nil {
 			return fmt.Errorf("commit message: %w", err)
@@ -224,18 +262,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	startHealthServer(ctx, getEnv("PORT", "8086"))
+	logger := newJSONLogger("notifier-consumer")
+	reg := newRegistry()
+	tracer := newTracer("notifier-consumer", logger)
+	startHTTPServer(ctx, getEnv("PORT", "8086"), reg)
 
-	log.Printf(
-		"[notifier] consuming topic=%s group=%s brokers=%s",
-		config.Topic,
-		config.GroupID,
-		strings.Join(config.Brokers, ","),
+	logger.Info("consuming hazard events",
+		slog.String("topic", config.Topic),
+		slog.String("group", config.GroupID),
+		slog.String("brokers", strings.Join(config.Brokers, ",")),
 	)
 
-	if err := consume(ctx, reader, NewNotifier()); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("[notifier] stopped: %v", err)
+	if err := consumeWithTelemetry(ctx, reader, NewNotifier(), reg, tracer, logger); err != nil && !errors.Is(err, context.Canceled) {
+		logger.Error("consumer stopped with error", slog.String("error", err.Error()))
 		return
 	}
-	log.Println("[notifier] stopped")
+	logger.Info("consumer stopped")
 }

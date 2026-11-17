@@ -16,8 +16,15 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func newHTTPHandler(dashboard *Dashboard) http.Handler {
+	return newHTTPHandlerWithTelemetry(dashboard, nil)
+}
+
+func newHTTPHandlerWithTelemetry(dashboard *Dashboard, reg *Registry) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
+	if reg != nil {
+		mux.HandleFunc("GET /metrics", reg.Handler())
+	}
 	if dashboard != nil {
 		mux.HandleFunc("GET /api/analytics", analyticsHandler(dashboard))
 		mux.HandleFunc("GET /dashboard/api/analytics", analyticsHandler(dashboard))
@@ -30,12 +37,17 @@ func newHTTPHandler(dashboard *Dashboard) http.Handler {
 
 // startHealthServer serves GET /health until ctx is cancelled.
 func startHealthServer(ctx context.Context, port string) {
-	startDashboardServer(ctx, port, nil)
+	startDashboardServerWithTelemetry(ctx, port, nil, nil)
 }
 
 // startDashboardServer serves health, analytics JSON API, and the web analytics UI until ctx is cancelled.
 func startDashboardServer(ctx context.Context, port string, dashboard *Dashboard) {
-	server := &http.Server{Addr: ":" + port, Handler: newHTTPHandler(dashboard), ReadHeaderTimeout: 5 * time.Second}
+	startDashboardServerWithTelemetry(ctx, port, dashboard, nil)
+}
+
+// startDashboardServerWithTelemetry serves health, /metrics, analytics JSON API, and the web analytics UI until ctx is cancelled.
+func startDashboardServerWithTelemetry(ctx context.Context, port string, dashboard *Dashboard, reg *Registry) {
+	server := &http.Server{Addr: ":" + port, Handler: newHTTPHandlerWithTelemetry(dashboard, reg), ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		<-ctx.Done()
