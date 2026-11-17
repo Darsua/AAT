@@ -277,6 +277,7 @@ type Span struct {
 	traceID      string
 	spanID       string
 	parentSpanID string
+	sampled      bool
 	name         string
 	kind         int
 	startTime    time.Time
@@ -328,6 +329,7 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, kind int, attrs ...
 		traceID:      traceID,
 		spanID:       spanID,
 		parentSpanID: parentSpanID,
+		sampled:      sampled,
 		name:         name,
 		kind:         kind,
 		startTime:    time.Now(),
@@ -336,7 +338,7 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, kind int, attrs ...
 }
 
 func (s *Span) End(statusCode int, statusMsg string) {
-	if s == nil || s.tracer == nil || s.tracer.spans == nil {
+	if s == nil || !s.sampled || s.tracer == nil || s.tracer.spans == nil {
 		return
 	}
 	rec := otlpSpanRecord{
@@ -524,19 +526,27 @@ func HTTPMiddleware(serviceName string, reg *Registry, tracer *Tracer, next http
 			span.End(rec.statusCode, http.StatusText(rec.statusCode))
 		}
 		if r.URL.Path != "/metrics" && reg != nil {
+			route := routeLabel(r)
 			reg.IncCounter("http_requests_total", map[string]string{
 				"service": serviceName,
 				"method":  r.Method,
-				"route":   r.URL.Path,
+				"route":   route,
 				"status":  strconv.Itoa(rec.statusCode),
 			}, 1)
 			reg.ObserveHistogram("http_request_duration_seconds", map[string]string{
 				"service": serviceName,
 				"method":  r.Method,
-				"route":   r.URL.Path,
+				"route":   route,
 			}, dur.Seconds())
 		}
 	})
+}
+
+func routeLabel(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/hazards/") && len(r.URL.Path) > len("/api/v1/hazards/") {
+		return "/api/v1/hazards/{id}"
+	}
+	return r.URL.Path
 }
 
 type statusCapture struct {

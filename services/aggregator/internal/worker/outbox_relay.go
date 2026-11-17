@@ -88,6 +88,7 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 		messages := make([]kafka.Message, 0, len(records))
 		published := make([]domain.OutboxEvent, 0, len(records))
 		quarantined := make([]domain.OutboxEvent, 0)
+		spans := make([]*telemetry.Span, 0, len(records))
 
 		for _, rec := range records {
 			// Extract hazard_id from payload for partition key
@@ -123,7 +124,7 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 				if tp := telemetry.TraceparentFromContext(msgCtx); tp != "" {
 					headers = append(headers, kafka.Header{Key: telemetry.TraceparentHeader, Value: []byte(tp)})
 				}
-				span.End(200, "")
+				spans = append(spans, span)
 			}
 
 			messages = append(messages, kafka.Message{
@@ -137,9 +138,15 @@ func (r *OutboxRelay) relayBatch(ctx context.Context) {
 
 		if len(messages) > 0 {
 			if err := r.writer.WriteMessages(batchCtx, messages...); err != nil {
+				for _, span := range spans {
+					span.End(500, err.Error())
+				}
 				r.reg.IncCounter("outbox_errors_total", map[string]string{"service": "aggregator"}, 1)
 				r.log.Warn("failed to publish outbox batch to kafka broker, will retry next tick", "error", err, "count", len(messages))
 				return nil, nil, err
+			}
+			for _, span := range spans {
+				span.End(200, "")
 			}
 			r.reg.IncCounter("outbox_published_total", map[string]string{"service": "aggregator"}, float64(len(messages)))
 			r.log.Info("successfully dispatched outbox batch to redpanda", slog.Int("dispatched_count", len(messages)))

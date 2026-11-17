@@ -284,6 +284,7 @@ type Span struct {
 	traceID      string
 	spanID       string
 	parentSpanID string
+	sampled      bool
 	name         string
 	kind         int
 	startTime    time.Time
@@ -333,6 +334,7 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, kind int, attrs ...
 		traceID:      traceID,
 		spanID:       spanID,
 		parentSpanID: parentSpanID,
+		sampled:      sampled,
 		name:         name,
 		kind:         kind,
 		startTime:    time.Now(),
@@ -341,7 +343,7 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, kind int, attrs ...
 }
 
 func (s *Span) End(statusCode int, statusMsg string) {
-	if s == nil || s.tracer == nil || s.tracer.spans == nil {
+	if s == nil || !s.sampled || s.tracer == nil || s.tracer.spans == nil {
 		return
 	}
 	rec := otlpSpanRecord{
@@ -541,17 +543,18 @@ func observabilityMiddleware(serviceName string, reg *Registry, tracer *Tracer, 
 		span.End(status, http.StatusText(status))
 
 		if r.URL.Path != "/metrics" {
+			metricRoute := routeLabel(r)
 			labels := map[string]string{
 				"service": serviceName,
 				"method":  r.Method,
-				"route":   route,
+				"route":   metricRoute,
 				"status":  strconv.Itoa(status),
 			}
 			reg.IncCounter("http_requests_total", labels, 1)
 			reg.ObserveHistogram("http_request_duration_seconds", map[string]string{
 				"service": serviceName,
 				"method":  r.Method,
-				"route":   route,
+				"route":   metricRoute,
 			}, dur.Seconds())
 		}
 
@@ -566,4 +569,11 @@ func observabilityMiddleware(serviceName string, reg *Registry, tracer *Tracer, 
 			slog.Int64("duration_ms", dur.Milliseconds()),
 		)
 	})
+}
+
+func routeLabel(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/hazards/") && len(r.URL.Path) > len("/api/v1/hazards/") {
+		return "/api/v1/hazards/{id}"
+	}
+	return r.URL.Path
 }

@@ -364,6 +364,8 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 	if encoded := query.Encode(); encoded != "" {
 		endpoint += "?" + encoded
 	}
+	spanStatus := http.StatusOK
+	spanMsg := ""
 	if c.tracer != nil {
 		var span *Span
 		ctx, span = c.tracer.StartSpan(ctx, "GET /internal/hazards", spanKindClient,
@@ -373,16 +375,24 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 		)
 		defer func() {
 			if span != nil {
-				span.End(http.StatusOK, "")
+				span.End(spanStatus, spanMsg)
 			}
 		}()
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		spanStatus = http.StatusInternalServerError
+		spanMsg = err.Error()
 		return nil, err
 	}
 	injectTraceHTTP(ctx, req)
+
+	logger := c.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	st := traceFromContext(ctx)
 
 	started := time.Now()
 	resp, err := c.httpClient.Do(req)
@@ -394,6 +404,8 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 		}, dur.Seconds())
 	}
 	if err != nil {
+		spanStatus = http.StatusBadGateway
+		spanMsg = err.Error()
 		if c.registry != nil {
 			c.registry.IncCounter("upstream_requests_total", map[string]string{
 				"service":  "client-api",
@@ -401,11 +413,21 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 				"status":   "error",
 			}, 1)
 		}
-		log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q error=%q duration_ms=%d",
-			correlationIDFromContext(ctx), req.Method, req.URL.Path, err, dur.Milliseconds())
+		logger.Warn("outbound call failed",
+			slog.String("correlation_id", correlationIDFromContext(ctx)),
+			slog.String("trace_id", st.TraceID),
+			slog.String("span_id", st.SpanID),
+			slog.String("upstream", "aggregator"),
+			slog.String("method", req.Method),
+			slog.String("path", req.URL.Path),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", dur.Milliseconds()),
+		)
 		return nil, err
 	}
 	defer resp.Body.Close()
+	spanStatus = resp.StatusCode
+	spanMsg = http.StatusText(resp.StatusCode)
 	if c.registry != nil {
 		c.registry.IncCounter("upstream_requests_total", map[string]string{
 			"service":  "client-api",
@@ -413,8 +435,16 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 			"status":   strconv.Itoa(resp.StatusCode),
 		}, 1)
 	}
-	log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q status=%d duration_ms=%d",
-		correlationIDFromContext(ctx), req.Method, req.URL.Path, resp.StatusCode, dur.Milliseconds())
+	logger.Info("outbound call completed",
+		slog.String("correlation_id", correlationIDFromContext(ctx)),
+		slog.String("trace_id", st.TraceID),
+		slog.String("span_id", st.SpanID),
+		slog.String("upstream", "aggregator"),
+		slog.String("method", req.Method),
+		slog.String("path", req.URL.Path),
+		slog.Int("status", resp.StatusCode),
+		slog.Int64("duration_ms", dur.Milliseconds()),
+	)
 
 	if resp.StatusCode != http.StatusOK {
 		var payload errorResponse

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,5 +69,47 @@ func TestObservabilityMiddlewarePropagatesTraceparent(t *testing.T) {
 	}
 	if !strings.HasPrefix(rec.Header().Get("traceparent"), "00-"+inTraceID+"-") {
 		t.Fatalf("expected traceparent response header with traceID %s, got %s", inTraceID, rec.Header().Get("traceparent"))
+	}
+}
+
+func TestObservabilityMiddlewareUsesRoutePattern(t *testing.T) {
+	logger := newJSONLogger("client-api")
+	reg := newRegistry()
+	tracer := newTracer("client-api", logger)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/hazards/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := observabilityMiddleware("client-api", reg, tracer, logger, mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hazards/bmkg-999", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	mReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	mRec := httptest.NewRecorder()
+	reg.Handler()(mRec, mReq)
+
+	body := mRec.Body.String()
+	if !strings.Contains(body, `route="/api/v1/hazards/{id}"`) {
+		t.Fatalf("expected parameterized route label in /metrics, got:\n%s", body)
+	}
+	if strings.Contains(body, "bmkg-999") {
+		t.Fatalf("did not expect raw ID in /metrics:\n%s", body)
+	}
+}
+
+func TestSpanEndSkipsUnsampled(t *testing.T) {
+	tracer := &Tracer{
+		serviceName: "client-api",
+		spans:       make(chan otlpSpanRecord, 4),
+	}
+	ctx := contextWithTraceparent(context.Background(), "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
+	_, span := tracer.StartSpan(ctx, "unsampled-op", spanKindInternal)
+	span.End(http.StatusOK, "")
+
+	if got := len(tracer.spans); got != 0 {
+		t.Fatalf("expected 0 enqueued spans when sampled=false, got %d", got)
 	}
 }
