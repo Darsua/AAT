@@ -6,12 +6,18 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"bnpb/aggregator/internal/domain"
 	"bnpb/aggregator/internal/logger"
 	"bnpb/aggregator/internal/repository"
 )
+
+// StorageStatusProvider exposes optional partial-storage degradation state from a sharded repository.
+type StorageStatusProvider interface {
+	StorageDegradedStatus() (bool, []string, *time.Time)
+}
 
 // HazardQuerier defines the read operations needed by the hazards API handler.
 type HazardQuerier interface {
@@ -96,11 +102,11 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse 'type'
 	if typeStr := q.Get("type"); typeStr != "" {
 		ht := domain.HazardType(typeStr)
-		if ht != domain.HazardTypeSeismic && ht != domain.HazardTypeVolcanic {
+		if !domain.IsValidHazardType(ht) {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:   "BAD_REQUEST",
-				Message: "Invalid query parameter 'type': must be SEISMIC or VOLCANIC",
+				Message: "Invalid query parameter 'type': must be SEISMIC, VOLCANIC, WILDFIRE, or COASTAL",
 			})
 			return
 		}
@@ -168,6 +174,16 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var staleSince *time.Time
 	if h.status != nil {
 		degraded, staleSince = h.status.GetDegradedStatus(filter.Type)
+	}
+	if sp, ok := h.repo.(StorageStatusProvider); ok {
+		if partial, units, partialSince := sp.StorageDegradedStatus(); partial {
+			degraded = true
+			if staleSince == nil && partialSince != nil {
+				staleSince = partialSince
+			}
+			w.Header().Set("X-Storage-Partial", "true")
+			w.Header().Set("X-Unavailable-Units", strings.Join(units, ","))
+		}
 	}
 
 	resp := HazardListResponse{

@@ -15,6 +15,7 @@ import (
 	"bnpb/aggregator/internal/adapter"
 	"bnpb/aggregator/internal/api"
 	"bnpb/aggregator/internal/config"
+	"bnpb/aggregator/internal/domain"
 	"bnpb/aggregator/internal/logger"
 	"bnpb/aggregator/internal/normalizer"
 	"bnpb/aggregator/internal/repository"
@@ -38,36 +39,34 @@ func main() {
 	bootCtx, bootCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer bootCancel()
 
-	if cfg.DatabaseURL == "" {
-		log.Error("fatal: DATABASE_URL environment variable is required")
+	shardSpecs, err := repository.ParseShardTopology(
+		cfg.ShardTopologyJSON,
+		cfg.ShardConfig,
+		cfg.DatabaseURL,
+		cfg.NodeName,
+		cfg.StorageUnitID,
+	)
+	if err != nil {
+		log.Error("fatal: invalid storage shard configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Connect to PostgreSQL with retry backoff
-	pool, err := connectDBWithRetry(bootCtx, cfg.DatabaseURL, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
+	// Connect to configured canonical storage shards with retry backoff
+	hazardRepo, primaryPool, err := connectShardsWithRetry(bootCtx, shardSpecs, cfg.DatabaseMaxConns, cfg.DatabaseMinConns, log)
 	if err != nil {
 		log.Error("fatal: could not connect to canonical database", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
+	defer hazardRepo.Close()
 
-	// Apply database migrations idempotently
-	log.Info("applying database migrations")
-	if err := repository.RunMigrations(bootCtx, pool); err != nil {
-		log.Error("fatal: database migration failed", "error", err)
-		os.Exit(1)
-	}
-	log.Info("database migrations applied successfully")
-
-	// Initialize repositories
-	volcanoRepo := repository.NewVolcanoRepository(pool)
+	// Initialize volcano reference cache from a healthy storage pool
+	volcanoRepo := repository.NewVolcanoRepository(primaryPool)
 	if err := volcanoRepo.LoadCache(bootCtx); err != nil {
 		log.Warn("warning: could not pre-populate volcano reference cache", "error", err)
 	} else {
 		log.Info("volcano catalog cached into memory successfully")
 	}
 
-	hazardRepo := repository.NewHazardRepository(pool)
 	brokerPinger := repository.NewTCPBrokerPinger(cfg.RedpandaBrokers)
 
 	// Initialize circuit status tracker and normalizer
@@ -102,8 +101,10 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
-	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
-	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log)
+	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
+		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
+	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
+		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
 
 	var workerWg sync.WaitGroup
@@ -121,14 +122,28 @@ func main() {
 		outboxRelay.Start(workerCtx)
 	}()
 
+	if hasReplicaUnits(shardSpecs) {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			runReplicaSyncLoop(workerCtx, hazardRepo, cfg.InstanceID, cfg.LeaseTTL, 30*time.Second, log)
+		}()
+	}
+
 	// Register HTTP routes
 	mux := http.NewServeMux()
 
-	healthHandler := api.NewHealthHandler(pool, brokerPinger)
+	healthHandler := api.NewHealthHandler(hazardRepo, brokerPinger)
 	hazardHandler := api.NewHazardHandler(hazardRepo, statusTracker)
+	auditHandler := api.NewAuditHandler(hazardRepo, cfg.AuditToken, cfg.AuditAllSourcesLabel)
 
+	mux.HandleFunc("GET /livez", api.LivezHandler)
 	mux.Handle("GET /health", healthHandler)
 	mux.Handle("GET /internal/hazards", hazardHandler)
+	mux.Handle("/internal/audit/events", auditHandler)
+	mux.Handle("/internal/audit/checksum", auditHandler)
+	mux.Handle("/internal/audit/location", auditHandler)
+	mux.Handle("/internal/audit/unprocessed", auditHandler)
 
 	// Middleware chaining: CorrelationID (outermost) -> Logging -> Recovery (innermost) -> Router
 	var handler http.Handler = mux
@@ -157,14 +172,24 @@ func main() {
 
 	// Wait for termination signal
 	sig := <-stopChan
-	log.Info("shutting down aggregator server gracefully", slog.String("signal", sig.String()))
+	log.Info("shutting down aggregator server gracefully",
+		slog.String("signal", sig.String()),
+		slog.String("instance_id", cfg.InstanceID),
+	)
 
-	// 1. Drain and stop background workers
+	// 1. Mark readiness probe unhealthy immediately so ingress drains new requests before shutdown
+	healthHandler.SetDraining(true)
+
+	// 2. Drain and stop background workers (releasing leader leases cleanly)
 	workerCancel()
 	workerWg.Wait()
 	log.Info("background polling and outbox workers stopped cleanly")
 
-	// 2. Stop HTTP server
+	if cfg.DrainDelay > 0 {
+		time.Sleep(cfg.DrainDelay)
+	}
+
+	// 3. Stop HTTP server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
@@ -175,8 +200,66 @@ func main() {
 	}
 }
 
-func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns int, log *slog.Logger) (*pgxpool.Pool, error) {
-	var pool *pgxpool.Pool
+func hasReplicaUnits(specs []repository.ShardSpec) bool {
+	for _, s := range specs {
+		if len(s.Units) > 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func runReplicaSyncLoop(ctx context.Context, repo *repository.HazardRepository, instanceID string, leaseTTL, interval time.Duration, log *slog.Logger) {
+	const syncSource = domain.Source("SYNC")
+
+	ttl := leaseTTL
+	if ttl <= interval {
+		ttl = interval * 2
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var currentToken int64
+	defer func() {
+		if currentToken > 0 {
+			relCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = repo.ReleaseSourceLease(relCtx, syncSource, instanceID, currentToken)
+			cancel()
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			lease, acquired, err := repo.AcquireOrRenewSourceLease(ctx, syncSource, instanceID, currentToken, ttl)
+			if err != nil {
+				if errors.Is(err, repository.ErrStaleFencingToken) {
+					currentToken = 0
+				}
+				log.Warn("replica sync lease check failed", "error", err)
+				continue
+			}
+			if !acquired {
+				currentToken = 0
+				continue
+			}
+			currentToken = lease.FencingToken
+			if err := repo.SyncShardReplicas(ctx); err != nil {
+				log.Warn("replica sync cycle finished with degraded units", "error", err)
+			}
+		}
+	}
+}
+
+func connectShardsWithRetry(
+	ctx context.Context,
+	specs []repository.ShardSpec,
+	maxConns, minConns int,
+	log *slog.Logger,
+) (*repository.HazardRepository, *pgxpool.Pool, error) {
 	var err error
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -185,14 +268,19 @@ func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns 
 	for attempt := 1; attempt <= 15; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		default:
 		}
 
-		pool, err = repository.NewPostgresPool(ctx, connStr, maxConns, minConns)
+		var repo *repository.HazardRepository
+		var primaryPool *pgxpool.Pool
+		repo, primaryPool, err = repository.DialShardedRepository(ctx, specs, maxConns, minConns, log)
 		if err == nil {
-			log.Info("successfully established canonical postgres connection pool", slog.Int("attempt", attempt))
-			return pool, nil
+			log.Info("successfully established canonical postgres storage shards",
+				slog.Int("attempt", attempt),
+				slog.Int("shard_count", len(specs)),
+			)
+			return repo, primaryPool, nil
 		}
 
 		log.Warn("database connection attempt failed, retrying in 2s...",
@@ -202,10 +290,10 @@ func connectDBWithRetry(ctx context.Context, connStr string, maxConns, minConns 
 
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}
 
-	return nil, err
+	return nil, nil, err
 }

@@ -28,6 +28,16 @@ data:
   AUTH_MEDIA_CLIENT_ID: "test-media-client"
   AUTH_FIELD_CLIENT_ID: "test-field-client"
   AUTH_INTERNAL_CLIENT_ID: "test-internal-client"
+  NODE_NAME: "local"
+  STORAGE_UNIT_ID: "shard-1"
+  AUDIT_ALL_SOURCES_LABEL: "ALL"
+  LEASE_TTL_SECS: "15"
+  LEASE_RENEW_INTERVAL_SECS: "5"
+  DRAIN_DELAY_MS: "3000"
+  STORE_NODE_1: "aqua"
+  STORE_NODE_2: "ruby"
+  STORE_NODE_3: "akane"
+  SHARD_CONFIG: "shard-1=shard-1|${STORE_NODE_1}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-aqua:5432/bnpb_shard_1?sslmode=disable,shard-1-r1|${STORE_NODE_2}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-ruby:5432/bnpb_shard_1_r1?sslmode=disable;shard-2=shard-2|${STORE_NODE_2}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-ruby:5432/bnpb_shard_2?sslmode=disable,shard-2-r1|${STORE_NODE_3}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-akane:5432/bnpb_shard_2_r1?sslmode=disable;shard-3=shard-3|${STORE_NODE_3}|primary|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-akane:5432/bnpb_shard_3?sslmode=disable,shard-3-r1|${STORE_NODE_1}|replica|postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@store-aqua:5432/bnpb_shard_3_r1?sslmode=disable"
 
   # Redpanda / Kafka topic and consumer group definitions
   TOPIC: "bnpb.hazard-events"
@@ -36,3 +46,10 @@ data:
   REDPANDA_TOPIC_DLQ: "bnpb.dlq"
   CONSUMER_GROUP_DASHBOARD: "bnpb-dashboard-group"
   CONSUMER_GROUP_NOTIFIER: "bnpb-notifier-group"
+  CONSUMER_GROUP_SUMMARIZER: "bnpb-summarizer-group"
+
+  # Non-blocking AI situation summarizer configuration (#36)
+  AI_API_URL: "http://10.5.24.125:11434/v1/chat/completions"
+  AI_MODEL: "qwen3.5:9b"
+  AI_TIMEOUT_MS: "20000"
+  AI_MAX_CALLS_PER_MIN: "12"

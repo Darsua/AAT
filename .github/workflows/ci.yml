@@ -38,6 +38,7 @@ jobs:
                  ./services/client-api/... \
                  ./services/consumers/dashboard/... \
                  ./services/consumers/notifier/... \
+                 ./services/consumers/summarizer/... \
                  ./services/mock-bmkg/... \
                  ./services/mock-pvmbg/...
 
@@ -86,6 +87,8 @@ jobs:
             context: ./services/consumers/dashboard
           - service: notifier
             context: ./services/consumers/notifier
+          - service: summarizer
+            context: ./services/consumers/summarizer
           - service: mock-bmkg
             context: ./services/mock-bmkg
           - service: mock-pvmbg

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS hazards (
     attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
     occurred_at TIMESTAMPTZ NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    row_version BIGINT NOT NULL DEFAULT 1,
     CONSTRAINT uq_source_ref UNIQUE (source, source_ref_id)
 );
 
@@ -60,9 +61,61 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 -- Idempotent column addition and alterations for existing volumes
 ALTER TABLE hazards ALTER COLUMN hazard_id TYPE VARCHAR(128);
 ALTER TABLE hazards ALTER COLUMN source_ref_id TYPE VARCHAR(128);
+ALTER TABLE hazards ADD COLUMN IF NOT EXISTS row_version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE outbox_events ALTER COLUMN event_id TYPE VARCHAR(128);
 ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64) NOT NULL DEFAULT '';
 ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ;
 
 -- Partial index for high-throughput polling of unpublished events
 CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events(id) WHERE published = FALSE;
+
+-- Composite indexes for deterministic cross-shard and Audit API ordering
+CREATE INDEX IF NOT EXISTS idx_hazards_occurred_id ON hazards(occurred_at DESC, hazard_id ASC);
+CREATE INDEX IF NOT EXISTS idx_hazards_ingested_id ON hazards(ingested_at ASC, hazard_id ASC);
+CREATE INDEX IF NOT EXISTS idx_hazards_source_ingested_id ON hazards(source, ingested_at ASC, hazard_id ASC);
+
+-- 4. Dead Letter Queue / Unprocessed Messages Table (#26 / #30 boundary)
+CREATE TABLE IF NOT EXISTS dlq_messages (
+    message_id VARCHAR(128) PRIMARY KEY,
+    source VARCHAR(32) NOT NULL,
+    raw_payload BYTEA NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reason TEXT NOT NULL,
+    retryable BOOLEAN NOT NULL DEFAULT FALSE,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(32) NOT NULL DEFAULT 'parked',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_messages_active
+    ON dlq_messages(received_at ASC, message_id ASC)
+    WHERE status IN ('retrying', 'parked');
+
+-- 5. Distributed Leader Leasing, Fencing Tokens & Source Checkpoints (#25 HA)
+ALTER TABLE hazards ADD COLUMN IF NOT EXISTS fencing_token BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS leader_leases (
+    lease_key VARCHAR(64) PRIMARY KEY,
+    holder_id VARCHAR(128) NOT NULL,
+    fencing_token BIGINT NOT NULL DEFAULT 1,
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    renewed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_checkpoints (
+    source VARCHAR(32) PRIMARY KEY,
+    last_occurred_at TIMESTAMPTZ NOT NULL,
+    last_source_ref_id VARCHAR(128) NOT NULL DEFAULT '',
+    fencing_token BIGINT NOT NULL DEFAULT 0,
+    holder_id VARCHAR(128) NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE IF NOT EXISTS source_fences (
+    source VARCHAR(32) PRIMARY KEY,
+    max_fencing_token BIGINT NOT NULL DEFAULT 0,
+    holder_id VARCHAR(128) NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);

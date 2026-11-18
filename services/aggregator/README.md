@@ -1,25 +1,32 @@
 # Aggregator
 
-`bnpb/aggregator` polls the BMKG and PVMBG mocks, normalizes M1 hazards,
-and publishes canonical payloads through a PostgreSQL transactional outbox.
-It exclusively owns `canonical-db`; other services read through its HTTP API.
+`bnpb/aggregator` polls upstream hazard feeds (BMKG and PVMBG), normalizes
+canonical events, replicates them across sharded PostgreSQL units, serves
+internal hazard and Appendix A Audit APIs, and publishes outbox records to
+Redpanda. It exclusively owns canonical database shards; other services read
+through its HTTP API.
 
-The runtime supports `SEISMIC` and `VOLCANIC` only. Broader types, field-report
-writes, and audit behavior in frozen contracts are planned M2 capabilities,
-not implemented endpoints or an immutable event history.
+For sharded consistent hashing, cross-node anti-entropy repair, and HA leader
+leasing/fencing design decisions, see [ADR 006](../../docs/adr/006-sharded-storage-consistent-hashing-and-audit-api.md)
+and [ADR 007](../../docs/adr/007-aggregator-ha-leader-leasing-and-fencing.md).
 
 ## Routes and contracts
 
 Internal base URL: `http://aggregator:8083`.
 
-| Route | Current behavior |
-| --- | --- |
-| `GET /health` | Checks database and broker dependencies. |
-| `GET /internal/hazards` | Filtered, paginated `{data, meta}` list with degradation metadata. |
+| Route | Auth | Behavior |
+| :--- | :--- | :--- |
+| `GET /health` | None | Checks reachable shards and broker dependencies; returns `503` while draining. |
+| `GET /internal/hazards` | None (internal net) | Filtered, paginated `{data, meta}` list with degradation and partial-shard metadata. |
+| `GET /internal/audit/events` | `Bearer AUDIT_TOKEN` | Scatter-gather events ordered `(ingested_at ASC, hazard_id ASC)` with keyset cursor. |
+| `GET /internal/audit/checksum` | `Bearer AUDIT_TOKEN` | SHA-256 over raw-byte sorted `source_ref_id` values joined by `\n` (all or per-source). |
+| `GET /internal/audit/location` | `Bearer AUDIT_TOKEN` | Reports `{node, unit, role}` shard/replica placement for a `hazard_id` (`404` vs `503`). |
+| `GET /internal/audit/unprocessed` | `Bearer AUDIT_TOKEN` | Paginated dead-letter / retrying entries from `dlq_messages`. |
 
-List filters: `type`, `severity`, `since` (UTC RFC3339), `limit`, `offset`.
-There is no internal get-by-ID route. Full shapes are in the frozen
-[internal API](../../contracts/aggregator_internal.yaml) and
+List filters on `/internal/hazards`: `type`, `severity`, `since` (UTC RFC3339),
+`limit`, `offset`. Full API shapes are defined in the frozen
+[internal API](../../contracts/aggregator_internal.yaml),
+[Audit API](../../contracts/audit_api.yaml), and
 [HazardEvent schema](../../contracts/hazard_event.json).
 
 ## Configuration
@@ -27,10 +34,16 @@ There is no internal get-by-ID route. Full shapes are in the frozen
 These are **process defaults**, not Compose credentials or host mappings.
 
 | Variable | Default / requirement |
-| --- | --- |
+| :--- | :--- |
 | `PORT` | `8083` |
-| `DATABASE_URL` | Required; no default. |
-| `BMKG_KEY`, `PVMBG_TOKEN` | Empty; supply matching mock credentials for ingestion. |
+| `DATABASE_URL` | Fallback single-shard DSN when `SHARD_CONFIG` / `SHARD_TOPOLOGY_JSON` are empty |
+| `SHARD_CONFIG`, `SHARD_TOPOLOGY_JSON` | Empty; configure multi-shard primary/replica units and worker nodes (`${VAR}` env expansion supported) |
+| `NODE_NAME`, `STORAGE_UNIT_ID` | `local`, `shard-1` (fallback single-shard unit identity) |
+| `AUDIT_TOKEN` | Empty (fail-closed `401` if unset on `/internal/audit/*`) |
+| `AUDIT_ALL_SOURCES_LABEL` | `ALL` |
+| `INSTANCE_ID`, `LEASE_TTL_SECS`, `LEASE_RENEW_INTERVAL_SECS` | Auto (`HOSTNAME`/`NODE_NAME-pid`), `15`, `5` |
+| `DRAIN_DELAY_MS` | `0` (`3000` in K8s and `docker-compose.sharded.yml`) |
+| `BMKG_KEY`, `PVMBG_TOKEN` | Empty; supply matching mock credentials for ingestion |
 | `BMKG_URL` | `http://mock-bmkg:8081` |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` |
 | `REDPANDA_BROKERS` | `redpanda:9092` |
@@ -65,8 +78,9 @@ PostgreSQL instance and override container-only upstream/broker addresses;
 from this module run `go run ./cmd/server`. Compose does not publish PostgreSQL,
 and the HTTP listener binds all interfaces.
 
-- [Bootstrap and routes](cmd/server/main.go)
+- [Bootstrap and routes](cmd/server/main.go) and [Catalog skew CLI](cmd/catalog-loader/main.go) (`make catalog-bench`)
 - [Adapters](internal/adapter/) and [normalization](internal/normalizer/normalizer.go)
-- [Repository](internal/repository/hazard_repo.go) and [migrations](migrations/)
+- [Sharding engine](internal/repository/sharding.go), [fencing & leases](internal/repository/fencing.go), [repository](internal/repository/hazard_repo.go), and [migrations](migrations/)
+- [Audit API handler](internal/api/audit_handler.go) and [health/drain handler](internal/api/health.go)
 - [Pollers](internal/worker/poller.go) and [outbox relay](internal/worker/outbox_relay.go)
 - [Canonical flow diagram](../../docs/diagrams/aggregator-flow.mmd)

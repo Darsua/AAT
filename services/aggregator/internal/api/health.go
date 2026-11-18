@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,8 +28,9 @@ type HealthStatus struct {
 
 // HealthHandler handles the GET /health probe.
 type HealthHandler struct {
-	db     Pinger
-	broker BrokerPinger
+	db       Pinger
+	broker   BrokerPinger
+	draining atomic.Bool
 }
 
 // NewHealthHandler creates a new HealthHandler.
@@ -39,9 +41,25 @@ func NewHealthHandler(db Pinger, broker BrokerPinger) *HealthHandler {
 	}
 }
 
+// SetDraining switches the health probe to fail with 503 immediately so ingress/load-balancers drain traffic before shutdown.
+func (h *HealthHandler) SetDraining(draining bool) {
+	h.draining.Store(draining)
+}
+
 // ServeHTTP checks database and broker connectivity and returns 200 UP or 503 DOWN.
 func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if h.draining.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(HealthStatus{
+			Status:   "DOWN",
+			Service:  "aggregator",
+			Database: "DOWN",
+			Broker:   "DOWN",
+		})
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -76,4 +94,17 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(httpStatusCode)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// LivezHandler reports basic process liveness without querying downstream dependencies.
+func LivezHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Status  string `json:"status"`
+		Service string `json:"service"`
+	}{
+		Status:  "UP",
+		Service: "aggregator",
+	})
 }
