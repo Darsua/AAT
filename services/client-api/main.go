@@ -164,6 +164,7 @@ type apiHandler struct {
 	registry      *Registry
 	tracer        *Tracer
 	logger        *slog.Logger
+	qos           *QoSLimiter
 }
 
 func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
@@ -197,6 +198,7 @@ func newAPIHandlerWithDeps(jwtSecret string, hazardService HazardService, stager
 		registry:      reg,
 		tracer:        tracer,
 		logger:        logger,
+		qos:           newQoSLimiterFromEnv(),
 	}
 }
 
@@ -204,15 +206,19 @@ func (h *apiHandler) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /metrics", h.registry.Handler())
-	mux.Handle("GET /api/v1/hazards", h.requireJWT(http.HandlerFunc(h.listHazards)))
-	mux.Handle("GET /api/v1/hazards/{id}", h.requireJWT(http.HandlerFunc(h.getHazardByID)))
+	mux.Handle("GET /api/v1/hazards", h.requireJWT(h.qos.Middleware(http.HandlerFunc(h.listHazards))))
+	mux.Handle("GET /api/v1/hazards/{id}", h.requireJWT(h.qos.Middleware(http.HandlerFunc(h.getHazardByID))))
 	mux.Handle("POST /api/v1/field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
 	mux.Handle("POST /field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
 	return correlationMiddleware(observabilityMiddleware("client-api", h.registry, h.tracer, h.logger, mux))
 }
 
 func (h *apiHandler) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, healthResponse{Status: "UP", Service: "client-api"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "UP",
+		"service": "client-api",
+		"qos":     h.qos.Stats(),
+	})
 }
 
 func (h *apiHandler) requireJWT(next http.Handler) http.Handler {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -135,6 +136,20 @@ func main() {
 	fieldReportConsumer := worker.NewFieldReportConsumer(fieldReportReader, hazardRepo, log).
 		WithTelemetry(reg, tracer)
 
+	var coastalPoller *worker.CoastalPoller
+	if cfg.SensorPantaiURL != "" {
+		coastalAdapter := adapter.NewCoastalAdapter(cfg.SensorPantaiURL, cfg.SensorPantaiToken, cfg.CoastalTimeout)
+		coastalPoller = worker.NewCoastalPoller(
+			coastalAdapter,
+			hazardRepo,
+			statusTracker,
+			cfg.CoastalPollInterval,
+			cfg.CoastalTimeout,
+			cfg.CoastalFreshnessTTL,
+			log,
+		)
+	}
+
 	var workerWg sync.WaitGroup
 	if cfg.SatelliteEnabled {
 		if cfg.SatelliteToken == "" {
@@ -186,6 +201,13 @@ func main() {
 		defer workerWg.Done()
 		fieldReportConsumer.Start(workerCtx)
 	}()
+	if coastalPoller != nil {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			coastalPoller.Start(workerCtx)
+		}()
+	}
 
 	if hasReplicaUnits(shardSpecs) {
 		workerWg.Add(1)
@@ -210,6 +232,22 @@ func main() {
 	mux.Handle("/internal/audit/checksum", auditHandler)
 	mux.Handle("/internal/audit/location", auditHandler)
 	mux.Handle("/internal/audit/unprocessed", auditHandler)
+	mux.HandleFunc("GET /internal/coastal/quarantine", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if coastalPoller == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": coastalPoller.Quarantine().List()})
+	})
+	mux.HandleFunc("GET /internal/coastal/fallback", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if coastalPoller == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{"events": []any{}, "stale": true})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(coastalPoller.FallbackSnapshot())
+	})
 
 	// Middleware chaining: CorrelationID -> Telemetry -> Logging -> Recovery -> Router
 	var handler http.Handler = mux

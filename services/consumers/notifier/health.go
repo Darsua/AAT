@@ -17,16 +17,27 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 
 // startHealthServer serves GET /health until ctx is cancelled.
 func startHealthServer(ctx context.Context, port string) {
-	startHTTPServer(ctx, port, nil)
+	startHTTPServer(ctx, port, nil, nil)
 }
 
-// startHTTPServer serves GET /health and GET /metrics until ctx is cancelled.
-func startHTTPServer(ctx context.Context, port string, reg *Registry) {
+// startHTTPServer serves GET /health, GET /metrics, and GET /notifications until ctx is cancelled.
+func startHTTPServer(ctx context.Context, port string, reg *Registry, notifier *Notifier) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	if reg != nil {
 		mux.HandleFunc("GET /metrics", reg.Handler())
 	}
+	mux.HandleFunc("GET /notifications", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var items []NotificationDelivery
+		if notifier != nil {
+			items = notifier.Deliveries()
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"count": len(items),
+			"items": items,
+		})
+	})
 	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {

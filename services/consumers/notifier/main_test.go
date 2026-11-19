@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -165,6 +170,63 @@ func TestConsumeSkipsAndCommitsInvalidMessage(t *testing.T) {
 	}
 	if result := notifier.Process(HazardEvent{HazardID: "haz-valid", HazardType: "VOLCANIC", Severity: "AWAS"}); !result.Duplicate {
 		t.Fatal("valid message after poison message was not processed")
+	}
+}
+
+func TestNotifierUpdateAwareDedupAndCoastalCriticalDelivery(t *testing.T) {
+	var received []NotificationDelivery
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var d NotificationDelivery
+		if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		received = append(received, d)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer receiver.Close()
+
+	receiptPath := filepath.Join(t.TempDir(), "receipts.jsonl")
+	n := NewNotifierWithOptions(receiptPath, receiver.URL)
+
+	// 1. Initial non-critical coastal event -> no alert.
+	ev1 := HazardEvent{
+		HazardID:   "haz-pantai-obs-1",
+		Source:     "SENSOR_PANTAI",
+		HazardType: "COASTAL",
+		Severity:   "NORMAL",
+		AreaName:   "Padang, Sumatera Barat",
+		OccurredAt: time.Date(2026, 11, 12, 2, 43, 0, 0, time.UTC),
+		Attributes: map[string]any{"critical": false, "wave_height_m": 0.9},
+	}
+	res1 := n.Process(ev1)
+	if res1.Duplicate || res1.Alert {
+		t.Fatalf("expected non-duplicate non-alert, got %+v", res1)
+	}
+
+	// 2. Escalated update with same hazard_id and critical=true -> NOT suppressed, triggers alert.
+	ev2 := ev1
+	ev2.Severity = "AWAS"
+	ev2.Attributes = map[string]any{"critical": true, "wave_height_m": 4.5}
+	res2 := n.Process(ev2)
+	if res2.Duplicate || !res2.Alert {
+		t.Fatalf("expected updated critical coastal event to alert, got %+v", res2)
+	}
+	if _, err := n.Deliver(context.Background(), ev2, res2.Reason, "corr-coastal-1"); err != nil {
+		t.Fatalf("Deliver failed: %v", err)
+	}
+	if len(received) != 1 || received[0].HazardID != "haz-pantai-obs-1" {
+		t.Fatalf("expected 1 webhook delivery, got %+v", received)
+	}
+
+	// 3. Reload from durable receipt log on restart -> identical ev2 is now suppressed as duplicate.
+	restarted := NewNotifierWithOptions(receiptPath, receiver.URL)
+	if len(restarted.Deliveries()) != 1 {
+		t.Fatalf("expected 1 persisted receipt after restart, got %d", len(restarted.Deliveries()))
+	}
+	res3 := restarted.Process(ev2)
+	if !res3.Duplicate {
+		t.Fatalf("expected identical event after restart to be duplicate, got %+v", res3)
 	}
 }
 
