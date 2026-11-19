@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -135,6 +136,9 @@ type HazardService interface {
 type RemoteAggregatorClient struct {
 	baseURL    string
 	httpClient *http.Client
+	registry   *Registry
+	tracer     *Tracer
+	logger     *slog.Logger
 }
 
 func NewRemoteAggregatorClient(baseURL string) *RemoteAggregatorClient {
@@ -157,6 +161,9 @@ type apiHandler struct {
 	hazardService HazardService
 	reportStager  FieldReportStager
 	idempotency   *idempotencyStore
+	registry      *Registry
+	tracer        *Tracer
+	logger        *slog.Logger
 }
 
 func newAPIHandler(jwtSecret, aggregatorURL string) *apiHandler {
@@ -168,22 +175,40 @@ func newAPIHandlerWithService(jwtSecret string, hazardService HazardService) *ap
 }
 
 func newAPIHandlerWithDeps(jwtSecret string, hazardService HazardService, stager FieldReportStager) *apiHandler {
+	logger := newJSONLogger("client-api")
+	reg := newRegistry()
+	tracer := newTracer("client-api", logger)
+	if client, ok := hazardService.(*RemoteAggregatorClient); ok {
+		if client.registry == nil {
+			client.registry = reg
+		}
+		if client.tracer == nil {
+			client.tracer = tracer
+		}
+		if client.logger == nil {
+			client.logger = logger
+		}
+	}
 	return &apiHandler{
 		jwtSecret:     []byte(jwtSecret),
 		hazardService: hazardService,
 		reportStager:  stager,
 		idempotency:   newIdempotencyStore(defaultIdempotencyTTL, defaultIdempotencyCap),
+		registry:      reg,
+		tracer:        tracer,
+		logger:        logger,
 	}
 }
 
 func (h *apiHandler) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", h.health)
+	mux.HandleFunc("GET /metrics", h.registry.Handler())
 	mux.Handle("GET /api/v1/hazards", h.requireJWT(http.HandlerFunc(h.listHazards)))
 	mux.Handle("GET /api/v1/hazards/{id}", h.requireJWT(http.HandlerFunc(h.getHazardByID)))
 	mux.Handle("POST /api/v1/field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
 	mux.Handle("POST /field-reports", h.requireJWT(http.HandlerFunc(h.submitFieldReport)))
-	return correlationMiddleware(loggingMiddleware(mux))
+	return correlationMiddleware(observabilityMiddleware("client-api", h.registry, h.tracer, h.logger, mux))
 }
 
 func (h *apiHandler) health(w http.ResponseWriter, _ *http.Request) {
@@ -194,6 +219,7 @@ func (h *apiHandler) requireJWT(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenString, ok := bearerToken(r.Header.Get("Authorization"))
 		if !ok {
+			h.registry.IncCounter("auth_rejections_total", map[string]string{"service": "client-api", "reason": "missing_or_malformed"}, 1)
 			writeJSON(w, http.StatusUnauthorized, errorResponse{
 				Error: "UNAUTHORIZED", Message: "Missing or invalid Bearer token",
 			})
@@ -213,12 +239,14 @@ func (h *apiHandler) requireJWT(next http.Handler) http.Handler {
 			jwt.WithIssuedAt(),
 		)
 		if err != nil || !token.Valid || claims.Subject == "" {
+			h.registry.IncCounter("auth_rejections_total", map[string]string{"service": "client-api", "reason": "invalid_token"}, 1)
 			writeJSON(w, http.StatusUnauthorized, errorResponse{
 				Error: "UNAUTHORIZED", Message: "Missing or invalid Bearer token",
 			})
 			return
 		}
 		if claims.Scope != scopeSummary && claims.Scope != scopeAll {
+			h.registry.IncCounter("auth_rejections_total", map[string]string{"service": "client-api", "reason": "forbidden_scope"}, 1)
 			writeJSON(w, http.StatusForbidden, errorResponse{
 				Error: "FORBIDDEN", Message: "Token does not contain a permitted hazard read scope",
 			})
@@ -336,22 +364,87 @@ func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFil
 	if encoded := query.Encode(); encoded != "" {
 		endpoint += "?" + encoded
 	}
+	spanStatus := http.StatusOK
+	spanMsg := ""
+	if c.tracer != nil {
+		var span *Span
+		ctx, span = c.tracer.StartSpan(ctx, "GET /internal/hazards", spanKindClient,
+			SpanAttr{Key: "peer.service", Value: "aggregator"},
+			SpanAttr{Key: "http.method", Value: http.MethodGet},
+			SpanAttr{Key: "http.target", Value: "/internal/hazards"},
+		)
+		defer func() {
+			if span != nil {
+				span.End(spanStatus, spanMsg)
+			}
+		}()
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		spanStatus = http.StatusInternalServerError
+		spanMsg = err.Error()
 		return nil, err
 	}
-	req.Header.Set(correlationHead, correlationIDFromContext(ctx))
+	injectTraceHTTP(ctx, req)
+
+	logger := c.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	st := traceFromContext(ctx)
 
 	started := time.Now()
 	resp, err := c.httpClient.Do(req)
+	dur := time.Since(started)
+	if c.registry != nil {
+		c.registry.ObserveHistogram("upstream_request_duration_seconds", map[string]string{
+			"service":  "client-api",
+			"upstream": "aggregator",
+		}, dur.Seconds())
+	}
 	if err != nil {
-		log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q error=%q duration_ms=%d",
-			correlationIDFromContext(ctx), req.Method, req.URL.Path, err, time.Since(started).Milliseconds())
+		spanStatus = http.StatusBadGateway
+		spanMsg = err.Error()
+		if c.registry != nil {
+			c.registry.IncCounter("upstream_requests_total", map[string]string{
+				"service":  "client-api",
+				"upstream": "aggregator",
+				"status":   "error",
+			}, 1)
+		}
+		logger.Warn("outbound call failed",
+			slog.String("correlation_id", correlationIDFromContext(ctx)),
+			slog.String("trace_id", st.TraceID),
+			slog.String("span_id", st.SpanID),
+			slog.String("upstream", "aggregator"),
+			slog.String("method", req.Method),
+			slog.String("path", req.URL.Path),
+			slog.String("error", err.Error()),
+			slog.Int64("duration_ms", dur.Milliseconds()),
+		)
 		return nil, err
 	}
 	defer resp.Body.Close()
-	log.Printf("[client-api] outbound correlation_id=%q upstream=\"aggregator\" method=%q path=%q status=%d duration_ms=%d",
-		correlationIDFromContext(ctx), req.Method, req.URL.Path, resp.StatusCode, time.Since(started).Milliseconds())
+	spanStatus = resp.StatusCode
+	spanMsg = http.StatusText(resp.StatusCode)
+	if c.registry != nil {
+		c.registry.IncCounter("upstream_requests_total", map[string]string{
+			"service":  "client-api",
+			"upstream": "aggregator",
+			"status":   strconv.Itoa(resp.StatusCode),
+		}, 1)
+	}
+	logger.Info("outbound call completed",
+		slog.String("correlation_id", correlationIDFromContext(ctx)),
+		slog.String("trace_id", st.TraceID),
+		slog.String("span_id", st.SpanID),
+		slog.String("upstream", "aggregator"),
+		slog.String("method", req.Method),
+		slog.String("path", req.URL.Path),
+		slog.Int("status", resp.StatusCode),
+		slog.Int64("duration_ms", dur.Milliseconds()),
+	)
 
 	if resp.StatusCode != http.StatusOK {
 		var payload errorResponse

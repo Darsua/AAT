@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bnpb/aggregator/internal/logger"
+	"bnpb/aggregator/internal/telemetry"
 )
 
 // responseWriterInterceptor captures the HTTP response status code and size.
@@ -71,8 +72,11 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 		log := logger.FromContext(r.Context())
+		st := telemetry.TraceFromContext(r.Context())
 
 		log.Info("http request",
+			slog.String("trace_id", st.TraceID),
+			slog.String("span_id", st.SpanID),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("query", r.URL.RawQuery),

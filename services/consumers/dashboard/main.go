@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -309,20 +309,44 @@ func messageHeader(message kafka.Message, name string) string {
 
 // consume reads hazard events from the Kafka topic and processes them.
 func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) error {
+	logger := newJSONLogger("dashboard-consumer")
+	return consumeWithTelemetry(ctx, reader, dashboard, newRegistry(), newTracer("dashboard-consumer", logger), logger)
+}
+
+func consumeWithTelemetry(ctx context.Context, reader messageReader, dashboard *Dashboard, reg *Registry, tracer *Tracer, logger *slog.Logger) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
 			return err
 		}
 
+		started := time.Now()
 		correlationID := messageHeader(message, correlationHeader)
+		msgCtx := ctx
+		if tp := messageHeader(message, traceparentHeader); tp != "" {
+			msgCtx = contextWithTraceparent(msgCtx, tp)
+		}
+		msgCtx, span := tracer.StartSpan(msgCtx, "kafka.consume "+message.Topic, spanKindConsumer,
+			SpanAttr{Key: "messaging.system", Value: "kafka"},
+			SpanAttr{Key: "messaging.destination", Value: message.Topic},
+			SpanAttr{Key: "correlation_id", Value: correlationID},
+		)
+		st := traceFromContext(msgCtx)
 
 		// Support Kafka tombstone messages (empty payload with key indicating retraction)
 		if len(message.Value) == 0 && len(message.Key) > 0 {
 			key := string(message.Key)
 			if dashboard.Retract(key) {
-				log.Printf("[dashboard] correlation_id=%q retracted hazard_id=%s via tombstone", correlationID, key)
+				logger.Info("retracted hazard via tombstone",
+					slog.String("correlation_id", correlationID),
+					slog.String("trace_id", st.TraceID),
+					slog.String("span_id", st.SpanID),
+					slog.String("hazard_id", key),
+				)
 			}
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "dashboard-consumer", "topic": message.Topic, "status": "processed"}, 1)
+			reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "dashboard-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+			span.End(200, "")
 			if err := reader.CommitMessages(ctx, message); err != nil {
 				return fmt.Errorf("commit tombstone message: %w", err)
 			}
@@ -331,12 +355,16 @@ func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) er
 
 		event, err := decodeEvent(message.Value)
 		if err != nil {
-			log.Printf(
-				"[dashboard] correlation_id=%q skipped invalid message partition=%d offset=%d error=%q",
-				correlationID,
-				message.Partition,
-				message.Offset,
-				err,
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "dashboard-consumer", "topic": message.Topic, "status": "invalid"}, 1)
+			reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "dashboard-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+			span.End(400, err.Error())
+			logger.Warn("skipped invalid message",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.Int("partition", message.Partition),
+				slog.Int64("offset", message.Offset),
+				slog.String("error", err.Error()),
 			)
 			if err := reader.CommitMessages(ctx, message); err != nil {
 				return fmt.Errorf("commit invalid message: %w", err)
@@ -346,30 +374,41 @@ func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) er
 
 		result := dashboard.Process(event)
 		if result.Retracted {
-			log.Printf("[dashboard] correlation_id=%q retracted hazard_id=%s", correlationID, event.HazardID)
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "dashboard-consumer", "topic": message.Topic, "status": "processed"}, 1)
+			logger.Info("retracted hazard event",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
+			)
 		} else if result.Duplicate {
-			log.Printf("[dashboard] correlation_id=%q skipped duplicate hazard_id=%s", correlationID, event.HazardID)
-		} else if result.Updated {
-			log.Printf(
-				"[dashboard] correlation_id=%q updated hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
-				correlationID,
-				event.HazardID,
-				event.HazardType,
-				event.Severity,
-				result.TypeCount,
-				result.SeverityCount,
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "dashboard-consumer", "topic": message.Topic, "status": "duplicate"}, 1)
+			reg.IncCounter("kafka_consumer_dedup_skipped_total", map[string]string{"service": "dashboard-consumer"}, 1)
+			logger.Info("skipped duplicate hazard event",
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
 			)
 		} else {
-			log.Printf(
-				"[dashboard] correlation_id=%q processed hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
-				correlationID,
-				event.HazardID,
-				event.HazardType,
-				event.Severity,
-				result.TypeCount,
-				result.SeverityCount,
+			msg := "processed hazard event"
+			if result.Updated {
+				msg = "updated hazard event"
+			}
+			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "dashboard-consumer", "topic": message.Topic, "status": "processed"}, 1)
+			logger.Info(msg,
+				slog.String("correlation_id", correlationID),
+				slog.String("trace_id", st.TraceID),
+				slog.String("span_id", st.SpanID),
+				slog.String("hazard_id", event.HazardID),
+				slog.String("hazard_type", event.HazardType),
+				slog.String("severity", event.Severity),
+				slog.Int("type_count", result.TypeCount),
+				slog.Int("severity_count", result.SeverityCount),
 			)
 		}
+		reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "dashboard-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+		span.End(200, "")
 
 		if err := reader.CommitMessages(ctx, message); err != nil {
 			return fmt.Errorf("commit message: %w", err)
@@ -392,20 +431,22 @@ func main() {
 
 	dashboard := NewDashboard()
 	dashboard.SetSyncInterval(config.SyncInterval)
-	startDashboardServer(ctx, getEnv("PORT", "8085"), dashboard)
+	logger := newJSONLogger("dashboard-consumer")
+	reg := newRegistry()
+	tracer := newTracer("dashboard-consumer", logger)
+	startDashboardServerWithTelemetry(ctx, getEnv("PORT", "8085"), dashboard, reg)
 	startAggregatorSyncLoop(ctx, config.AggregatorURL, config.SyncInterval, &http.Client{Timeout: 4 * time.Second}, dashboard)
 
-	log.Printf(
-		"[dashboard] consuming topic=%s group=%s brokers=%s aggregator=%s",
-		config.Topic,
-		config.GroupID,
-		strings.Join(config.Brokers, ","),
-		config.AggregatorURL,
+	logger.Info("consuming hazard events",
+		slog.String("topic", config.Topic),
+		slog.String("group", config.GroupID),
+		slog.String("brokers", strings.Join(config.Brokers, ",")),
+		slog.String("aggregator", config.AggregatorURL),
 	)
 
-	if err := consume(ctx, reader, dashboard); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("[dashboard] stopped: %v", err)
+	if err := consumeWithTelemetry(ctx, reader, dashboard, reg, tracer, logger); err != nil && !errors.Is(err, context.Canceled) {
+		logger.Error("consumer stopped with error", slog.String("error", err.Error()))
 		return
 	}
-	log.Println("[dashboard] stopped")
+	logger.Info("consumer stopped")
 }

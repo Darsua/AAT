@@ -1,0 +1,113 @@
+{
+  "uid": "bnpb-unified-obs",
+  "title": "BNPB Disaster Platform — Unified Observability",
+  "tags": ["bnpb", "m2", "observability"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "HTTP Throughput (RPS) by Service",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP Latency (p50 / p95 / p99)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p50 {{service}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 {{service}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "p99 {{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HTTP Errors (4xx / 5xx) by Service",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (service, status) (rate(http_requests_total{status=~\"[45]..\"}[1m]))",
+          "legendFormat": "{{service}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Upstream Requests & Auth Outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (upstream, status) (rate(upstream_requests_total[1m]))",
+          "legendFormat": "upstream {{upstream}} ({{status}})"
+        },
+        {
+          "expr": "sum by (reason) (rate(auth_rejections_total[1m]))",
+          "legendFormat": "gateway auth reject ({{reason}})"
+        },
+        {
+          "expr": "sum by (grant_type) (rate(auth_tokens_issued_total[1m]))",
+          "legendFormat": "auth issued ({{grant_type}})"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Outbox & Kafka Consumer Throughput",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(outbox_published_total[1m]))",
+          "legendFormat": "outbox published/s"
+        },
+        {
+          "expr": "sum(rate(outbox_errors_total[1m]))",
+          "legendFormat": "outbox errors/s"
+        },
+        {
+          "expr": "sum by (service, status) (rate(kafka_messages_consumed_total[1m]))",
+          "legendFormat": "{{service}} ({{status}})"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Kafka Consumer Processing Latency (p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(kafka_message_processing_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 {{service}}"
+        }
+      ]
+    }
+  ]
+}

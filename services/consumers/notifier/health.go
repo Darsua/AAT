@@ -17,8 +17,16 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 
 // startHealthServer serves GET /health until ctx is cancelled.
 func startHealthServer(ctx context.Context, port string) {
+	startHTTPServer(ctx, port, nil)
+}
+
+// startHTTPServer serves GET /health and GET /metrics until ctx is cancelled.
+func startHTTPServer(ctx context.Context, port string, reg *Registry) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
+	if reg != nil {
+		mux.HandleFunc("GET /metrics", reg.Handler())
+	}
 	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {

@@ -21,6 +21,7 @@ import (
 	"bnpb/aggregator/internal/repository"
 	"bnpb/aggregator/internal/satellite"
 	"bnpb/aggregator/internal/status"
+	"bnpb/aggregator/internal/telemetry"
 	"bnpb/aggregator/internal/worker"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -107,6 +108,10 @@ func main() {
 	}
 	defer kafkaWriter.Close()
 
+	// Initialize observability registry and tracer
+	reg := telemetry.NewRegistry()
+	tracer := telemetry.NewTracer("aggregator")
+
 	// Initialize background polling and outbox relay workers
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
@@ -117,6 +122,7 @@ func main() {
 		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval).
 		WithDLQRetryBudget(cfg.DLQRetryBudget)
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
+	outboxRelay.WithTelemetry(reg, tracer)
 
 	var workerWg sync.WaitGroup
 	if cfg.SatelliteEnabled {
@@ -183,16 +189,18 @@ func main() {
 
 	mux.HandleFunc("GET /livez", api.LivezHandler)
 	mux.Handle("GET /health", healthHandler)
+	mux.HandleFunc("GET /metrics", reg.Handler())
 	mux.Handle("GET /internal/hazards", hazardHandler)
 	mux.Handle("/internal/audit/events", auditHandler)
 	mux.Handle("/internal/audit/checksum", auditHandler)
 	mux.Handle("/internal/audit/location", auditHandler)
 	mux.Handle("/internal/audit/unprocessed", auditHandler)
 
-	// Middleware chaining: CorrelationID (outermost) -> Logging -> Recovery (innermost) -> Router
+	// Middleware chaining: CorrelationID -> Telemetry -> Logging -> Recovery -> Router
 	var handler http.Handler = mux
 	handler = api.RecoveryMiddleware(handler)
 	handler = api.LoggingMiddleware(handler)
+	handler = telemetry.HTTPMiddleware("aggregator", reg, tracer, handler)
 	handler = api.CorrelationIDMiddleware(handler)
 
 	server := &http.Server{

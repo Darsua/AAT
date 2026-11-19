@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "client-api"
+    static_configs:
+      - targets: ["client-api:8080"]
+
+  - job_name: "auth"
+    static_configs:
+      - targets: ["auth:8084"]
+
+  - job_name: "aggregator"
+    static_configs:
+      - targets: ["aggregator:8083"]
+
+  - job_name: "dashboard-consumer"
+    static_configs:
+      - targets: ["dashboard-consumer:8085"]
+
+  - job_name: "notifier-consumer"
+    static_configs:
+      - targets: ["notifier-consumer:8086"]
+
+  - job_name: "summarizer-consumer"
+    static_configs:
+      - targets: ["summarizer-consumer:8087"]
+
+  - job_name: "mock-bmkg"
+    static_configs:
+      - targets: ["mock-bmkg:8081"]
+
+  - job_name: "mock-pvmbg"
+    static_configs:
+      - targets: ["mock-pvmbg:8082"]
+
+  - job_name: "redpanda"
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]
