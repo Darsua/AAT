@@ -20,6 +20,24 @@ import (
 
 const reportGenerationInterval = 10 * time.Second
 
+// schemaMode selects how /volcanic-reports serializes reports, as defined in contracts/pvmbg.yaml.
+type schemaMode string
+
+const (
+	schemaModeAdditive             schemaMode = "additive"
+	schemaModeRenameField          schemaMode = "rename_field"
+	schemaModeTypeChange           schemaMode = "type_change"
+	schemaModeMissingRequiredField schemaMode = "missing_required_field"
+)
+
+func parseSchemaMode(value string) (schemaMode, bool) {
+	switch mode := schemaMode(value); mode {
+	case schemaModeAdditive, schemaModeRenameField, schemaModeTypeChange, schemaModeMissingRequiredField:
+		return mode, true
+	}
+	return "", false
+}
+
 //go:embed seed.json
 var seedFile []byte
 
@@ -46,6 +64,7 @@ type service struct {
 	mu                     sync.RWMutex
 	reports                []VolcanicReport
 	includeConfidenceLevel bool
+	mode                   schemaMode
 	isOutage               bool
 	nextSequence           uint64
 	delay                  func()
@@ -121,6 +140,7 @@ func loadSeedData() (seedData, error) {
 func newService(data seedData) *service {
 	return &service{
 		reports: append([]VolcanicReport(nil), data.Reports...),
+		mode:    schemaModeAdditive,
 		delay:   func() { time.Sleep(randomDuration(500*time.Millisecond, 3*time.Second)) },
 		now:     time.Now,
 	}
@@ -200,6 +220,7 @@ func (s *service) handleReports(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.RLock()
 	includeConfidence := s.includeConfidenceLevel
+	mode := s.mode
 	reports := filterReports(s.reports, since)
 	s.mu.RUnlock()
 	if includeConfidence {
@@ -208,24 +229,78 @@ func (s *service) handleReports(w http.ResponseWriter, r *http.Request) {
 			reports[i].ConfidenceLevel = &c
 		}
 	}
-	writeJSON(w, http.StatusOK, reports)
+	if mode == schemaModeAdditive {
+		writeJSON(w, http.StatusOK, reports)
+		return
+	}
+	payload, err := applySchemaMode(reports, mode)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to serialize reports")
+		return
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+// applySchemaMode rewrites serialized reports for an incompatible test mode.
+// Stored reports are untouched, so switching back to additive serves them normally again.
+func applySchemaMode(reports []VolcanicReport, mode schemaMode) ([]map[string]json.RawMessage, error) {
+	payload := make([]map[string]json.RawMessage, 0, len(reports))
+	for _, report := range reports {
+		raw, err := json.Marshal(report)
+		if err != nil {
+			return nil, err
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		switch mode {
+		case schemaModeRenameField:
+			fields["event_id"] = fields["report_id"]
+			delete(fields, "report_id")
+		case schemaModeTypeChange:
+			count, err := json.Marshal(strconv.Itoa(report.EruptionCount24h))
+			if err != nil {
+				return nil, err
+			}
+			fields["eruption_count_24h"] = count
+		case schemaModeMissingRequiredField:
+			delete(fields, "volcano_id")
+		}
+		payload = append(payload, fields)
+	}
+	return payload, nil
 }
 
 func (s *service) handleSchemaVersion(w http.ResponseWriter, r *http.Request) {
 	var request schemaVersionRequest
-	if err := decodeJSON(r, &request); err != nil || request.IncludeConfidenceLevel == nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "include_confidence_level must be a boolean")
+	if err := decodeJSON(r, &request); err != nil || (request.IncludeConfidenceLevel == nil && request.Mode == nil) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "include_confidence_level must be a boolean and/or mode must be a supported schema mode")
 		return
+	}
+	// Omitting mode selects additive so legacy M1 requests keep their original behavior.
+	mode := schemaModeAdditive
+	if request.Mode != nil {
+		parsed, ok := parseSchemaMode(*request.Mode)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "mode must be one of additive, rename_field, type_change, missing_required_field")
+			return
+		}
+		mode = parsed
 	}
 
 	s.mu.Lock()
-	s.includeConfidenceLevel = *request.IncludeConfidenceLevel
+	if request.IncludeConfidenceLevel != nil {
+		s.includeConfidenceLevel = *request.IncludeConfidenceLevel
+	}
+	s.mode = mode
 	includeConfidence := s.includeConfidenceLevel
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                   "updated",
 		"include_confidence_level": includeConfidence,
+		"mode":                     string(mode),
 		"message":                  "Dynamic schema updated successfully",
 	})
 }
@@ -250,7 +325,8 @@ func (s *service) handleOutage(w http.ResponseWriter, r *http.Request) {
 }
 
 type schemaVersionRequest struct {
-	IncludeConfidenceLevel *bool `json:"include_confidence_level"`
+	IncludeConfidenceLevel *bool   `json:"include_confidence_level"`
+	Mode                   *string `json:"mode"`
 }
 
 type outageRequest struct {

@@ -39,23 +39,26 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        if rpk topic describe "$${TOPIC}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
-          echo "Topic '$${TOPIC}' already exists"
-        else
-          rpk topic create "$${TOPIC}" \
-            --partitions "$${TOPIC_PARTITIONS}" \
-            --replicas 1 \
-            -X brokers=redpanda:9092
-        fi
-        partition_metadata="$$(rpk topic describe "$${TOPIC}" --print-partitions -X brokers=redpanda:9092)"
-        printf '%s\n' "$${partition_metadata}"
-        actual_partitions="$$(printf '%s\n' "$${partition_metadata}" | awk 'NR > 1 && $$1 ~ /^[0-9]+$$/ { count++ } END { print count + 0 }')"
-        if [ "$${actual_partitions}" -ne "$${TOPIC_PARTITIONS}" ]; then
-          echo "Expected $${TOPIC_PARTITIONS} partitions for '$${TOPIC}', found $${actual_partitions}" >&2
-          exit 1
-        fi
+        for topic in "$${TOPIC}" "$${FIELD_REPORTS_TOPIC}"; do
+          if rpk topic describe "$${topic}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
+            echo "Topic '$${topic}' already exists"
+          else
+            rpk topic create "$${topic}" \
+              --partitions "$${TOPIC_PARTITIONS}" \
+              --replicas 1 \
+              -X brokers=redpanda:9092
+          fi
+          partition_metadata="$$(rpk topic describe "$${topic}" --print-partitions -X brokers=redpanda:9092)"
+          printf '%s\n' "$${partition_metadata}"
+          actual_partitions="$$(printf '%s\n' "$${partition_metadata}" | awk 'NR > 1 && $$1 ~ /^[0-9]+$$/ { count++ } END { print count + 0 }')"
+          if [ "$${actual_partitions}" -ne "$${TOPIC_PARTITIONS}" ]; then
+            echo "Expected $${TOPIC_PARTITIONS} partitions for '$${topic}', found $${actual_partitions}" >&2
+            exit 1
+          fi
+        done
     environment:
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      FIELD_REPORTS_TOPIC: ${REDPANDA_TOPIC_FIELD_REPORTS:-bnpb.field-reports}
       TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
     depends_on:
       redpanda:
@@ -173,11 +176,15 @@ services:
       PORT: 8080
       AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
       JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-2026}
+      REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
+      REDPANDA_TOPIC_FIELD_REPORTS: ${REDPANDA_TOPIC_FIELD_REPORTS:-bnpb.field-reports}
     depends_on:
       aggregator:
         condition: service_healthy
       auth:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     networks:
       - bnpb-internal
       - bnpb-public
@@ -189,11 +196,14 @@ services:
 
   dashboard-consumer:
     build: ./services/consumers/dashboard
+    ports:
+      - "${DASHBOARD_PORT:-8085}:8085"
     environment:
       REDPANDA_BROKERS: redpanda:9092
       PORT: 8085
       CONSUMER_GROUP: ${CONSUMER_GROUP_DASHBOARD:-bnpb-dashboard-group}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -201,6 +211,7 @@ services:
         condition: service_completed_successfully
     networks:
       - bnpb-internal
+      - bnpb-public
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8085/health || exit 1"]
       interval: 5s

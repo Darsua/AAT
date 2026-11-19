@@ -36,7 +36,7 @@ flowchart TD
 | [Auth](services/auth/README.md) | Client authentication, JWT issuance, and refresh-token rotation |
 | [Client API](services/client-api/README.md) | Public HTTP API, JWT verification, query validation, and summary/full-field projection |
 | [Mock BMKG](services/mock-bmkg/README.md) | Simulated seismic events and tsunami warnings |
-| [Mock PVMBG](services/mock-pvmbg/README.md) | Simulated volcanic reports, additive-schema changes, latency, and outages |
+| [Mock PVMBG](services/mock-pvmbg/README.md) | Simulated volcanic reports, additive and incompatible schema modes, latency, and outages |
 | [Consumers](services/consumers/README.md) | Separate consumer groups for in-memory incident counts and logged alert decisions |
 
 **Stack:** Go 1.22, standard-library HTTP servers, PostgreSQL 16 with `pgx`, Redpanda with `kafka-go`, and HS256 JWTs with `jwt/v5`.
