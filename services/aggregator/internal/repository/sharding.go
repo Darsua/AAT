@@ -70,6 +70,8 @@ type UnitBackend interface {
 	SaveHazardWithFence(ctx context.Context, h *domain.HazardEvent, correlationID string, fence domain.WriteFence, withOutbox bool) error
 	GetSourceCheckpoint(ctx context.Context, source domain.Source) (*domain.SourceCheckpoint, error)
 	SaveSourceCheckpoint(ctx context.Context, cp domain.SourceCheckpoint) error
+	GetSatelliteCheckpoint(ctx context.Context, stream string) (*SatelliteCheckpoint, error)
+	SaveSatelliteCheckpoint(ctx context.Context, cp SatelliteCheckpoint) error
 }
 
 // UnitSpec describes the configuration of a single primary or replica storage unit.
@@ -360,6 +362,8 @@ type MemoryUnitBackend struct {
 	checkpoints  map[domain.Source]domain.SourceCheckpoint
 	sourceFences map[domain.Source]int64
 	nextSeq      int64
+
+	satelliteCheckpoints map[string]SatelliteCheckpoint
 }
 
 // NewMemoryUnitBackend creates a healthy, empty in-memory storage unit.
@@ -372,6 +376,8 @@ func NewMemoryUnitBackend() *MemoryUnitBackend {
 		leases:       make(map[string]domain.LeaderLease),
 		checkpoints:  make(map[domain.Source]domain.SourceCheckpoint),
 		sourceFences: make(map[domain.Source]int64),
+
+		satelliteCheckpoints: make(map[string]SatelliteCheckpoint),
 	}
 }
 

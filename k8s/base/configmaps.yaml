@@ -21,6 +21,9 @@ data:
   PVMBG_URL: "http://mock-pvmbg:8082"
   SENSOR_PANTAI_URL: "http://sensor-pantai:8080"
   SATELLITE_URL: "https://satellite.naufarrel.dev"
+  SATELLITE_ENABLED: "false"
+  SATELLITE_LATENESS_MINUTES: "360"
+  SATELLITE_PROVINCE_CENTROIDS_FILE: ""
 
   # Poller, JWT, and client identity settings
   POLL_INTERVAL_SECS: "3"
