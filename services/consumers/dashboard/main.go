@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,16 +21,20 @@ import (
 
 // Fallback to localhost:19092 if BROKERS is not set.
 const (
-	defaultBrokers    = "localhost:19092"
-	defaultTopic      = "bnpb.hazard-events"
-	defaultGroupID    = "bnpb-dashboard-group"
-	correlationHeader = "X-Correlation-ID"
+	defaultBrokers      = "localhost:19092"
+	defaultTopic        = "bnpb.hazard-events"
+	defaultGroupID      = "bnpb-dashboard-group"
+	defaultAggregator   = "http://aggregator:8083"
+	defaultSyncInterval = 5 * time.Second
+	correlationHeader   = "X-Correlation-ID"
 )
 
 type Config struct {
-	Brokers []string
-	Topic   string
-	GroupID string
+	Brokers       []string
+	Topic         string
+	GroupID       string
+	AggregatorURL string
+	SyncInterval  time.Duration
 }
 
 type messageReader interface {
@@ -45,46 +52,127 @@ type HazardEvent struct {
 	AreaName    string         `json:"area_name"`
 	Latitude    *float64       `json:"latitude"`
 	Longitude   *float64       `json:"longitude"`
-	Attributes  map[string]any `json:"attributes"` // Attribute may change --> to Latitude and Longitude
+	Attributes  map[string]any `json:"attributes"`
 	OccurredAt  time.Time      `json:"occurred_at"`
 	IngestedAt  time.Time      `json:"ingested_at"`
 }
 
-// At least one of TypeCount, SeverityCount, or Duplicate will be non-zero.
+// At least one of TypeCount, SeverityCount, Duplicate, Updated, or Retracted will be set.
 type ProcessResult struct {
 	Duplicate     bool
+	Updated       bool
+	Retracted     bool
 	TypeCount     int
 	SeverityCount int
 }
 
-// Dashboard owns the in-memory counters and processed event IDs.
+// Dashboard owns the update-aware hazard projection, aggregates, and sync state.
 type Dashboard struct {
-	mu         sync.Mutex
-	processed  map[string]struct{}
-	byType     map[string]int // counts by hazard type
-	bySeverity map[string]int // counts by severity
+	mu                  sync.RWMutex
+	events              map[string]HazardEvent
+	byType              map[string]int // counts by hazard type
+	bySeverity          map[string]int // counts by severity
+	degraded            bool
+	partialData         bool
+	unavailableUnits    []string
+	partialReason       string
+	staleSince          *time.Time
+	lastSyncAt          *time.Time
+	lastKafkaEventAt    *time.Time
+	syncIntervalSeconds int
 }
 
 func NewDashboard() *Dashboard {
 	return &Dashboard{
-		processed:  make(map[string]struct{}),
-		byType:     make(map[string]int),
-		bySeverity: make(map[string]int),
+		events:              make(map[string]HazardEvent),
+		byType:              make(map[string]int),
+		bySeverity:          make(map[string]int),
+		syncIntervalSeconds: int(defaultSyncInterval.Seconds()),
 	}
 }
 
-// Process counts each hazard ID at most once during this process lifetime.
+func (d *Dashboard) SetSyncInterval(interval time.Duration) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.syncIntervalSeconds = int(interval.Seconds())
+}
+
+// Retract removes a hazard by ID (e.g. on Kafka tombstone or retraction message).
+func (d *Dashboard) Retract(hazardID string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.retractLocked(hazardID)
+}
+
+func (d *Dashboard) retractLocked(hazardID string) bool {
+	existing, exists := d.events[hazardID]
+	if !exists {
+		return false
+	}
+	delete(d.events, hazardID)
+	if d.byType[existing.HazardType] > 0 {
+		d.byType[existing.HazardType]--
+	}
+	if d.bySeverity[existing.Severity] > 0 {
+		d.bySeverity[existing.Severity]--
+	}
+	return true
+}
+
+func isRetracted(event HazardEvent) bool {
+	if strings.EqualFold(event.Severity, "RETRACTED") || strings.EqualFold(event.HazardType, "RETRACTED") {
+		return true
+	}
+	if event.Attributes != nil {
+		if ret, ok := event.Attributes["retracted"].(bool); ok && ret {
+			return true
+		}
+		if del, ok := event.Attributes["deleted"].(bool); ok && del {
+			return true
+		}
+		if status, ok := event.Attributes["status"].(string); ok && strings.EqualFold(status, "RETRACTED") {
+			return true
+		}
+	}
+	return false
+}
+
+// Process upserts a canonical hazard event, updating counts if an existing hazard changed.
 func (d *Dashboard) Process(event HazardEvent) ProcessResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if _, exists := d.processed[event.HazardID]; exists {
-		return ProcessResult{Duplicate: true}
+	now := time.Now().UTC()
+	d.lastKafkaEventAt = &now
+
+	if isRetracted(event) {
+		removed := d.retractLocked(event.HazardID)
+		return ProcessResult{Retracted: true, Updated: removed}
 	}
 
+	if existing, exists := d.events[event.HazardID]; exists {
+		if shouldSkipUpdate(existing, event) {
+			return ProcessResult{Duplicate: true}
+		}
+		if d.byType[existing.HazardType] > 0 {
+			d.byType[existing.HazardType]--
+		}
+		if d.bySeverity[existing.Severity] > 0 {
+			d.bySeverity[existing.Severity]--
+		}
+		d.events[event.HazardID] = cloneHazardEvent(event)
+		d.byType[event.HazardType]++
+		d.bySeverity[event.Severity]++
+		return ProcessResult{
+			Updated:       true,
+			TypeCount:     d.byType[event.HazardType],
+			SeverityCount: d.bySeverity[event.Severity],
+		}
+	}
+
+	d.events[event.HazardID] = cloneHazardEvent(event)
 	d.byType[event.HazardType]++
 	d.bySeverity[event.Severity]++
-	d.processed[event.HazardID] = struct{}{}
 
 	return ProcessResult{
 		TypeCount:     d.byType[event.HazardType],
@@ -92,15 +180,93 @@ func (d *Dashboard) Process(event HazardEvent) ProcessResult {
 	}
 }
 
-func loadConfig() Config {
-	return Config{
-		Brokers: splitAndTrim(getEnv("REDPANDA_BROKERS", defaultBrokers)),
-		Topic:   getEnv("TOPIC", defaultTopic),
-		GroupID: getEnv("CONSUMER_GROUP", defaultGroupID),
+func shouldSkipUpdate(existing, incoming HazardEvent) bool {
+	if !incoming.IngestedAt.IsZero() && !existing.IngestedAt.IsZero() {
+		if incoming.IngestedAt.Before(existing.IngestedAt) {
+			return true
+		}
+		if incoming.IngestedAt.After(existing.IngestedAt) {
+			return false
+		}
+	} else if incoming.IngestedAt.IsZero() && existing.IngestedAt.IsZero() &&
+		!incoming.OccurredAt.IsZero() && !existing.OccurredAt.IsZero() {
+		if incoming.OccurredAt.Before(existing.OccurredAt) {
+			return true
+		}
+	}
+	return hazardEventsEqual(existing, incoming)
+}
+
+func hazardEventsEqual(a, b HazardEvent) bool {
+	if a.HazardID != b.HazardID ||
+		a.Source != b.Source ||
+		a.SourceRefID != b.SourceRefID ||
+		a.HazardType != b.HazardType ||
+		a.Severity != b.Severity ||
+		a.AreaName != b.AreaName ||
+		!a.OccurredAt.Equal(b.OccurredAt) ||
+		!a.IngestedAt.Equal(b.IngestedAt) {
+		return false
+	}
+	if !floatPtrEqual(a.Latitude, b.Latitude) || !floatPtrEqual(a.Longitude, b.Longitude) {
+		return false
+	}
+	return reflect.DeepEqual(a.Attributes, b.Attributes)
+}
+
+func floatPtrEqual(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func cloneHazardEvent(e HazardEvent) HazardEvent {
+	cp := e
+	if e.Latitude != nil {
+		v := *e.Latitude
+		cp.Latitude = &v
+	}
+	if e.Longitude != nil {
+		v := *e.Longitude
+		cp.Longitude = &v
+	}
+	if len(e.Attributes) > 0 {
+		attrs := make(map[string]any, len(e.Attributes))
+		for k, v := range e.Attributes {
+			attrs[k] = v
+		}
+		cp.Attributes = attrs
+	}
+	return cp
+}
+
+func (d *Dashboard) rebuildCountersLocked() {
+	d.byType = make(map[string]int)
+	d.bySeverity = make(map[string]int)
+	for _, ev := range d.events {
+		d.byType[ev.HazardType]++
+		d.bySeverity[ev.Severity]++
 	}
 }
 
-// Topic for querying hazard events.
+func loadConfig() Config {
+	syncInterval := defaultSyncInterval
+	if raw := strings.TrimSpace(os.Getenv("DASHBOARD_SYNC_INTERVAL_SECS")); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			syncInterval = time.Duration(secs) * time.Second
+		}
+	}
+	return Config{
+		Brokers:       splitAndTrim(getEnv("REDPANDA_BROKERS", defaultBrokers)),
+		Topic:         getEnv("TOPIC", defaultTopic),
+		GroupID:       getEnv("CONSUMER_GROUP", defaultGroupID),
+		AggregatorURL: strings.TrimRight(getEnv("AGGREGATOR_URL", defaultAggregator), "/"),
+		SyncInterval:  syncInterval,
+	}
+}
+
+// getEnv retrieves an environment variable or returns a fallback value.
 func getEnv(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
@@ -108,7 +274,7 @@ func getEnv(name, fallback string) string {
 	return fallback
 }
 
-// splitAndTrim splits a comma-separated string into a slice of trimmed strings, for parsing broker addresses (despite exist only one).
+// splitAndTrim splits a comma-separated string into a slice of non-empty trimmed strings.
 func splitAndTrim(value string) []string {
 	parts := strings.Split(value, ",")
 	brokers := make([]string, 0, len(parts))
@@ -120,7 +286,7 @@ func splitAndTrim(value string) []string {
 	return brokers
 }
 
-// decodeEvent decodes a hazard event from a byte slice, see if it is valid.
+// decodeEvent decodes and validates a canonical hazard event from a byte slice.
 func decodeEvent(data []byte) (HazardEvent, error) {
 	var event HazardEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -149,11 +315,25 @@ func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) er
 			return err
 		}
 
+		correlationID := messageHeader(message, correlationHeader)
+
+		// Support Kafka tombstone messages (empty payload with key indicating retraction)
+		if len(message.Value) == 0 && len(message.Key) > 0 {
+			key := string(message.Key)
+			if dashboard.Retract(key) {
+				log.Printf("[dashboard] correlation_id=%q retracted hazard_id=%s via tombstone", correlationID, key)
+			}
+			if err := reader.CommitMessages(ctx, message); err != nil {
+				return fmt.Errorf("commit tombstone message: %w", err)
+			}
+			continue
+		}
+
 		event, err := decodeEvent(message.Value)
 		if err != nil {
 			log.Printf(
 				"[dashboard] correlation_id=%q skipped invalid message partition=%d offset=%d error=%q",
-				messageHeader(message, correlationHeader),
+				correlationID,
 				message.Partition,
 				message.Offset,
 				err,
@@ -164,10 +344,21 @@ func consume(ctx context.Context, reader messageReader, dashboard *Dashboard) er
 			continue
 		}
 
-		correlationID := messageHeader(message, correlationHeader)
 		result := dashboard.Process(event)
-		if result.Duplicate {
+		if result.Retracted {
+			log.Printf("[dashboard] correlation_id=%q retracted hazard_id=%s", correlationID, event.HazardID)
+		} else if result.Duplicate {
 			log.Printf("[dashboard] correlation_id=%q skipped duplicate hazard_id=%s", correlationID, event.HazardID)
+		} else if result.Updated {
+			log.Printf(
+				"[dashboard] correlation_id=%q updated hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
+				correlationID,
+				event.HazardID,
+				event.HazardType,
+				event.Severity,
+				result.TypeCount,
+				result.SeverityCount,
+			)
 		} else {
 			log.Printf(
 				"[dashboard] correlation_id=%q processed hazard_id=%s type=%s severity=%s type_count=%d severity_count=%d",
@@ -199,16 +390,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	startHealthServer(ctx, getEnv("PORT", "8085"))
+	dashboard := NewDashboard()
+	dashboard.SetSyncInterval(config.SyncInterval)
+	startDashboardServer(ctx, getEnv("PORT", "8085"), dashboard)
+	startAggregatorSyncLoop(ctx, config.AggregatorURL, config.SyncInterval, &http.Client{Timeout: 4 * time.Second}, dashboard)
 
 	log.Printf(
-		"[dashboard] consuming topic=%s group=%s brokers=%s",
+		"[dashboard] consuming topic=%s group=%s brokers=%s aggregator=%s",
 		config.Topic,
 		config.GroupID,
 		strings.Join(config.Brokers, ","),
+		config.AggregatorURL,
 	)
 
-	if err := consume(ctx, reader, NewDashboard()); err != nil && !errors.Is(err, context.Canceled) {
+	if err := consume(ctx, reader, dashboard); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("[dashboard] stopped: %v", err)
 		return
 	}
