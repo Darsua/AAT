@@ -23,6 +23,10 @@ scrape_configs:
     static_configs:
       - targets: ["notifier-consumer:8086"]
 
+  - job_name: "summarizer-consumer"
+    static_configs:
+      - targets: ["summarizer-consumer:8087"]
+
   - job_name: "mock-bmkg"
     static_configs:
       - targets: ["mock-bmkg:8081"]
