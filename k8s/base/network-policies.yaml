@@ -99,6 +99,8 @@ spec:
           port: 8081
         - protocol: TCP
           port: 8082
+        - protocol: TCP
+          port: 8080
     # Administrative endpoints (/admin/outage, /admin/schema-version) invoked by tester-agent
     - from:
         - namespaceSelector:
@@ -109,6 +111,8 @@ spec:
           port: 8081
         - protocol: TCP
           port: 8082
+        - protocol: TCP
+          port: 8080
     # Allow intra-namespace diagnostic curls
     - from:
         - podSelector: {}
@@ -117,6 +121,8 @@ spec:
           port: 8081
         - protocol: TCP
           port: 8082
+        - protocol: TCP
+          port: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

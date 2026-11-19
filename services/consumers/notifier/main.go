@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -412,7 +411,6 @@ func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *N
 				slog.String("hazard_id", event.HazardID),
 				slog.String("area", event.AreaName),
 				slog.String("reason", result.Reason),
-			)
 			)
 		default:
 			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "processed"}, 1)

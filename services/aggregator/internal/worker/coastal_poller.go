@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -248,6 +250,7 @@ type CoastalPoller struct {
 	interval   time.Duration
 	reqTimeout time.Duration
 	log        *slog.Logger
+	lease      leaseGuard
 
 	stations       map[string]adapter.CoastalStation
 	stationsAt     time.Time
@@ -271,6 +274,7 @@ func NewCoastalPoller(
 	if reqTimeout <= 0 {
 		reqTimeout = 2 * time.Second
 	}
+	wLog := log.With(slog.String("worker", "coastal-poller"))
 	return &CoastalPoller{
 		client:     client,
 		repo:       repo,
@@ -280,8 +284,15 @@ func NewCoastalPoller(
 		quarantine: NewCoastalQuarantineStore(maxQuarantineEntries),
 		interval:   interval,
 		reqTimeout: reqTimeout,
-		log:        log.With(slog.String("worker", "coastal-poller")),
+		log:        wLog,
+		lease:      newLeaseGuard(repo, domain.SourceSensorPantai, wLog),
 	}
+}
+
+// WithLeaseConfig overrides replica holder identity, lease TTL, and renewal cadence.
+func (p *CoastalPoller) WithLeaseConfig(holderID string, leaseTTL, renewInterval time.Duration) *CoastalPoller {
+	p.lease.configure(holderID, leaseTTL, renewInterval)
+	return p
 }
 
 // Quarantine returns the coastal quarantine store for inspection.
@@ -297,11 +308,15 @@ func (p *CoastalPoller) Start(ctx context.Context) {
 	p.log.Info("starting coastal sensor polling worker",
 		slog.Duration("interval", p.interval),
 		slog.Duration("request_timeout", p.reqTimeout),
+		slog.String("holder_id", p.lease.holderID),
 	)
+
+	p.lease.syncCursorFromStorage(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
+			p.lease.releaseOnShutdown()
 			p.log.Info("stopping coastal sensor polling worker")
 			return
 		case <-time.After(p.interval):
@@ -326,7 +341,16 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 		return errCircuitOpen
 	}
 
-	pollCtx, cancel := context.WithTimeout(ctx, p.reqTimeout)
+	fence, cycleCtx, stopRenew, proceed, err := p.lease.acquireCycle(ctx)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return nil
+	}
+	defer stopRenew()
+
+	pollCtx, cancel := context.WithTimeout(cycleCtx, p.reqTimeout)
 	defer cancel()
 	corrID := fmt.Sprintf("coastal-poll-%d", time.Now().UnixNano())
 	pollCtx = logger.WithCorrelationID(pollCtx, corrID)
@@ -373,6 +397,7 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 				RawPayload:    rej.RawPayload,
 				QuarantinedAt: now,
 			})
+			p.recordDLQ(pollCtx, rej.RawPayload, rej.Reason, now)
 			p.log.Warn("quarantined invalid coastal observation",
 				slog.String("observation_id", rej.ObservationID),
 				slog.String("station_id", rej.StationID),
@@ -383,22 +408,26 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 		for _, obs := range batch.Valid {
 			event, err := normalizeCoastalObservation(obs, p.stations[obs.StationID], now)
 			if err != nil {
+				raw, _ := json.Marshal(obs)
 				p.quarantine.Add(QuarantinedCoastalRecord{
 					ObservationID: obs.ObservationID,
 					StationID:     obs.StationID,
 					Reason:        err.Error(),
+					RawPayload:    raw,
 					QuarantinedAt: now,
 				})
+				p.recordDLQ(pollCtx, raw, err.Error(), now)
 				continue
 			}
 			if p.repo != nil {
-				if err := p.repo.SaveHazardWithOutbox(pollCtx, event, corrID); err != nil {
+				if err := p.lease.saveHazard(pollCtx, event, corrID, fence); err != nil {
 					p.breaker.RecordFailure()
 					if p.status != nil {
 						p.status.SetCoastalStatus(false)
 					}
 					return fmt.Errorf("persist coastal observation %s: %w", obs.ObservationID, err)
 				}
+				p.lease.advanceCursor(event.OccurredAt, event.SourceRefID)
 			}
 			persistedEvents = append(persistedEvents, *event)
 		}
@@ -415,7 +444,39 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 		p.status.SetCoastalStatus(true)
 	}
 	p.cache.Update(persistedEvents, now)
+	if fence != nil {
+		_ = p.lease.saveCheckpoint(pollCtx, fence)
+	}
 	return nil
+}
+
+type coastalDLQSaver interface {
+	SaveUnprocessedMessage(ctx context.Context, msg domain.UnprocessedMessage) error
+}
+
+func (p *CoastalPoller) recordDLQ(ctx context.Context, raw []byte, reason string, now time.Time) {
+	store, ok := p.repo.(coastalDLQSaver)
+	if !ok || len(raw) == 0 {
+		return
+	}
+	sum := sha256.Sum256(raw)
+	msgID := "pantai-" + hex.EncodeToString(sum[:8])
+	msg := domain.UnprocessedMessage{
+		MessageID:  msgID,
+		Source:     domain.SourceSensorPantai,
+		ReceivedAt: now.UTC(),
+		Reason:     reason,
+		Retryable:  false,
+		Attempts:   1,
+		Status:     domain.UnprocessedStatusParked,
+		RawPayload: raw,
+	}
+	if err := store.SaveUnprocessedMessage(ctx, msg); err != nil {
+		p.log.Warn("could not persist coastal quarantine record to DLQ",
+			slog.String("message_id", msgID),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 func normalizeCoastalObservation(obs adapter.CoastalObservation, station adapter.CoastalStation, now time.Time) (*domain.HazardEvent, error) {

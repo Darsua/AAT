@@ -147,7 +147,7 @@ func main() {
 			cfg.CoastalTimeout,
 			cfg.CoastalFreshnessTTL,
 			log,
-		)
+		).WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
 	}
 
 	var workerWg sync.WaitGroup

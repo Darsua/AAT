@@ -36,7 +36,8 @@ func (s *stubCoastalClient) FetchObservations(context.Context, int, string, map[
 }
 
 type recordingHazardSaver struct {
-	saved []*domain.HazardEvent
+	saved       []*domain.HazardEvent
+	unprocessed []domain.UnprocessedMessage
 }
 
 func (r *recordingHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.HazardEvent, _ string) error {
@@ -50,6 +51,11 @@ func (r *recordingHazardSaver) GetHazardBySourceRef(context.Context, domain.Sour
 
 func (r *recordingHazardSaver) GetLatestOccurredAt(context.Context, domain.Source) (*time.Time, error) {
 	return nil, nil
+}
+
+func (r *recordingHazardSaver) SaveUnprocessedMessage(_ context.Context, msg domain.UnprocessedMessage) error {
+	r.unprocessed = append(r.unprocessed, msg)
+	return nil
 }
 
 func TestCoastalPoller_CircuitBreakerAndAutonomousRecovery(t *testing.T) {
@@ -131,6 +137,9 @@ func TestCoastalPoller_PersistsCriticalQuarantinesInvalidAndCachesFallback(t *te
 	}
 	if len(poller.Quarantine().List()) != 1 {
 		t.Fatalf("expected 1 quarantined item, got %d", len(poller.Quarantine().List()))
+	}
+	if len(repo.unprocessed) != 1 || repo.unprocessed[0].Source != domain.SourceSensorPantai {
+		t.Fatalf("expected 1 unprocessed DLQ message for sensor-pantai, got %+v", repo.unprocessed)
 	}
 
 	snap := poller.FallbackSnapshot()
