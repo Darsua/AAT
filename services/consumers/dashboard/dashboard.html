@@ -1,0 +1,1402 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BNPB Multi-Hazard Analytics Dashboard</title>
+  <style>
+    :root {
+      /* Soft Bluish-Gray Background & Pure Crisp White Cards */
+      --color-bg: #F1F5F9;
+      --color-surface: #FFFFFF;
+      --color-border: #CBD5E1;
+      --color-border-subtle: #E2E8F0;
+
+      /* Deep Slate Typography */
+      --color-text: #0F172A;
+      --color-text-secondary: #475569;
+      --color-text-muted: #64748B;
+
+      /* Dark Teal / Cyan Interactive Accent & Healthy Status */
+      --color-accent: #0F766E;
+      --color-accent-hover: #115E59;
+      --color-accent-subtle: #F0FDFA;
+
+      /* Semantic Alert Levels (Strictly reserved for severity & hazard types) */
+      --color-awas: #DC2626;     /* Crimson Level IV */
+      --color-siaga: #EA580C;    /* Burnt Orange Level III */
+      --color-waspada: #D97706;  /* Amber Level II */
+      --color-normal: #059669;   /* Emerald Level I */
+
+      /* Hazard Series Colors */
+      --hazard-seismic: #0284C7;
+      --hazard-tsunami: #06B6D4;
+      --hazard-volcanic: #EA580C;
+      --hazard-wildfire: #DC2626;
+      --hazard-coastal: #0F766E;
+
+      /* Typography & Spacing */
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --shadow-subtle: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 28px 36px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .dashboard-layout {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ==========================================================================
+       Tier 1: Top Command Strip
+       ========================================================================== */
+    .command-strip {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 16px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      box-shadow: var(--shadow-subtle);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--color-text);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    /* Audit Reconciliation Pill */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .pill-reconciled {
+      background: #F0FDFA;
+      color: #0F766E;
+      border: 1px solid #99F6E4;
+    }
+    .pill-degraded {
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1px solid #FCD34D;
+    }
+    .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .command-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Segmented Time Range Control */
+    .segmented-group {
+      display: inline-flex;
+      background: #E2E8F0;
+      border: 1px solid var(--color-border);
+      padding: 2px;
+      border-radius: var(--radius-md);
+      gap: 1px;
+    }
+    .segmented-btn {
+      border: none;
+      background: transparent;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .segmented-btn:hover {
+      color: var(--color-text);
+    }
+    .segmented-btn.active {
+      background: var(--color-surface);
+      color: var(--color-accent);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+
+    .select-sm {
+      height: 30px;
+      padding: 0 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text);
+      font-size: 12px;
+      font-weight: 500;
+      outline: none;
+    }
+    .select-sm:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+    }
+
+    .btn-icon {
+      width: 30px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+    .btn-icon:hover {
+      background: #F1F5F9;
+      color: var(--color-accent);
+      border-color: var(--color-accent);
+    }
+
+    /* Degraded / Partial Outage Alert Banner (Mandatory Requirement) */
+    .outage-banner {
+      background: #FEF3C7;
+      border: 1px solid #B45309;
+      color: #92400E;
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      font-size: 13px;
+      display: none;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .outage-banner.active {
+      display: flex;
+    }
+    .outage-title {
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .unit-tag {
+      font-family: monospace;
+      font-size: 11px;
+      padding: 1px 5px;
+      background: rgba(180, 83, 9, 0.15);
+      border-radius: 3px;
+      margin-right: 4px;
+    }
+
+    /* Warning badge attached to metrics during incomplete data */
+    .incomplete-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: #FEF3C7;
+      color: #B45309;
+      border: 1px solid #FCD34D;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+
+    /* ==========================================================================
+       Tier 2: KPI Strip (4 Compact Metrics)
+       ========================================================================== */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
+    }
+    .kpi-box {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 18px 22px;
+      box-shadow: var(--shadow-subtle);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 116px;
+    }
+    .kpi-caption {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 18px;
+    }
+    .kpi-figure {
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--color-text);
+      letter-spacing: -0.02em;
+      margin: 8px 0 6px 0;
+      font-variant-numeric: tabular-nums;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+    }
+    .kpi-figure.sync-figure {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--color-accent);
+    }
+    .kpi-meta {
+      font-size: 11px;
+      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 18px;
+      white-space: nowrap;
+    }
+    .checksum-pill {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 11px;
+      line-height: 1.2;
+      background: #F8FAFC;
+      border: 1px solid var(--color-border-subtle);
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .checksum-pill:hover {
+      background: #F0FDFA;
+      color: var(--color-accent);
+      border-color: #99F6E4;
+    }
+
+    /* ==========================================================================
+       Tier 3: Primary Visual Workspace
+       ========================================================================== */
+    .panel {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 24px 28px;
+      box-shadow: var(--shadow-subtle);
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--color-border-subtle);
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .panel-heading {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--color-text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-desc {
+      font-size: 13px;
+      color: var(--color-text-secondary);
+      margin-top: 4px;
+    }
+
+    /* Line Chart Section */
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 18px;
+      font-size: 12px;
+      align-items: center;
+    }
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: #F8FAFC;
+      border: 1px solid var(--color-border);
+      cursor: pointer;
+      color: var(--color-text-secondary);
+      font-size: 11px;
+      font-weight: 500;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .legend-chip:hover {
+      background: #FFFFFF;
+      color: var(--color-text);
+      border-color: var(--color-accent);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+    .legend-chip.disabled {
+      opacity: 0.4;
+      background: #F1F5F9;
+      text-decoration: line-through;
+    }
+    .legend-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .legend-dashed {
+      width: 14px;
+      height: 0;
+      border-top: 2px dashed #06B6D4;
+    }
+
+    .chart-stage {
+      position: relative;
+      width: 100%;
+    }
+    .time-svg {
+      width: 100%;
+      height: 360px;
+      overflow: visible;
+    }
+    .grid-lines line {
+      stroke: var(--color-border-subtle);
+      stroke-dasharray: 3, 3;
+    }
+    .axis-baseline {
+      stroke: var(--color-border);
+      stroke-width: 1;
+    }
+    .axis-labels text {
+      fill: var(--color-text-muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+    }
+    .series-path {
+      fill: none;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.05));
+    }
+    .series-dot {
+      stroke-width: 2;
+      stroke: #FFFFFF;
+      cursor: pointer;
+      transition: r 0.15s ease;
+    }
+    .crosshair-line {
+      stroke: var(--color-border);
+      stroke-width: 1;
+      stroke-dasharray: 3, 3;
+      pointer-events: none;
+    }
+
+    .chart-flyout {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      font-size: 11px;
+      color: var(--color-text);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+      pointer-events: none;
+      display: none;
+      z-index: 20;
+      transform: translate(-50%, -115%);
+      min-width: 190px;
+    }
+
+    /* 2-Column Breakdown Row */
+    .split-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 24px;
+    }
+
+    /* Normalized Bar Rows */
+    .bar-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .bar-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bar-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+    .bar-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+    .bar-val {
+      color: var(--color-text-secondary);
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+    }
+    .bar-track {
+      height: 9px;
+      background: #E2E8F0;
+      border-radius: 999px;
+      overflow: hidden;
+      width: 100%;
+    }
+    .bar-gauge {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    /* Indented Correlated Subset (Tsunami) */
+    .subset-row {
+      margin-left: 22px;
+      padding-left: 12px;
+      border-left: 2px solid #CBD5E1;
+      margin-top: -2px;
+      margin-bottom: 4px;
+    }
+
+    /* Tables & Regional Section Whitespace */
+    .table-viewport {
+      overflow-x: auto;
+      max-height: 480px;
+      overflow-y: auto;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    }
+    .table-viewport::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .table-viewport::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 3px;
+    }
+    .table-viewport::-webkit-scrollbar-track {
+      background: #F1F5F9;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+      text-align: left;
+    }
+    th {
+      background: #F8FAFC;
+      color: var(--color-text-secondary);
+      font-weight: 600;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--color-border);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--color-border-subtle);
+      color: var(--color-text);
+      font-variant-numeric: tabular-nums;
+      vertical-align: middle;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    tr:hover td {
+      background: #F8FAFC;
+    }
+
+    /* Stacked Severity Ratio Bar */
+    .stacked-ratio-bar {
+      display: flex;
+      height: 10px;
+      width: 160px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #E2E8F0;
+    }
+
+    /* Severity Tag Pills & Pill Cluster */
+    .pill-cluster {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+    }
+    .tag-awas { background: #FEF2F2; color: var(--color-awas); border: 1px solid #FECACA; }
+    .tag-siaga { background: #FFF7ED; color: var(--color-siaga); border: 1px solid #FED7AA; }
+    .tag-waspada { background: #FFFBEB; color: var(--color-waspada); border: 1px solid #FDE68A; }
+    .tag-normal { background: #ECFDF5; color: var(--color-normal); border: 1px solid #A7F3D0; }
+
+    .search-control {
+      height: 36px;
+      padding: 0 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      font-size: 13px;
+      color: var(--color-text);
+      outline: none;
+      width: 260px;
+      transition: all 0.15s ease;
+    }
+    .search-control:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+    }
+
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+      .command-strip { flex-direction: column; align-items: flex-start; }
+      .split-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-layout">
+    <!-- ====================================================================
+         Tier 1: Top Command Strip
+         ==================================================================== -->
+    <header class="command-strip">
+      <div class="brand-group">
+        <h1 class="brand-title">BNPB Multi-Hazard Analytics Dashboard</h1>
+        <div id="statusPill" class="status-pill pill-reconciled">
+          <span class="pill-dot"></span>
+          <span id="statusPillText">RECONCILED</span>
+        </div>
+      </div>
+
+      <div class="command-controls">
+        <!-- Time Range Selector -->
+        <div class="segmented-group" id="windowControl">
+          <button class="segmented-btn" data-window="1h">1h</button>
+          <button class="segmented-btn" data-window="6h">6h</button>
+          <button class="segmented-btn" data-window="24h">24h</button>
+          <button class="segmented-btn" data-window="7d">7d</button>
+          <button class="segmented-btn" data-window="30d">30d</button>
+          <button class="segmented-btn active" data-window="all">All</button>
+        </div>
+
+        <select id="typeFilter" class="select-sm" title="Filter by hazard category">
+          <option value="">All Categories</option>
+          <option value="SEISMIC">SEISMIC</option>
+          <option value="VOLCANIC">VOLCANIC</option>
+          <option value="WILDFIRE">WILDFIRE</option>
+          <option value="COASTAL">COASTAL</option>
+        </select>
+
+        <button id="refreshBtn" class="btn-icon" type="button" title="Refresh Canonical Analytics">⟳</button>
+      </div>
+    </header>
+
+    <!-- Outage / Partial Data Alert Banner -->
+    <div id="outageBanner" class="outage-banner">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <div id="outageTitle" class="outage-title">Incomplete Data — Storage Degradation Detected</div>
+        <div id="outageDesc">Displayed counts reflect partial shard coverage and do not match the Audit API canonical total.</div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Tier 2: KPI Strip (4 Compact Metrics)
+         ==================================================================== -->
+    <section class="kpi-strip">
+      <div class="kpi-box">
+        <div class="kpi-caption">
+          <span>Total Hazards</span>
+          <span id="badgeTotalIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+        </div>
+        <div id="kpiTotal" class="kpi-figure">0</div>
+        <div class="kpi-meta">Canonical hazard events</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-caption">
+          <span>Critical Alerts (AWAS + SIAGA)</span>
+          <span id="badgeCriticalIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+        </div>
+        <div id="kpiCritical" class="kpi-figure" style="color: var(--color-awas);">0</div>
+        <div id="kpiCriticalShare" class="kpi-meta">0.0% of total events</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-caption">
+          <span>Affected Regions</span>
+          <span id="badgeRegionsIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+        </div>
+        <div id="kpiAreas" class="kpi-figure">0</div>
+        <div class="kpi-meta">Distinct area_name locations</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-caption">
+          <span>Audit API Sync</span>
+        </div>
+        <div id="kpiSyncStatus" class="kpi-figure sync-figure">Matched • 0s lag</div>
+        <div class="kpi-meta">
+          <span>SHA-256:</span>
+          <span id="checksumSnippet" class="checksum-pill" title="Click to copy 64-char SHA-256 checksum">None</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         Tier 3: Primary Visual Workspace
+         ==================================================================== -->
+
+    <!-- Panel 1: Full-Width Time-Series Panel (Top) -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-heading">
+            <span>Hazard Events Over Time</span>
+            <span id="badgeChartIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+          </div>
+          <div class="panel-desc">Frequency of canonical hazard events across observation intervals</div>
+        </div>
+        <div class="segmented-group" id="viewModeControl">
+          <button class="segmented-btn active" data-mode="chart">Line Chart</button>
+          <button class="segmented-btn" data-mode="table">Data Table</button>
+        </div>
+      </div>
+
+      <!-- Chart Legend with explicit dashed indicator for tsunami -->
+      <div class="chart-legend" id="chartLegend">
+        <span class="legend-chip" data-series="seismic">
+          <span class="legend-indicator" style="background: var(--hazard-seismic);"></span>
+          SEISMIC
+        </span>
+        <span class="legend-chip" data-series="tsunami">
+          <span class="legend-dashed"></span>
+          Tsunami (SEISMIC Subset)
+        </span>
+        <span class="legend-chip" data-series="volcanic">
+          <span class="legend-indicator" style="background: var(--hazard-volcanic);"></span>
+          VOLCANIC
+        </span>
+        <span class="legend-chip" data-series="wildfire">
+          <span class="legend-indicator" style="background: var(--hazard-wildfire);"></span>
+          WILDFIRE
+        </span>
+        <span class="legend-chip" data-series="coastal">
+          <span class="legend-indicator" style="background: var(--hazard-coastal);"></span>
+          COASTAL
+        </span>
+      </div>
+
+      <div id="chartContainer" class="chart-stage">
+        <svg id="timeChartSvg" class="time-svg" viewBox="0 0 1100 360" preserveAspectRatio="none"></svg>
+        <div id="chartFlyout" class="chart-flyout"></div>
+      </div>
+
+      <div id="tableContainer" class="table-viewport" style="display: none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp (UTC)</th>
+              <th>SEISMIC</th>
+              <th>Tsunami (Subset)</th>
+              <th>VOLCANIC</th>
+              <th>WILDFIRE</th>
+              <th>COASTAL</th>
+              <th style="text-align: right;">Canonical Total</th>
+            </tr>
+          </thead>
+          <tbody id="timeseriesBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Panel 2 & 3: 2-Column Breakdown Row (Middle) -->
+    <div class="split-row">
+      <!-- Left: Severity Distribution -->
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-heading">Severity Distribution</div>
+            <div class="panel-desc">Event count grouped by alert severity (AWAS, SIAGA, WASPADA, NORMAL)</div>
+          </div>
+        </div>
+        <div id="severityBarList" class="bar-stack"></div>
+      </section>
+
+      <!-- Right: Hazard Category Breakdown (with indented Tsunami sub-row) -->
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-heading">Hazard Category Breakdown</div>
+            <div class="panel-desc">Event count by hazard category</div>
+          </div>
+        </div>
+        <div id="categoryBarList" class="bar-stack"></div>
+      </section>
+    </div>
+
+    <!-- Panel 4: Regional Breakdown (Searchable Detail Table) -->
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-heading">Regional Distribution (area_name)</div>
+          <div class="panel-desc">Total events and severity proportions grouped by administrative area</div>
+        </div>
+        <input type="text" id="areaSearchInput" class="search-control" placeholder="Search region name..." />
+      </div>
+
+      <div class="table-viewport">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width: 220px;">Region Name (area_name)</th>
+              <th style="text-align: right; width: 140px;">Total Events</th>
+              <th style="width: 180px;">Severity Ratio</th>
+              <th style="min-width: 280px;">Severity Breakdown</th>
+            </tr>
+          </thead>
+          <tbody id="areaTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const seriesConfig = {
+      seismic: { label: 'SEISMIC', color: '#0284C7' },
+      tsunami: { label: 'Tsunami (SEISMIC Subset)', color: '#06B6D4' },
+      volcanic: { label: 'VOLCANIC', color: '#EA580C' },
+      wildfire: { label: 'WILDFIRE', color: '#DC2626' },
+      coastal: { label: 'COASTAL', color: '#0F766E' }
+    };
+
+    const severityConfig = {
+      AWAS: { label: 'AWAS', color: '#DC2626', tag: 'tag-awas' },
+      SIAGA: { label: 'SIAGA', color: '#EA580C', tag: 'tag-siaga' },
+      WASPADA: { label: 'WASPADA', color: '#D97706', tag: 'tag-waspada' },
+      NORMAL: { label: 'NORMAL', color: '#059669', tag: 'tag-normal' }
+    };
+
+    let selectedWindow = 'all';
+    let currentViewMode = 'chart';
+    let cachedSnapshot = null;
+    const seriesVisibility = { seismic: true, tsunami: true, volcanic: true, wildfire: true, coastal: true };
+
+    function escapeHTML(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Smooth Cubic Bezier Spline with clamping
+    function generateSmoothPath(pts, minY, maxY) {
+      if (!pts || pts.length === 0) return '';
+      if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+      if (pts.length === 2) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} L ${pts[1].x.toFixed(1)} ${pts[1].y.toFixed(1)}`;
+
+      let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i === 0 ? i : i - 1];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+
+        let cp1x = p1.x + (p2.x - p0.x) / 6;
+        let cp1y = p1.y + (p2.y - p0.y) / 6;
+        let cp2x = p2.x - (p3.x - p1.x) / 6;
+        let cp2y = p2.y - (p3.y - p1.y) / 6;
+
+        cp1y = Math.min(maxY, Math.max(minY, cp1y));
+        cp2y = Math.min(maxY, Math.max(minY, cp2y));
+
+        d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+      }
+      return d;
+    }
+
+    // Time-Series Line Chart with smooth curves, area gradients & interactive crosshair
+    function renderTimeChart(rawTimeseries) {
+      const svg = document.getElementById('timeChartSvg');
+      const flyout = document.getElementById('chartFlyout');
+      svg.innerHTML = '';
+
+      if (!rawTimeseries || rawTimeseries.length === 0) {
+        svg.innerHTML = '<text x="550" y="170" text-anchor="middle" fill="#64748B" font-size="13" font-weight="500">No hazard events recorded for the selected time range.</text>';
+        return;
+      }
+
+      // Trim leading zero-flatlines so real spikes aren't crushed into the right 15%
+      let startIndex = 0;
+      for (let i = 0; i < rawTimeseries.length - 1; i++) {
+        if (rawTimeseries[i].total > 0) {
+          startIndex = Math.max(0, i - 1); // keep 1 baseline point
+          break;
+        }
+      }
+      const timeseries = rawTimeseries.slice(startIndex);
+
+      const w = 1100;
+      const h = 360;
+      const padLeft = 55;
+      const padRight = 30;
+      const padTop = 28;
+      const padBottom = 42;
+      const plotW = w - padLeft - padRight;
+      const plotH = h - padTop - padBottom;
+      const baselineY = padTop + plotH;
+
+      const seriesValues = {
+        seismic: timeseries.map(t => (t.by_type && t.by_type.SEISMIC) || 0),
+        tsunami: timeseries.map(t => t.tsunami || 0),
+        volcanic: timeseries.map(t => (t.by_type && t.by_type.VOLCANIC) || 0),
+        wildfire: timeseries.map(t => (t.by_type && t.by_type.WILDFIRE) || 0),
+        coastal: timeseries.map(t => (t.by_type && t.by_type.COASTAL) || 0)
+      };
+
+      let maxVal = 1;
+      Object.keys(seriesValues).forEach(k => {
+        if (seriesVisibility[k]) {
+          maxVal = Math.max(maxVal, ...seriesValues[k]);
+        }
+      });
+      maxVal = Math.ceil(maxVal * 1.25);
+
+      const n = timeseries.length;
+      const getX = (i) => n === 1 ? padLeft + plotW / 2 : padLeft + (i / (n - 1)) * plotW;
+      const getY = (val) => padTop + plotH - (val / maxVal) * plotH;
+
+      // Defs for gradients
+      let defsSvg = `
+        <defs>
+          <linearGradient id="grad-seismic" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0284C7" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="#0284C7" stop-opacity="0.00"/>
+          </linearGradient>
+          <linearGradient id="grad-volcanic" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#EA580C" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#EA580C" stop-opacity="0.00"/>
+          </linearGradient>
+          <linearGradient id="grad-wildfire" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#DC2626" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#DC2626" stop-opacity="0.00"/>
+          </linearGradient>
+          <linearGradient id="grad-coastal" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0F766E" stop-opacity="0.20"/>
+            <stop offset="100%" stop-color="#0F766E" stop-opacity="0.00"/>
+          </linearGradient>
+        </defs>
+      `;
+
+      // Gridlines & Y-Axis
+      let gridSvg = '<g class="grid-lines">';
+      let axisSvg = '<g class="axis-labels">';
+      const ySteps = 4;
+      for (let i = 0; i <= ySteps; i++) {
+        const val = Math.round((maxVal / ySteps) * i);
+        const y = getY(val);
+        gridSvg += `<line x1="${padLeft}" y1="${y}" x2="${w - padRight}" y2="${y}" />`;
+        axisSvg += `<text x="${padLeft - 8}" y="${y + 4}" text-anchor="end">${val}</text>`;
+      }
+      gridSvg += `</g><line class="axis-baseline" x1="${padLeft}" y1="${baselineY}" x2="${w - padRight}" y2="${baselineY}" />`;
+
+      // X-Axis
+      const maxLabels = Math.min(n, 7);
+      const step = Math.max(1, Math.floor(n / maxLabels));
+      for (let i = 0; i < n; i += step) {
+        const x = getX(i);
+        const raw = timeseries[i].bucket || '';
+        const label = raw.length > 10 ? raw.substring(11, 16) : raw;
+        axisSvg += `<text x="${x}" y="${h - 12}" text-anchor="middle">${escapeHTML(label)}</text>`;
+      }
+      axisSvg += '</g>';
+
+      // Area Fills & Series Lines
+      let areasSvg = '<g class="series-areas">';
+      let linesSvg = '<g class="series-lines">';
+      let dotsSvg = '<g class="series-dots">';
+
+      // Track points for each series
+      const seriesPointMap = {};
+
+      Object.entries(seriesValues).forEach(([k, vals]) => {
+        if (!seriesVisibility[k]) return;
+        const color = seriesConfig[k].color;
+        const isDashed = k === 'tsunami';
+
+        const pts = vals.map((v, i) => ({ x: getX(i), y: getY(v), val: v }));
+        seriesPointMap[k] = pts;
+
+        const pathD = generateSmoothPath(pts, padTop, baselineY);
+
+        // Area fill for non-dashed primary series
+        if (!isDashed && pts.length > 1) {
+          const areaD = `${pathD} L ${pts[pts.length - 1].x.toFixed(1)} ${baselineY} L ${pts[0].x.toFixed(1)} ${baselineY} Z`;
+          areasSvg += `<path d="${areaD}" fill="url(#grad-${k})" />`;
+        }
+
+        // Line path
+        linesSvg += `<path class="series-path" d="${pathD}" stroke="${color}" ${isDashed ? 'stroke-dasharray="5,4"' : ''} />`;
+
+        // Dots when points are sparse (<= 20)
+        if (n <= 20) {
+          pts.forEach(p => {
+            dotsSvg += `<circle class="series-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="#FFFFFF" stroke="${color}" />`;
+          });
+        }
+      });
+
+      areasSvg += '</g>';
+      linesSvg += '</g>';
+      dotsSvg += '</g>';
+
+      // Interactive Crosshair & Hover Halo
+      const crosshairSvg = `
+        <line id="crosshairLine" class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${baselineY}" style="display:none;" />
+        <g id="hoverMarkerGroup" style="display:none;"></g>
+      `;
+
+      svg.innerHTML = defsSvg + gridSvg + axisSvg + areasSvg + linesSvg + dotsSvg + crosshairSvg;
+
+      // Mousemove inspection
+      const crosshairLine = document.getElementById('crosshairLine');
+      const hoverMarkerGroup = document.getElementById('hoverMarkerGroup');
+
+      svg.onmousemove = (e) => {
+        const rect = svg.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        const relX = (clientX / rect.width) * w;
+        if (relX < padLeft - 10 || relX > w - padRight + 10) {
+          flyout.style.display = 'none';
+          crosshairLine.style.display = 'none';
+          hoverMarkerGroup.style.display = 'none';
+          return;
+        }
+
+        let closest = 0;
+        let minDist = 999999;
+        for (let i = 0; i < n; i++) {
+          const dist = Math.abs(getX(i) - relX);
+          if (dist < minDist) {
+            minDist = dist;
+            closest = i;
+          }
+        }
+
+        const snapX = getX(closest);
+        crosshairLine.setAttribute('x1', snapX);
+        crosshairLine.setAttribute('x2', snapX);
+        crosshairLine.style.display = 'block';
+
+        // Hover markers on each active series
+        let markersSvg = '';
+        Object.entries(seriesPointMap).forEach(([k, pts]) => {
+          if (pts[closest]) {
+            const p = pts[closest];
+            const color = seriesConfig[k].color;
+            markersSvg += `
+              <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="6" fill="${color}" fill-opacity="0.25" />
+              <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#FFFFFF" stroke="${color}" stroke-width="2" />
+            `;
+          }
+        });
+        hoverMarkerGroup.innerHTML = markersSvg;
+        hoverMarkerGroup.style.display = 'block';
+
+        const item = timeseries[closest];
+        flyout.style.display = 'block';
+        flyout.style.left = `${(snapX / w) * rect.width}px`;
+        flyout.style.top = `${e.clientY - rect.top}px`;
+
+        flyout.innerHTML = `
+          <div style="font-weight:700;font-size:12px;margin-bottom:6px;border-bottom:1px solid #E2E8F0;padding-bottom:4px;color:#0F766E;">
+            ${escapeHTML(item.bucket)}
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin:3px 0;">
+            <span><span style="color:${seriesConfig.seismic.color}">●</span> SEISMIC</span>
+            <strong>${(item.by_type && item.by_type.SEISMIC) || 0}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin:3px 0;padding-left:10px;font-size:10.5px;color:#475569;">
+            <span><span style="color:${seriesConfig.tsunami.color}"></span> Tsunami</span>
+            <strong>${item.tsunami || 0}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin:3px 0;">
+            <span><span style="color:${seriesConfig.volcanic.color}">●</span> VOLCANIC</span>
+            <strong>${(item.by_type && item.by_type.VOLCANIC) || 0}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin:3px 0;">
+            <span><span style="color:${seriesConfig.wildfire.color}">●</span> WILDFIRE</span>
+            <strong>${(item.by_type && item.by_type.WILDFIRE) || 0}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;margin:3px 0;">
+            <span><span style="color:${seriesConfig.coastal.color}">●</span> COASTAL</span>
+            <strong>${(item.by_type && item.by_type.COASTAL) || 0}</strong>
+          </div>
+          <div style="margin-top:6px;font-weight:700;border-top:1px solid #E2E8F0;padding-top:4px;display:flex;justify-content:space-between;">
+            <span>Canonical Total</span>
+            <span style="color:#0F172A;">${item.total}</span>
+          </div>
+        `;
+      };
+
+      svg.onmouseleave = () => {
+        flyout.style.display = 'none';
+        crosshairLine.style.display = 'none';
+        hoverMarkerGroup.style.display = 'none';
+      };
+    }
+
+    // Render Severity Distribution Bars
+    function renderSeverityBars(bySeverity, total) {
+      const container = document.getElementById('severityBarList');
+      container.innerHTML = '';
+
+      ['AWAS', 'SIAGA', 'WASPADA', 'NORMAL'].forEach(key => {
+        const count = (bySeverity && bySeverity[key]) || 0;
+        const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+        const conf = severityConfig[key];
+
+        const row = document.createElement('div');
+        row.className = 'bar-item';
+        row.innerHTML = `
+          <div class="bar-head">
+            <span class="bar-name"><span style="width:7px;height:7px;border-radius:50%;background:${conf.color};"></span>${escapeHTML(conf.label)}</span>
+            <span class="bar-val"><strong>${count.toLocaleString()}</strong> (${pct}%)</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-gauge" style="width:${pct}%; background:${conf.color};"></div>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    // Render Hazard Categories with Indented Correlated Subset
+    function renderCategoryBars(byType, tsunamiCount, total) {
+      const container = document.getElementById('categoryBarList');
+      container.innerHTML = '';
+
+      const seismicCount = (byType && byType.SEISMIC) || 0;
+      const volcanicCount = (byType && byType.VOLCANIC) || 0;
+      const wildfireCount = (byType && byType.WILDFIRE) || 0;
+      const coastalCount = (byType && byType.COASTAL) || 0;
+
+      // 4 Primary Exclusive Categories sum to 100.0%
+      const categories = [
+        { key: 'SEISMIC', label: 'SEISMIC', count: seismicCount, color: seriesConfig.seismic.color },
+        { key: 'VOLCANIC', label: 'VOLCANIC', count: volcanicCount, color: seriesConfig.volcanic.color },
+        { key: 'WILDFIRE', label: 'WILDFIRE', count: wildfireCount, color: seriesConfig.wildfire.color },
+        { key: 'COASTAL', label: 'COASTAL', count: coastalCount, color: seriesConfig.coastal.color }
+      ];
+
+      categories.forEach(cat => {
+        const pct = total > 0 ? ((cat.count / total) * 100).toFixed(1) : 0;
+        const row = document.createElement('div');
+        row.className = 'bar-item';
+        row.innerHTML = `
+          <div class="bar-head">
+            <span class="bar-name"><span style="width:7px;height:7px;border-radius:50%;background:${cat.color};"></span>${escapeHTML(cat.label)}</span>
+            <span class="bar-val"><strong>${cat.count.toLocaleString()}</strong> (${pct}%)</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-gauge" style="width:${pct}%; background:${cat.color};"></div>
+          </div>
+        `;
+        container.appendChild(row);
+
+        // Explicitly indent Tsunami directly under SEISMIC as a correlated sub-row
+        if (cat.key === 'SEISMIC') {
+          const tsunamiPctOfSeismic = seismicCount > 0 ? ((tsunamiCount / seismicCount) * 100).toFixed(1) : 0;
+          const subRow = document.createElement('div');
+          subRow.className = 'subset-row';
+          subRow.innerHTML = `
+            <div class="bar-head" style="font-size: 11px;">
+              <span class="bar-name" style="color: var(--color-text-secondary);">
+                <span></span> Tsunami (SEISMIC Subset)
+              </span>
+              <span class="bar-val">${tsunamiCount.toLocaleString()} (${tsunamiPctOfSeismic}% of SEISMIC)</span>
+            </div>
+          `;
+          container.appendChild(subRow);
+        }
+      });
+    }
+
+    // Render Regional Breakdown Table
+    function renderRegions(areas, searchQuery) {
+      const tbody = document.getElementById('areaTableBody');
+      tbody.innerHTML = '';
+      const q = (searchQuery || '').toLowerCase().trim();
+      const filtered = (areas || []).filter(a => a.area_name.toLowerCase().includes(q));
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--color-text-muted);text-align:center;padding:16px;">No regions match the search query.</td></tr>';
+        return;
+      }
+
+      filtered.forEach(a => {
+        const tr = document.createElement('tr');
+        const count = a.count || 0;
+
+        const awasPct = count > 0 ? (a.awas / count) * 100 : 0;
+        const siagaPct = count > 0 ? (a.siaga / count) * 100 : 0;
+        const waspadaPct = count > 0 ? (a.waspada / count) * 100 : 0;
+        const normalPct = count > 0 ? (a.normal / count) * 100 : 0;
+
+        const stackedBar = `
+          <div class="stacked-ratio-bar">
+            <div style="width:${awasPct}%;background:${severityConfig.AWAS.color};"></div>
+            <div style="width:${siagaPct}%;background:${severityConfig.SIAGA.color};"></div>
+            <div style="width:${waspadaPct}%;background:${severityConfig.WASPADA.color};"></div>
+            <div style="width:${normalPct}%;background:${severityConfig.NORMAL.color};"></div>
+          </div>
+        `;
+
+        const badges = [];
+        if (a.awas > 0) badges.push(`<span class="tag-pill ${severityConfig.AWAS.tag}">AWAS: ${a.awas}</span>`);
+        if (a.siaga > 0) badges.push(`<span class="tag-pill ${severityConfig.SIAGA.tag}">SIAGA: ${a.siaga}</span>`);
+        if (a.waspada > 0) badges.push(`<span class="tag-pill ${severityConfig.WASPADA.tag}">WASPADA: ${a.waspada}</span>`);
+        if (a.normal > 0) badges.push(`<span class="tag-pill ${severityConfig.NORMAL.tag}">NORMAL: ${a.normal}</span>`);
+
+        tr.innerHTML = `
+          <td><strong>${escapeHTML(a.area_name)}</strong></td>
+          <td style="text-align: right; font-weight: 600;">${a.count.toLocaleString()}</td>
+          <td>${stackedBar}</td>
+          <td><div class="pill-cluster">${badges.join('') || '<span style="color:var(--color-text-muted);">—</span>'}</div></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function loadDashboard() {
+      const basePath = window.location.pathname.startsWith('/dashboard') ? '/dashboard/api/analytics' : '/api/analytics';
+      const type = document.getElementById('typeFilter').value;
+      let url = `${basePath}?window=${encodeURIComponent(selectedWindow)}`;
+      if (type) url += `&type=${encodeURIComponent(type)}`;
+
+      try {
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        cachedSnapshot = data;
+
+        const isDegraded = Boolean(data.status.partial_data || data.status.degraded);
+
+        // Tier 1: Audit Status Pill & Outage Banner
+        const pill = document.getElementById('statusPill');
+        const pillText = document.getElementById('statusPillText');
+        const outageBanner = document.getElementById('outageBanner');
+        const outageDesc = document.getElementById('outageDesc');
+
+        if (isDegraded) {
+          pill.className = 'status-pill pill-degraded';
+          pillText.textContent = 'PARTIAL / DEGRADED';
+
+          outageBanner.className = 'outage-banner active';
+          const units = (data.status.unavailable_units && data.status.unavailable_units.length > 0)
+            ? data.status.unavailable_units.map(u => `<span class="unit-tag">${escapeHTML(u)} (offline)</span>`).join(' ')
+            : '1 or more storage units';
+          outageDesc.innerHTML = `Storage node degradation detected: ${units}. Displayed counts reflect surviving nodes and do not match the Audit API canonical total.`;
+
+          // Show Incomplete warning badges next to affected metrics
+          document.querySelectorAll('.incomplete-badge').forEach(b => b.style.display = 'inline-block');
+        } else {
+          pill.className = 'status-pill pill-reconciled';
+          pillText.textContent = 'RECONCILED';
+          outageBanner.className = 'outage-banner';
+          document.querySelectorAll('.incomplete-badge').forEach(b => b.style.display = 'none');
+        }
+
+        // Tier 2: 4 KPI Metrics
+        document.getElementById('kpiTotal').textContent = data.total_hazards.toLocaleString();
+
+        const criticalCount = (data.by_severity.AWAS || 0) + (data.by_severity.SIAGA || 0);
+        document.getElementById('kpiCritical').textContent = criticalCount.toLocaleString();
+        const criticalShare = data.total_hazards > 0 ? ((criticalCount / data.total_hazards) * 100).toFixed(1) : 0;
+        document.getElementById('kpiCriticalShare').textContent = `${criticalShare}% of total events`;
+
+        document.getElementById('kpiAreas').textContent = (data.by_area || []).length.toLocaleString();
+
+        const lag = data.status.freshness_lag_seconds !== undefined && data.status.freshness_lag_seconds !== null
+          ? `${data.status.freshness_lag_seconds}s lag`
+          : 'synced';
+        const syncEl = document.getElementById('kpiSyncStatus');
+        if (isDegraded) {
+          syncEl.textContent = `Degraded • ${lag}`;
+          syncEl.style.color = '#B45309';
+        } else {
+          syncEl.textContent = `Matched • ${lag}`;
+          syncEl.style.color = 'var(--color-accent)';
+        }
+
+        const checksum = data.source_ref_checksum || '';
+        const snippet = checksum ? `${checksum.substring(0, 10)}...` : 'None';
+        const checksumEl = document.getElementById('checksumSnippet');
+        checksumEl.textContent = snippet;
+        checksumEl.setAttribute('data-full', checksum);
+
+        // Tier 3: Line Chart
+        renderTimeChart(data.timeseries || []);
+
+        // Table View of Timeseries
+        const tb = document.getElementById('timeseriesBody');
+        tb.innerHTML = '';
+        (data.timeseries || []).forEach(t => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><strong>${escapeHTML(t.bucket)}</strong></td>
+            <td>${(t.by_type && t.by_type.SEISMIC) || 0}</td>
+            <td>${t.tsunami || 0}</td>
+            <td>${(t.by_type && t.by_type.VOLCANIC) || 0}</td>
+            <td>${(t.by_type && t.by_type.WILDFIRE) || 0}</td>
+            <td>${(t.by_type && t.by_type.COASTAL) || 0}</td>
+            <td style="text-align: right;"><strong>${t.total}</strong></td>
+          `;
+          tb.appendChild(tr);
+        });
+        if (!data.timeseries || data.timeseries.length === 0) {
+          tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--color-text-muted);">No data available.</td></tr>';
+        }
+
+        // Tier 3: Severity Breakdown & Category Breakdown
+        renderSeverityBars(data.by_severity, data.total_hazards);
+        renderCategoryBars(data.by_type, data.correlated_tsunami_count, data.total_hazards);
+
+        // Tier 3: Regional Breakdown
+        renderRegions(data.by_area || [], document.getElementById('areaSearchInput').value);
+
+      } catch (err) {
+        console.error('Failed to load dashboard:', err);
+      }
+    }
+
+    // Window segmented buttons
+    document.getElementById('windowControl').addEventListener('click', (e) => {
+      if (e.target.dataset.window) {
+        document.querySelectorAll('#windowControl .segmented-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        selectedWindow = e.target.dataset.window;
+        loadDashboard();
+      }
+    });
+
+    // View mode toggle (Line Chart vs Data Table)
+    document.getElementById('viewModeControl').addEventListener('click', (e) => {
+      if (e.target.dataset.mode) {
+        document.querySelectorAll('#viewModeControl .segmented-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        currentViewMode = e.target.dataset.mode;
+        if (currentViewMode === 'chart') {
+          document.getElementById('chartContainer').style.display = 'block';
+          document.getElementById('tableContainer').style.display = 'none';
+        } else {
+          document.getElementById('chartContainer').style.display = 'none';
+          document.getElementById('tableContainer').style.display = 'block';
+        }
+      }
+    });
+
+    // Legend toggles
+    document.getElementById('chartLegend').addEventListener('click', (e) => {
+      const chip = e.target.closest('.legend-chip');
+      if (chip && chip.dataset.series) {
+        const s = chip.dataset.series;
+        seriesVisibility[s] = !seriesVisibility[s];
+        chip.classList.toggle('disabled', !seriesVisibility[s]);
+        if (cachedSnapshot) renderTimeChart(cachedSnapshot.timeseries || []);
+      }
+    });
+
+    // Area search input
+    document.getElementById('areaSearchInput').addEventListener('input', (e) => {
+      if (cachedSnapshot) renderRegions(cachedSnapshot.by_area || [], e.target.value);
+    });
+
+    // Category filter dropdown
+    document.getElementById('typeFilter').addEventListener('change', loadDashboard);
+
+    // Refresh icon button
+    document.getElementById('refreshBtn').addEventListener('click', loadDashboard);
+
+    // Click-to-copy SHA-256 checksum
+    document.getElementById('checksumSnippet').addEventListener('click', () => {
+      const full = document.getElementById('checksumSnippet').getAttribute('data-full');
+      if (full) {
+        navigator.clipboard.writeText(full).then(() => {
+          const el = document.getElementById('checksumSnippet');
+          const prev = el.textContent;
+          el.textContent = 'Copied!';
+          setTimeout(() => { el.textContent = prev; }, 1500);
+        });
+      }
+    });
+
+    // Polling every 5 seconds
+    loadDashboard();
+    setInterval(loadDashboard, 5000);
+  </script>
+</body>
+</html>

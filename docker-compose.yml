@@ -191,11 +191,14 @@ services:
 
   dashboard-consumer:
     build: ./services/consumers/dashboard
+    ports:
+      - "${DASHBOARD_PORT:-8085}:8085"
     environment:
       REDPANDA_BROKERS: redpanda:9092
       PORT: 8085
       CONSUMER_GROUP: ${CONSUMER_GROUP_DASHBOARD:-bnpb-dashboard-group}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      AGGREGATOR_URL: ${AGGREGATOR_URL:-http://aggregator:8083}
     depends_on:
       redpanda:
         condition: service_healthy
@@ -203,6 +206,7 @@ services:
         condition: service_completed_successfully
     networks:
       - bnpb-internal
+      - bnpb-public
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8085/health || exit 1"]
       interval: 5s

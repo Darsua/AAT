@@ -15,11 +15,27 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP", "service": "dashboard-consumer"})
 }
 
-// startHealthServer serves GET /health until ctx is cancelled.
-func startHealthServer(ctx context.Context, port string) {
+func newHTTPHandler(dashboard *Dashboard) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
-	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	if dashboard != nil {
+		mux.HandleFunc("GET /api/analytics", analyticsHandler(dashboard))
+		mux.HandleFunc("GET /dashboard/api/analytics", analyticsHandler(dashboard))
+		mux.HandleFunc("GET /", dashboardPageHandler)
+		mux.HandleFunc("GET /dashboard", dashboardPageHandler)
+		mux.HandleFunc("GET /dashboard/", dashboardPageHandler)
+	}
+	return mux
+}
+
+// startHealthServer serves GET /health until ctx is cancelled.
+func startHealthServer(ctx context.Context, port string) {
+	startDashboardServer(ctx, port, nil)
+}
+
+// startDashboardServer serves health, analytics JSON API, and the web analytics UI until ctx is cancelled.
+func startDashboardServer(ctx context.Context, port string, dashboard *Dashboard) {
+	server := &http.Server{Addr: ":" + port, Handler: newHTTPHandler(dashboard), ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		<-ctx.Done()
@@ -29,8 +45,8 @@ func startHealthServer(ctx context.Context, port string) {
 	}()
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("[dashboard] health server stopped: %v", err)
+			log.Printf("[dashboard] HTTP server stopped: %v", err)
 		}
 	}()
-	log.Printf("[dashboard] health endpoint listening on :%s", port)
+	log.Printf("[dashboard] HTTP server listening on :%s", port)
 }
