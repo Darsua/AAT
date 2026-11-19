@@ -25,6 +25,8 @@ x-sharded-aggregator-env: &sharded-aggregator-env
     shard-1=shard-1|aqua|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-aqua:5432/bnpb_shard_1?sslmode=disable,shard-1-r1|ruby|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-ruby:5432/bnpb_shard_1_r1?sslmode=disable;shard-2=shard-2|ruby|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-ruby:5432/bnpb_shard_2?sslmode=disable,shard-2-r1|akane|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-akane:5432/bnpb_shard_2_r1?sslmode=disable;shard-3=shard-3|akane|primary|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-akane:5432/bnpb_shard_3?sslmode=disable,shard-3-r1|aqua|replica|postgres://${POSTGRES_USER:-bnpb_user}:${POSTGRES_PASSWORD:-bnpb_secret}@store-aqua:5432/bnpb_shard_3_r1?sslmode=disable
   REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
   TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+  REDPANDA_TOPIC_FIELD_REPORTS: ${REDPANDA_TOPIC_FIELD_REPORTS:-bnpb.field-reports}
+  CONSUMER_GROUP_FIELD_REPORTS: ${CONSUMER_GROUP_FIELD_REPORTS:-bnpb-aggregator-field-reports}
   BMKG_URL: ${BMKG_URL:-http://mock-bmkg:8081}
   BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
   PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}

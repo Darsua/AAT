@@ -15,6 +15,8 @@ type Config struct {
 	DatabaseMinConns     int
 	RedpandaBrokers      string
 	Topic                string
+	FieldReportsTopic    string
+	FieldReportsGroup    string
 	BMKGURL              string
 	BMKGKey              string
 	PVMBGURL             string
@@ -94,6 +96,8 @@ func Load() *Config {
 		DatabaseMinConns:     minConns,
 		RedpandaBrokers:      getEnv("REDPANDA_BROKERS", "redpanda:9092"),
 		Topic:                getEnv("TOPIC", "bnpb.hazard-events"),
+		FieldReportsTopic:    getEnv("REDPANDA_TOPIC_FIELD_REPORTS", "bnpb.field-reports"),
+		FieldReportsGroup:    getEnv("CONSUMER_GROUP_FIELD_REPORTS", "bnpb-aggregator-field-reports"),
 		BMKGURL:              getEnv("BMKG_URL", "http://mock-bmkg:8081"),
 		BMKGKey:              getEnv("BMKG_KEY", ""),
 		PVMBGURL:             getEnv("PVMBG_URL", "http://mock-pvmbg:8082"),

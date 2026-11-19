@@ -110,6 +110,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://bnpb_user:bnpb_secret@canonical-db:5432/bnpb_hazards?sslmode=disable}
       REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
+      REDPANDA_TOPIC_FIELD_REPORTS: ${REDPANDA_TOPIC_FIELD_REPORTS:-bnpb.field-reports}
+      CONSUMER_GROUP_FIELD_REPORTS: ${CONSUMER_GROUP_FIELD_REPORTS:-bnpb-aggregator-field-reports}
       BMKG_URL: ${BMKG_URL:-http://mock-bmkg:8081}
       BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
       PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
