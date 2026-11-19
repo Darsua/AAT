@@ -76,7 +76,16 @@ func main() {
 
 	// Initialize upstream adapters
 	bmkgAdapter := adapter.NewBMKGAdapter(cfg.BMKGURL, cfg.BMKGKey, 10*time.Second)
-	pvmbgAdapter := adapter.NewPVMBGAdapter(cfg.PVMBGURL, cfg.PVMBGToken, 10*time.Second)
+	pvmbgAliases, err := adapter.ParsePVMBGFieldAliases(cfg.PVMBGFieldAliases)
+	if err != nil {
+		log.Error("invalid PVMBG schema policy", "error", err)
+		os.Exit(1)
+	}
+	pvmbgAdapter := adapter.NewPVMBGAdapter(cfg.PVMBGURL, cfg.PVMBGToken, 10*time.Second).
+		WithSchemaPolicy(adapter.PVMBGSchemaPolicy{
+			FieldAliases:         pvmbgAliases,
+			CoerceNumericStrings: cfg.PVMBGCoerceNumericStrings,
+		})
 
 	// Initialize Kafka message writer for Redpanda
 	rawBrokers := strings.Split(cfg.RedpandaBrokers, ",")
@@ -105,7 +114,8 @@ func main() {
 	bmkgPoller := worker.NewBMKGPoller(bmkgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
 		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
 	pvmbgPoller := worker.NewPVMBGPoller(pvmbgAdapter, norm, hazardRepo, statusTracker, cfg.PollIntervalSecs, log).
-		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
+		WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval).
+		WithDLQRetryBudget(cfg.DLQRetryBudget)
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
 
 	var workerWg sync.WaitGroup

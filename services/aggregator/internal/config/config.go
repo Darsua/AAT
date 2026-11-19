@@ -39,6 +39,11 @@ type Config struct {
 	SatelliteLateness time.Duration
 	// JSON array of {"name","latitude","longitude"} reference-province centroids for area_name.
 	SatelliteProvinceFile string
+
+	// PVMBG schema evolution policy (#26); defaults reject all incompatible changes.
+	PVMBGFieldAliases         string
+	PVMBGCoerceNumericStrings bool
+	DLQRetryBudget            int
 }
 
 // Load loads configuration from environment variables with safe defaults matching .env.example.
@@ -113,6 +118,13 @@ func Load() *Config {
 	cfg.SatelliteProvinceFile = getEnv("SATELLITE_PROVINCE_CENTROIDS_FILE", "")
 	if mins := getEnvInt("SATELLITE_LATENESS_MINUTES", 0); mins > 0 {
 		cfg.SatelliteLateness = time.Duration(mins) * time.Minute
+	}
+
+	cfg.PVMBGFieldAliases = getEnv("PVMBG_FIELD_ALIASES", "")
+	cfg.PVMBGCoerceNumericStrings = getEnv("PVMBG_COERCE_NUMERIC_STRINGS", "false") == "true"
+	cfg.DLQRetryBudget = getEnvInt("DLQ_RETRY_BUDGET", 5)
+	if cfg.DLQRetryBudget <= 0 {
+		cfg.DLQRetryBudget = 5
 	}
 	return cfg
 }

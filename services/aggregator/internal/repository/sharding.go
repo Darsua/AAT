@@ -826,6 +826,10 @@ func (m *MemoryUnitBackend) SaveUnprocessedMessage(ctx context.Context, msg doma
 	if len(msg.RawPayload) > 0 {
 		cp.RawPayload = slices.Clone(msg.RawPayload)
 	}
+	// Recovered is terminal: a stale retrying/parked copy must not reopen it.
+	if existing, ok := m.dlq[cp.MessageID]; ok && existing.Status == domain.UnprocessedStatusRecovered {
+		return nil
+	}
 	m.dlq[cp.MessageID] = cp
 	return nil
 }

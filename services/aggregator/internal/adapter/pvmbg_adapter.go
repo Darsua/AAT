@@ -62,6 +62,7 @@ type PVMBGAdapter struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	policy     PVMBGSchemaPolicy
 }
 
 // NewPVMBGAdapter instantiates a new PVMBGAdapter.

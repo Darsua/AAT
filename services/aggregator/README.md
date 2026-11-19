@@ -54,6 +54,9 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `SATELLITE_GROUP_TOKEN` | Required when enabled; secret, no default. |
 | `SATELLITE_LATENESS_MINUTES` | `360` (event-time watermark) |
 | `SATELLITE_PROVINCE_CENTROIDS_FILE` | Empty. JSON array of `{"name","latitude","longitude"}` reference-province centroids for `area_name`. |
+| `PVMBG_FIELD_ALIASES` | Empty (no renamed fields accepted); `from=to` pairs, comma-separated. |
+| `PVMBG_COERCE_NUMERIC_STRINGS` | `false` |
+| `DLQ_RETRY_BUDGET` | `5` polls before a retryable rejection is parked. |
 
 Compose maps `BMKG_API_KEY` to `BMKG_KEY` and `KAFKA_TOPIC_HAZARDS` to `TOPIC`.
 Override development credentials through the environment.
@@ -63,7 +66,21 @@ Override development credentials through the environment.
 - BMKG joins tsunami warnings to seismic events. PVMBG names and coordinates
   come from the static volcano catalog.
 - **Only PVMBG** captures unknown additive fields into canonical `attributes`.
-  Typed BMKG DTOs discard unknown fields; breaking field changes are unsupported.
+  Typed BMKG DTOs discard unknown fields.
+- PVMBG reports are validated one by one ([#26](https://github.com/Darsua/AAT/issues/26)).
+  A missing or empty required field, a type change, invalid UTF-8, or malformed
+  JSON rejects only that report; its raw bytes go to `dlq_messages` as `parked`
+  before the cursor or checkpoint moves, and valid reports in the same response
+  continue. A response that is not a JSON array is `retrying` (retryable) up to
+  `DLQ_RETRY_BUDGET` polls, then `parked`; a response over 8 MiB is parked with
+  its first 8 MiB only.
+- `PVMBG_FIELD_ALIASES` (e.g. `event_id=report_id`) and
+  `PVMBG_COERCE_NUMERIC_STRINGS=true` are the explicit system changes that accept
+  the `rename_field` and `type_change` mock modes. The lease holder re-validates
+  parked messages every 30 s, oldest first, applies those that now decode, and
+  marks them `recovered` so they leave `GET /internal/audit/unprocessed`. A
+  replayed report older than the stored hazard for the same `report_id` is not
+  written. Missing `volcano_id` has no policy and stays parked.
 - Pollers use backoff/jitter and process-local source-staleness tracking,
   not a circuit breaker. Stored hazards remain readable during upstream outages.
 - Each `(source, source_ref_id)` has current hazard state and one outbox row.

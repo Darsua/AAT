@@ -435,6 +435,7 @@ type PVMBGPoller struct {
 	interval   time.Duration
 	log        *slog.Logger
 	lease      leaseGuard
+	dlq        pvmbgDLQ
 }
 
 // NewPVMBGPoller creates a new PVMBGPoller.
@@ -458,6 +459,7 @@ func NewPVMBGPoller(
 		interval:   interval,
 		log:        wLog,
 		lease:      newLeaseGuard(repo, domain.SourcePVMBG, wLog),
+		dlq:        pvmbgDLQ{retryBudget: defaultDLQRetryBudget, now: time.Now},
 	}
 }
 
@@ -537,7 +539,7 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 	cycleCorrID := fmt.Sprintf("pvmbg-poll-%d", time.Now().UnixNano())
 	pollCtx = logger.WithCorrelationID(pollCtx, cycleCorrID)
 
-	reports, err := p.adapter.FetchVolcanicReports(pollCtx, since)
+	batch, err := p.adapter.FetchVolcanicBatch(pollCtx, since)
 	if err != nil {
 		p.status.SetPVMBGStatus(false)
 		if errors.Is(err, adapter.ErrUpstreamUnavailable) {
@@ -550,6 +552,17 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 
 	p.status.SetPVMBGStatus(true)
 
+	// Replay parked messages before new reports so per-report order is preserved.
+	if err := p.replayParked(cycleCtx, fence); err != nil {
+		p.log.Error("PVMBG DLQ replay failed", "error", err)
+		return err
+	}
+	// Rejected payloads must be durable before the cursor or checkpoint can move.
+	if err := p.recordRejections(cycleCtx, batch.Rejected); err != nil {
+		return err
+	}
+	reports := batch.Reports
+
 	if len(reports) == 0 {
 		return p.lease.saveCheckpoint(cycleCtx, fence)
 	}
@@ -557,8 +570,9 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 	for _, report := range reports {
 		canonical, err := p.normalizer.NormalizeVolcanic(cycleCtx, report)
 		if err != nil {
+			// A failed volcano lookup is transient; skipping would advance the cursor past it.
 			p.log.Error("failed to normalize volcanic report", "report_id", report.ReportID, "error", err)
-			continue
+			return fmt.Errorf("failed to normalize volcanic report %s: %w", report.ReportID, err)
 		}
 
 		corrID := fmt.Sprintf("pvmbg-%s", report.ReportID)
