@@ -81,6 +81,16 @@ Only Aggregator application pods may access canonical PostgreSQL. Store-to-store
 
 `kustomization.yaml` excludes `secrets.template.yaml` so `kubectl apply -k k8s/base` cannot overwrite provisioned cluster credentials with empty placeholders. `allow-ingress-controllers` permits port `8084` (`auth`) alongside `8080`, `8083`, and `3000`; `bnpb-config` and `secrets.template.yaml` include the runtime keys read directly by the Go services (`AUTH_URL`, `TOPIC`, `POLL_INTERVAL_SECS`, `JWT_TTL_SECONDS`, `AUTH_*_CLIENT_*`, `CONSUMER_GROUP_*`, `BMKG_KEY`, `PVMBG_TOKEN`, `AI_API_URL`, `AI_MODEL`, `AI_API_KEY`) alongside M2 keys. `summarizer-consumer` runs isolated on port `8087` (`128Mi`/`256Mi`). Observability scrape/trace paths and M2 multi-topic routing still need integration verification as workloads land.
 
+## Autoscaling (bonus, #37)
+
+[`autoscaling.yaml`](base/autoscaling.yaml) adds CPU-based HorizontalPodAutoscalers for the stateless request paths only: `client-api` (2 to 6 replicas) and `aggregator` (3 to 5, keeping the P2 minimum). Both target 70% of their CPU request (`client-api` 100m, `aggregator` 250m; the CPU limit is the LimitRange default 500m) and scale up at once but down slowly (one pod per 60/90 s after a 120/180 s window) so draining pods finish in-flight work. Auth (process-local refresh state) and the Kafka consumers (3 partitions) are not scaled. The HPAs need the Kubernetes metrics API; k3s ships `metrics-server`, and `deploy_k8s.sh` warns when it is missing.
+
+- Watch decisions: `kubectl get hpa -n sistem-informasi-kebencanaan-bnpb -w` and `kubectl describe hpa aggregator -n sistem-informasi-kebencanaan-bnpb`.
+- The P2 drill scales the Aggregator by hand (3 -> 5 -> 2), which the HPA would undo. Pause it first with `kubectl delete hpa aggregator -n sistem-informasi-kebencanaan-bnpb` and restore it afterwards with `kubectl apply -k k8s/base`.
+- Re-applying the kustomization resets `spec.replicas` to the manifest value until the HPA's next decision.
+
+Scale-up/scale-down evidence still has to be captured on the cluster under load; these manifests are not proof by themselves.
+
 ## Tester Agent and destructive testing
 
 The prescribed image is:

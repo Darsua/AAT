@@ -95,6 +95,17 @@ class KubernetesManifestsTest(unittest.TestCase):
         self.assertEqual(env_map["INSTANCE_ID"]["valueFrom"]["fieldRef"]["fieldPath"], "metadata.name")
         self.assertEqual(env_map["NODE_NAME"]["valueFrom"]["fieldRef"]["fieldPath"], "spec.nodeName")
 
+    def test_autoscalers_target_stateless_paths_with_cpu_requests(self):
+        hpas = {d["metadata"]["name"]: d for d in self.docs if d.get("kind") == "HorizontalPodAutoscaler"}
+        self.assertEqual(set(hpas), {"client-api", "aggregator"})
+        self.assertEqual(hpas["aggregator"]["spec"]["minReplicas"], 3)
+        deployments = {d["metadata"]["name"]: d for d in self.docs if d.get("kind") == "Deployment"}
+        for name, hpa in hpas.items():
+            self.assertEqual(hpa["spec"]["scaleTargetRef"]["name"], name)
+            self.assertGreater(hpa["spec"]["maxReplicas"], hpa["spec"]["minReplicas"])
+            resources = deployments[name]["spec"]["template"]["spec"]["containers"][0]["resources"]
+            self.assertIn("cpu", resources["requests"], f"{name} needs a CPU request for utilization scaling")
+
     def test_auth_single_replica_and_redpanda_pinned_hostpath(self):
         auth = next(
             (d for d in self.docs if d.get("kind") == "Deployment" and d["metadata"]["name"] == "auth"),
