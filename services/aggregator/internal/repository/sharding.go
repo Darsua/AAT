@@ -35,23 +35,37 @@ var (
 
 // UnitHazardQuery filters canonical hazards when querying an individual storage unit.
 type UnitHazardQuery struct {
-	OccurredSince *time.Time
-	IngestedSince *time.Time
-	Type          *domain.HazardType
-	Severity      *domain.Severity
-	Source        *domain.Source
-	Limit         int
+	OccurredSince      *time.Time
+	IngestedSince      *time.Time
+	Type               *domain.HazardType
+	Severity           *domain.Severity
+	Source             *domain.Source
+	Limit              int
+	OrderByIngestedAsc bool
+	AfterIngestedAt    *time.Time
+	AfterHazardID      string
+}
+
+// AuditRefEntry holds lightweight fields needed for checksum deduplication without decoding full hazard payloads.
+type AuditRefEntry struct {
+	HazardID     string
+	SourceRefID  string
+	RowVersion   int64
+	FencingToken int64
 }
 
 // UnitBackend defines the storage operations implemented by PostgreSQL and in-memory shard units.
 type UnitBackend interface {
 	Ping(ctx context.Context) error
 	QueryHazards(ctx context.Context, q UnitHazardQuery) ([]domain.HazardEvent, error)
+	QueryAuditRefs(ctx context.Context, source *domain.Source) ([]AuditRefEntry, error)
 	CountHazards(ctx context.Context, q UnitHazardQuery) (int, error)
 	SaveHazard(ctx context.Context, h *domain.HazardEvent) error
+	SaveHazardsBatch(ctx context.Context, events []domain.HazardEvent) error
 	SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error
 	DeleteHazard(ctx context.Context, hazardID string) error
 	GetHazardByID(ctx context.Context, hazardID string) (*domain.HazardEvent, error)
+	GetHazardsByIDs(ctx context.Context, hazardIDs []string) ([]domain.HazardEvent, error)
 	GetHazardBySourceRef(ctx context.Context, source domain.Source, sourceRefID string) (*domain.HazardEvent, error)
 	GetExistingIngestedAt(ctx context.Context, hazardID string, source domain.Source, sourceRefID string) (time.Time, bool, error)
 	GetLatestOccurredAt(ctx context.Context, source domain.Source) (*time.Time, error)
@@ -409,6 +423,7 @@ func (m *MemoryUnitBackend) Wipe() {
 	m.leases = make(map[string]domain.LeaderLease)
 	m.checkpoints = make(map[domain.Source]domain.SourceCheckpoint)
 	m.sourceFences = make(map[domain.Source]int64)
+	m.satelliteCheckpoints = make(map[string]SatelliteCheckpoint)
 }
 
 // Count returns the number of canonical hazard records currently stored on this unit.
@@ -441,6 +456,11 @@ func matchesUnitHazardQuery(h domain.HazardEvent, q UnitHazardQuery) bool {
 	if q.IngestedSince != nil && !q.IngestedSince.IsZero() && h.IngestedAt.Before(*q.IngestedSince) {
 		return false
 	}
+	if q.AfterIngestedAt != nil && !q.AfterIngestedAt.IsZero() {
+		if !(h.IngestedAt.After(*q.AfterIngestedAt) || (h.IngestedAt.Equal(*q.AfterIngestedAt) && h.HazardID > q.AfterHazardID)) {
+			return false
+		}
+	}
 	if q.Type != nil && *q.Type != "" && h.HazardType != *q.Type {
 		return false
 	}
@@ -469,6 +489,12 @@ func (m *MemoryUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuery)
 	}
 	if q.Limit > 0 {
 		sort.Slice(out, func(i, j int) bool {
+			if q.OrderByIngestedAsc {
+				if !out[i].IngestedAt.Equal(out[j].IngestedAt) {
+					return out[i].IngestedAt.Before(out[j].IngestedAt)
+				}
+				return out[i].HazardID < out[j].HazardID
+			}
 			if !out[i].OccurredAt.Equal(out[j].OccurredAt) {
 				return out[i].OccurredAt.After(out[j].OccurredAt)
 			}
@@ -479,6 +505,28 @@ func (m *MemoryUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuery)
 		}
 	}
 	return out, nil
+}
+
+func (m *MemoryUnitBackend) QueryAuditRefs(ctx context.Context, source *domain.Source) ([]AuditRefEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return nil, err
+	}
+
+	entries := make([]AuditRefEntry, 0, len(m.hazards))
+	for _, h := range m.hazards {
+		if source != nil && *source != "" && h.Source != *source {
+			continue
+		}
+		entries = append(entries, AuditRefEntry{
+			HazardID:     h.HazardID,
+			SourceRefID:  h.SourceRefID,
+			RowVersion:   h.RowVersion,
+			FencingToken: h.FencingToken,
+		})
+	}
+	return entries, nil
 }
 
 func (m *MemoryUnitBackend) CountHazards(ctx context.Context, q UnitHazardQuery) (int, error) {
@@ -496,13 +544,8 @@ func (m *MemoryUnitBackend) CountHazards(ctx context.Context, q UnitHazardQuery)
 	return count, nil
 }
 
-func (m *MemoryUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.checkHealth(ctx); err != nil {
-		return err
-	}
-	stored := cloneHazardEvent(*h)
+func (m *MemoryUnitBackend) saveHazardLocked(h domain.HazardEvent) domain.HazardEvent {
+	stored := cloneHazardEvent(h)
 	if stored.IngestedAt.IsZero() {
 		stored.IngestedAt = time.Now().UTC()
 	}
@@ -513,7 +556,32 @@ func (m *MemoryUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEven
 	if stored.FencingToken > m.sourceFences[stored.Source] {
 		m.sourceFences[stored.Source] = stored.FencingToken
 	}
+	return stored
+}
+
+func (m *MemoryUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	stored := m.saveHazardLocked(*h)
 	*h = cloneHazardEvent(stored)
+	return nil
+}
+
+func (m *MemoryUnitBackend) SaveHazardsBatch(ctx context.Context, events []domain.HazardEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return err
+	}
+	for _, ev := range events {
+		m.saveHazardLocked(ev)
+	}
 	return nil
 }
 
@@ -614,6 +682,24 @@ func (m *MemoryUnitBackend) GetHazardByID(ctx context.Context, hazardID string) 
 	}
 	cp := cloneHazardEvent(h)
 	return &cp, nil
+}
+
+func (m *MemoryUnitBackend) GetHazardsByIDs(ctx context.Context, hazardIDs []string) ([]domain.HazardEvent, error) {
+	if len(hazardIDs) == 0 {
+		return nil, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return nil, err
+	}
+	out := make([]domain.HazardEvent, 0, len(hazardIDs))
+	for _, id := range hazardIDs {
+		if h, ok := m.hazards[id]; ok {
+			out = append(out, cloneHazardEvent(h))
+		}
+	}
+	return out, nil
 }
 
 func (m *MemoryUnitBackend) DeleteHazard(ctx context.Context, hazardID string) error {

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -215,7 +216,7 @@ func main() {
 		workerWg.Add(1)
 		go func() {
 			defer workerWg.Done()
-			runReplicaSyncLoop(workerCtx, hazardRepo, cfg.InstanceID, cfg.LeaseTTL, 30*time.Second, log)
+			runReplicaSyncLoop(workerCtx, hazardRepo, cfg.InstanceID, cfg.LeaseTTL, 30*time.Second, cfg.LeaseRenewInterval, log)
 		}()
 	}
 
@@ -316,12 +317,16 @@ func hasReplicaUnits(specs []repository.ShardSpec) bool {
 	return false
 }
 
-func runReplicaSyncLoop(ctx context.Context, repo *repository.HazardRepository, instanceID string, leaseTTL, interval time.Duration, log *slog.Logger) {
+func runReplicaSyncLoop(ctx context.Context, repo *repository.HazardRepository, instanceID string, leaseTTL, interval, renewInterval time.Duration, log *slog.Logger) {
 	const syncSource = domain.Source("SYNC")
 
 	ttl := leaseTTL
 	if ttl <= interval {
 		ttl = interval * 2
+	}
+	renewEvery := renewInterval
+	if renewEvery <= 0 || renewEvery >= ttl/2 {
+		renewEvery = ttl / 3
 	}
 
 	ticker := time.NewTicker(interval)
@@ -354,11 +359,80 @@ func runReplicaSyncLoop(ctx context.Context, repo *repository.HazardRepository, 
 				continue
 			}
 			currentToken = lease.FencingToken
-			if err := repo.SyncShardReplicas(ctx); err != nil {
+
+			var activeToken atomic.Int64
+			activeToken.Store(currentToken)
+			lostLease, err := runSyncWithLeaseRenewal(
+				ctx,
+				func(rCtx context.Context) (bool, error) {
+					nextLease, acq, rErr := repo.AcquireOrRenewSourceLease(rCtx, syncSource, instanceID, activeToken.Load(), ttl)
+					if rErr == nil && acq {
+						activeToken.Store(nextLease.FencingToken)
+					}
+					return acq, rErr
+				},
+				repo.SyncShardReplicas,
+				renewEvery,
+				log,
+			)
+			currentToken = activeToken.Load()
+			if lostLease {
+				log.Warn("lost replica sync lease during sync cycle")
+				currentToken = 0
+			}
+			if err != nil {
 				log.Warn("replica sync cycle finished with degraded units", "error", err)
 			}
 		}
 	}
+}
+
+func runSyncWithLeaseRenewal(
+	ctx context.Context,
+	renewFn func(context.Context) (bool, error),
+	syncFn func(context.Context) error,
+	renewInterval time.Duration,
+	log *slog.Logger,
+) (bool, error) {
+	syncCtx, cancelSync := context.WithCancel(ctx)
+	defer cancelSync()
+
+	done := make(chan struct{})
+	var lostLease atomic.Bool
+	var wg sync.WaitGroup
+
+	if renewInterval > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(renewInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					acquired, err := renewFn(syncCtx)
+					if errors.Is(err, repository.ErrStaleFencingToken) || (err == nil && !acquired) {
+						lostLease.Store(true)
+						cancelSync()
+						return
+					}
+					if err != nil && log != nil && ctx.Err() == nil && syncCtx.Err() == nil {
+						log.Warn("replica sync lease renewal failed during sync", "error", err)
+					}
+				}
+			}
+		}()
+	}
+
+	syncErr := syncFn(syncCtx)
+	close(done)
+	cancelSync()
+	wg.Wait()
+	return lostLease.Load(), syncErr
 }
 
 func connectShardsWithRetry(

@@ -514,7 +514,7 @@ func (r *HazardRepository) scatterGatherHazards(ctx context.Context, q UnitHazar
 		reachableCount++
 		for _, ev := range res.events {
 			cand := dedupCandidate{
-				event: cloneHazardEvent(ev),
+				event: ev,
 				stale: res.stale,
 				role:  res.unit.Role,
 			}
@@ -651,7 +651,7 @@ func (r *HazardRepository) QueryHazards(ctx context.Context, filter HazardFilter
 		total += res.count
 		for _, ev := range res.events {
 			cand := dedupCandidate{
-				event: cloneHazardEvent(ev),
+				event: ev,
 				stale: res.stale,
 				role:  res.unit.Role,
 			}
@@ -1049,10 +1049,23 @@ func (r *HazardRepository) QueryAuditEvents(ctx context.Context, filter AuditEve
 		return AuditEventsResult{}, err
 	}
 
-	events, unavailable, partial, err := r.scatterGatherHazards(ctx, UnitHazardQuery{
-		IngestedSince: filter.Since,
-		Source:        filter.Source,
-	})
+	unitLimit := limit + 1
+	if cur != nil && cur.Offset != nil {
+		unitLimit = *cur.Offset + limit + 1
+	}
+
+	q := UnitHazardQuery{
+		IngestedSince:      filter.Since,
+		Source:             filter.Source,
+		OrderByIngestedAsc: true,
+		Limit:              unitLimit,
+	}
+	if cur != nil && cur.Offset == nil && cur.Timestamp != nil {
+		q.AfterIngestedAt = cur.Timestamp
+		q.AfterHazardID = cur.ID
+	}
+
+	events, unavailable, partial, err := r.scatterGatherHazards(ctx, q)
 	if err != nil {
 		return AuditEventsResult{}, err
 	}
@@ -1065,17 +1078,8 @@ func (r *HazardRepository) QueryAuditEvents(ctx context.Context, filter AuditEve
 	})
 
 	startIdx := 0
-	if cur != nil {
-		if cur.Offset != nil {
-			startIdx = *cur.Offset
-		} else if cur.Timestamp != nil {
-			startIdx = sort.Search(len(events), func(i int) bool {
-				if events[i].IngestedAt.After(*cur.Timestamp) {
-					return true
-				}
-				return events[i].IngestedAt.Equal(*cur.Timestamp) && events[i].HazardID > cur.ID
-			})
-		}
+	if cur != nil && cur.Offset != nil {
+		startIdx = *cur.Offset
 	}
 
 	if startIdx >= len(events) {
@@ -1105,18 +1109,95 @@ func (r *HazardRepository) QueryAuditEvents(ctx context.Context, filter AuditEve
 	}, nil
 }
 
+type auditRefCandidate struct {
+	entry AuditRefEntry
+	stale bool
+	role  domain.StorageRole
+}
+
+func shouldReplaceAuditRefCandidate(existing, incoming auditRefCandidate) bool {
+	if existing.stale != incoming.stale {
+		return !incoming.stale
+	}
+	if existing.entry.FencingToken != incoming.entry.FencingToken {
+		return incoming.entry.FencingToken > existing.entry.FencingToken
+	}
+	if existing.entry.RowVersion != incoming.entry.RowVersion {
+		return incoming.entry.RowVersion > existing.entry.RowVersion
+	}
+	if existing.role != incoming.role {
+		return incoming.role == domain.StorageRolePrimary
+	}
+	return false
+}
+
 // ComputeAuditChecksum calculates SHA-256 over raw-byte sorted source_ref_id values joined by '\n' with no trailing newline.
 func (r *HazardRepository) ComputeAuditChecksum(ctx context.Context, source *domain.Source, allSourcesLabel string) (AuditChecksumResult, error) {
-	events, unavailable, partial, err := r.scatterGatherHazards(ctx, UnitHazardQuery{
-		Source: source,
-	})
-	if err != nil {
-		return AuditChecksumResult{}, err
+	units := r.allUnits()
+	if len(units) == 0 {
+		return AuditChecksumResult{}, ErrAllStorageUnavailable
 	}
 
-	refs := make([]string, len(events))
-	for i, ev := range events {
-		refs[i] = ev.SourceRefID
+	type unitRefResult struct {
+		unit    StorageUnit
+		stale   bool
+		entries []AuditRefEntry
+		err     error
+	}
+
+	results := make([]unitRefResult, len(units))
+	var wg sync.WaitGroup
+	wg.Add(len(units))
+
+	for i, u := range units {
+		go func(idx int, unit StorageUnit) {
+			defer wg.Done()
+			readCtx, cancel := context.WithTimeout(ctx, unitReadTimeout)
+			defer cancel()
+
+			entries, err := unit.Backend.QueryAuditRefs(readCtx, source)
+			results[idx] = unitRefResult{
+				unit:    unit,
+				stale:   r.isUnitStale(unit.Unit),
+				entries: entries,
+				err:     err,
+			}
+		}(i, u)
+	}
+	wg.Wait()
+
+	unavailable := make([]string, 0)
+	reachableCount := 0
+	byID := make(map[string]auditRefCandidate)
+
+	for _, res := range results {
+		if res.err != nil {
+			unavailable = append(unavailable, res.unit.Unit)
+			continue
+		}
+		reachableCount++
+		for _, entry := range res.entries {
+			cand := auditRefCandidate{
+				entry: entry,
+				stale: res.stale,
+				role:  res.unit.Role,
+			}
+			if prev, exists := byID[entry.HazardID]; !exists || shouldReplaceAuditRefCandidate(prev, cand) {
+				byID[entry.HazardID] = cand
+			}
+		}
+	}
+
+	slices.Sort(unavailable)
+	r.recordPartialState(unavailable)
+
+	if reachableCount == 0 {
+		return AuditChecksumResult{}, ErrAllStorageUnavailable
+	}
+
+	refs := make([]string, 0, len(byID))
+	for _, c := range byID {
+		refs = append(refs, c.entry.SourceRefID)
 	}
 	slices.Sort(refs)
 
@@ -1137,7 +1218,7 @@ func (r *HazardRepository) ComputeAuditChecksum(ctx context.Context, source *dom
 		Checksum:         hex.EncodeToString(sum[:]),
 		Algorithm:        "sha256",
 		AsOf:             time.Now().UTC(),
-		Partial:          partial,
+		Partial:          len(unavailable) > 0,
 		UnavailableUnits: unavailable,
 	}, nil
 }
@@ -1391,113 +1472,39 @@ func (r *HazardRepository) QueryAuditUnprocessed(ctx context.Context, filter Aud
 	}, nil
 }
 
+const (
+	syncReadTimeout  = 10 * time.Second
+	syncBatchTimeout = 10 * time.Second
+	syncBatchSize    = 250
+)
+
+type syncRefWinner struct {
+	entry AuditRefEntry
+	unit  StorageUnit
+	stale bool
+}
+
+type syncUnitSnapshot struct {
+	unit       StorageUnit
+	refs       map[string]AuditRefEntry
+	dlq        map[string]domain.UnprocessedMessage
+	dlqQueryOK bool
+}
+
 // SyncShardReplicas reconciles missing or stale records across all reachable units within each shard group.
 func (r *HazardRepository) SyncShardReplicas(ctx context.Context) error {
 	groups, _ := r.snapshotTopology()
 	var syncErrs []error
 
 	for _, g := range groups {
-		type unitDump struct {
-			unit       StorageUnit
-			rows       map[string]domain.HazardEvent
-			dlq        map[string]domain.UnprocessedMessage
-			dlqQueryOK bool
+		if err := ctx.Err(); err != nil {
+			syncErrs = append(syncErrs, err)
+			return errors.Join(syncErrs...)
 		}
-		type dlqCandidate struct {
-			msg   domain.UnprocessedMessage
-			stale bool
-		}
-
-		var dumps []unitDump
-		union := make(map[string]dedupCandidate)
-		dlqUnion := make(map[string]dlqCandidate)
-
-		for _, u := range g.Units {
-			readCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
-			events, err := u.Backend.QueryHazards(readCtx, UnitHazardQuery{})
-			if err != nil {
-				cancel()
-				continue
-			}
-			dlqMsgs, dlqErr := u.Backend.QueryUnprocessed(readCtx, nil)
-			cancel()
-
-			stale := r.isUnitStale(u.Unit)
-			rowMap := make(map[string]domain.HazardEvent, len(events))
-			for _, ev := range events {
-				rowMap[ev.HazardID] = ev
-				cand := dedupCandidate{
-					event: cloneHazardEvent(ev),
-					stale: stale,
-					role:  u.Role,
-				}
-				if prev, ok := union[ev.HazardID]; !ok || shouldReplaceCandidate(prev, cand) {
-					union[ev.HazardID] = cand
-				}
-			}
-
-			var dlqMap map[string]domain.UnprocessedMessage
-			if dlqErr != nil {
-				syncErrs = append(syncErrs, fmt.Errorf("query dlq on unit %s: %w", u.Unit, dlqErr))
-			} else {
-				dlqMap = make(map[string]domain.UnprocessedMessage, len(dlqMsgs))
-				for _, msg := range dlqMsgs {
-					dlqMap[msg.MessageID] = msg
-					cand := dlqCandidate{msg: msg, stale: stale}
-					prev, ok := dlqUnion[msg.MessageID]
-					if !ok || (prev.stale != cand.stale && !cand.stale) || (prev.stale == cand.stale && cand.msg.Attempts > prev.msg.Attempts) {
-						dlqUnion[msg.MessageID] = cand
-					}
-				}
-			}
-			dumps = append(dumps, unitDump{
-				unit:       u,
-				rows:       rowMap,
-				dlq:        dlqMap,
-				dlqQueryOK: dlqErr == nil,
-			})
-		}
-
-		if len(dumps) == 0 {
-			syncErrs = append(syncErrs, fmt.Errorf("shard %s has no reachable units to sync", g.ShardID))
-			continue
-		}
-
-		for _, d := range dumps {
-			unitFailed := false
-			for hazardID, cand := range union {
-				existing, has := d.rows[hazardID]
-				if has && !r.isUnitStale(d.unit.Unit) && hazardsEquivalent(existing, cand.event) {
-					continue
-				}
-				writeCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
-				cp := cloneHazardEvent(cand.event)
-				err := d.unit.Backend.SaveHazard(writeCtx, &cp)
-				cancel()
-				if err != nil {
-					unitFailed = true
-					syncErrs = append(syncErrs, fmt.Errorf("sync hazard %s to unit %s: %w", hazardID, d.unit.Unit, err))
-					break
-				}
-			}
-			if !unitFailed {
-				for msgID, cand := range dlqUnion {
-					existing, has := d.dlq[msgID]
-					if has && !r.isUnitStale(d.unit.Unit) && dlqMessagesEquivalent(existing, cand.msg) {
-						continue
-					}
-					writeCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
-					err := d.unit.Backend.SaveUnprocessedMessage(writeCtx, cand.msg)
-					cancel()
-					if err != nil {
-						unitFailed = true
-						syncErrs = append(syncErrs, fmt.Errorf("sync dlq message %s to unit %s: %w", msgID, d.unit.Unit, err))
-						break
-					}
-				}
-			}
-			if !unitFailed && d.dlqQueryOK {
-				r.markUnitStale(d.unit.Unit, false)
+		if errs := r.reconcileShardGroup(ctx, g); len(errs) > 0 {
+			syncErrs = append(syncErrs, errs...)
+			if err := ctx.Err(); err != nil {
+				return errors.Join(syncErrs...)
 			}
 		}
 	}
@@ -1554,7 +1561,194 @@ func (r *HazardRepository) SyncShardReplicas(ctx context.Context) error {
 		}
 	}
 
+	if len(coordUnits) > 0 {
+		if err := r.reconcileSatelliteCheckpoint(ctx, coordUnits, "satellite"); err != nil {
+			syncErrs = append(syncErrs, err)
+		}
+	}
+
 	return errors.Join(syncErrs...)
+}
+
+func (r *HazardRepository) reconcileShardGroup(ctx context.Context, g ShardGroup) []error {
+	var syncErrs []error
+	var dumps []syncUnitSnapshot
+	winnerByID := make(map[string]syncRefWinner)
+
+	type dlqCandidate struct {
+		msg   domain.UnprocessedMessage
+		stale bool
+	}
+	dlqUnion := make(map[string]dlqCandidate)
+
+	for _, u := range g.Units {
+		if err := ctx.Err(); err != nil {
+			syncErrs = append(syncErrs, err)
+			return syncErrs
+		}
+		readCtx, cancel := context.WithTimeout(ctx, syncReadTimeout)
+		refs, err := u.Backend.QueryAuditRefs(readCtx, nil)
+		if err != nil {
+			cancel()
+			continue
+		}
+		dlqMsgs, dlqErr := u.Backend.QueryUnprocessed(readCtx, nil)
+		cancel()
+
+		stale := r.isUnitStale(u.Unit)
+		refMap := make(map[string]AuditRefEntry, len(refs))
+		for _, ref := range refs {
+			refMap[ref.HazardID] = ref
+			cand := syncRefWinner{entry: ref, unit: u, stale: stale}
+			prev, ok := winnerByID[ref.HazardID]
+			if !ok || shouldReplaceAuditRefCandidate(
+				auditRefCandidate{entry: prev.entry, stale: prev.stale, role: prev.unit.Role},
+				auditRefCandidate{entry: cand.entry, stale: cand.stale, role: cand.unit.Role},
+			) {
+				winnerByID[ref.HazardID] = cand
+			}
+		}
+
+		var dlqMap map[string]domain.UnprocessedMessage
+		if dlqErr != nil {
+			syncErrs = append(syncErrs, fmt.Errorf("query dlq on unit %s: %w", u.Unit, dlqErr))
+		} else {
+			dlqMap = make(map[string]domain.UnprocessedMessage, len(dlqMsgs))
+			for _, msg := range dlqMsgs {
+				dlqMap[msg.MessageID] = msg
+				cand := dlqCandidate{msg: msg, stale: stale}
+				prev, ok := dlqUnion[msg.MessageID]
+				if !ok || (prev.stale != cand.stale && !cand.stale) || (prev.stale == cand.stale && cand.msg.Attempts > prev.msg.Attempts) {
+					dlqUnion[msg.MessageID] = cand
+				}
+			}
+		}
+
+		dumps = append(dumps, syncUnitSnapshot{
+			unit:       u,
+			refs:       refMap,
+			dlq:        dlqMap,
+			dlqQueryOK: dlqErr == nil,
+		})
+	}
+
+	if len(dumps) == 0 {
+		return append(syncErrs, fmt.Errorf("shard %s has no reachable units to sync", g.ShardID))
+	}
+
+	for _, d := range dumps {
+		targetStale := r.isUnitStale(d.unit.Unit)
+		idsBySource := make(map[string][]string)
+		srcUnitByName := make(map[string]StorageUnit)
+
+		for hazardID, winner := range winnerByID {
+			existing, has := d.refs[hazardID]
+			if has &&
+				existing.RowVersion >= winner.entry.RowVersion &&
+				existing.FencingToken >= winner.entry.FencingToken &&
+				(!targetStale || winner.unit.Unit == d.unit.Unit) {
+				continue
+			}
+			idsBySource[winner.unit.Unit] = append(idsBySource[winner.unit.Unit], hazardID)
+			srcUnitByName[winner.unit.Unit] = winner.unit
+		}
+
+		sourceNames := make([]string, 0, len(idsBySource))
+		for name := range idsBySource {
+			sourceNames = append(sourceNames, name)
+		}
+		slices.Sort(sourceNames)
+
+		unitFailed := false
+		for _, srcName := range sourceNames {
+			ids := idsBySource[srcName]
+			slices.Sort(ids)
+			srcUnit := srcUnitByName[srcName]
+
+			for start := 0; start < len(ids); start += syncBatchSize {
+				if err := ctx.Err(); err != nil {
+					return append(syncErrs, err)
+				}
+				end := start + syncBatchSize
+				if end > len(ids) {
+					end = len(ids)
+				}
+				chunk := ids[start:end]
+
+				readCtx, readCancel := context.WithTimeout(ctx, syncReadTimeout)
+				events, err := srcUnit.Backend.GetHazardsByIDs(readCtx, chunk)
+				readCancel()
+				if err != nil {
+					unitFailed = true
+					syncErrs = append(syncErrs, fmt.Errorf("fetch %d hazards from unit %s for %s: %w", len(chunk), srcUnit.Unit, d.unit.Unit, err))
+					break
+				}
+
+				writeCtx, writeCancel := context.WithTimeout(ctx, syncBatchTimeout)
+				err = d.unit.Backend.SaveHazardsBatch(writeCtx, events)
+				writeCancel()
+				if err != nil {
+					unitFailed = true
+					syncErrs = append(syncErrs, fmt.Errorf("batch sync %d hazards to unit %s: %w", len(events), d.unit.Unit, err))
+					break
+				}
+			}
+			if unitFailed {
+				break
+			}
+		}
+
+		if !unitFailed {
+			for msgID, cand := range dlqUnion {
+				if err := ctx.Err(); err != nil {
+					return append(syncErrs, err)
+				}
+				existing, has := d.dlq[msgID]
+				if has && !targetStale && dlqMessagesEquivalent(existing, cand.msg) {
+					continue
+				}
+				writeCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+				err := d.unit.Backend.SaveUnprocessedMessage(writeCtx, cand.msg)
+				cancel()
+				if err != nil {
+					unitFailed = true
+					syncErrs = append(syncErrs, fmt.Errorf("sync dlq message %s to unit %s: %w", msgID, d.unit.Unit, err))
+					break
+				}
+			}
+		}
+		if !unitFailed && d.dlqQueryOK {
+			r.markUnitStale(d.unit.Unit, false)
+		}
+	}
+
+	return syncErrs
+}
+
+func (r *HazardRepository) reconcileSatelliteCheckpoint(ctx context.Context, coordUnits []StorageUnit, stream string) error {
+	satCP, err := r.LoadSatelliteCheckpoint(ctx, stream)
+	if err != nil || satCP == nil {
+		return nil
+	}
+	var errs []error
+	for _, u := range coordUnits {
+		qCtx, cancel := context.WithTimeout(ctx, unitReadTimeout)
+		existing, qErr := u.Backend.GetSatelliteCheckpoint(qCtx, stream)
+		cancel()
+		if qErr != nil {
+			continue
+		}
+		if existing != nil && (existing.LastOffset > satCP.LastOffset ||
+			(existing.LastOffset == satCP.LastOffset && existing.FencingToken >= satCP.FencingToken)) {
+			continue
+		}
+		wCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+		if err := u.Backend.SaveSatelliteCheckpoint(wCtx, *satCP); err != nil {
+			errs = append(errs, fmt.Errorf("sync satellite checkpoint %s to unit %s: %w", stream, u.Unit, err))
+		}
+		cancel()
+	}
+	return errors.Join(errs...)
 }
 
 func dlqMessagesEquivalent(a, b domain.UnprocessedMessage) bool {
@@ -1565,15 +1759,6 @@ func dlqMessagesEquivalent(a, b domain.UnprocessedMessage) bool {
 		a.Status == b.Status &&
 		a.ReceivedAt.Equal(b.ReceivedAt) &&
 		slices.Equal(a.RawPayload, b.RawPayload)
-}
-
-func hazardsEquivalent(a, b domain.HazardEvent) bool {
-	if a.Severity != b.Severity || a.AreaName != b.AreaName || !a.OccurredAt.Equal(b.OccurredAt) || a.RowVersion != b.RowVersion || a.FencingToken != b.FencingToken {
-		return false
-	}
-	aJSON, _ := json.Marshal(a)
-	bJSON, _ := json.Marshal(b)
-	return string(aJSON) == string(bJSON)
 }
 
 // RebalanceCluster transitions routing to newGroups without stopping reads or writes,
@@ -1785,6 +1970,11 @@ func buildUnitHazardWhere(q UnitHazardQuery) ([]string, []any, int) {
 		args = append(args, *q.IngestedSince)
 		argIdx++
 	}
+	if q.AfterIngestedAt != nil && !q.AfterIngestedAt.IsZero() {
+		whereClauses = append(whereClauses, fmt.Sprintf("(ingested_at, hazard_id) > ($%d, $%d)", argIdx, argIdx+1))
+		args = append(args, q.AfterIngestedAt.UTC(), q.AfterHazardID)
+		argIdx += 2
+	}
 	if q.Type != nil && *q.Type != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("hazard_type = $%d", argIdx))
 		args = append(args, string(*q.Type))
@@ -1829,6 +2019,10 @@ func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuer
 		limitClause = fmt.Sprintf("\n\t\tLIMIT $%d", argIdx)
 		args = append(args, q.Limit)
 	}
+	orderBy := "occurred_at DESC, hazard_id ASC"
+	if q.OrderByIngestedAsc {
+		orderBy = "ingested_at ASC, hazard_id ASC"
+	}
 
 	dataSQL := fmt.Sprintf(`
 		SELECT
@@ -1836,8 +2030,8 @@ func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuer
 			area_name, latitude, longitude, attributes, occurred_at, ingested_at, row_version, fencing_token
 		FROM hazards
 		WHERE %s
-		ORDER BY occurred_at DESC, hazard_id ASC%s;
-	`, strings.Join(whereClauses, " AND "), limitClause)
+		ORDER BY %s%s;
+	`, strings.Join(whereClauses, " AND "), orderBy, limitClause)
 
 	rows, err := pool.Query(ctx, dataSQL, args...)
 	if err != nil {
@@ -1859,47 +2053,73 @@ func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuer
 	return events, nil
 }
 
-func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
+func (p *postgresUnitBackend) QueryAuditRefs(ctx context.Context, source *domain.Source) ([]AuditRefEntry, error) {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	querySQL := `SELECT hazard_id, source_ref_id, row_version, fencing_token FROM hazards`
+	var args []any
+	if source != nil && *source != "" {
+		querySQL += ` WHERE source = $1`
+		args = append(args, string(*source))
+	}
+
+	rows, err := pool.Query(ctx, querySQL+";", args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query audit refs: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []AuditRefEntry
+	for rows.Next() {
+		var e AuditRefEntry
+		if err := rows.Scan(&e.HazardID, &e.SourceRefID, &e.RowVersion, &e.FencingToken); err != nil {
+			return nil, fmt.Errorf("failed to scan audit ref: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during audit refs iteration: %w", err)
+	}
+	return entries, nil
+}
+
+const upsertHazardSQL = `
+	INSERT INTO hazards (
+		hazard_id, source, source_ref_id, hazard_type, severity,
+		area_name, latitude, longitude, attributes, occurred_at, ingested_at, row_version, fencing_token
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, GREATEST($12, 1), $13)
+	ON CONFLICT (source, source_ref_id) DO UPDATE SET
+		severity = EXCLUDED.severity,
+		area_name = EXCLUDED.area_name,
+		latitude = EXCLUDED.latitude,
+		longitude = EXCLUDED.longitude,
+		attributes = EXCLUDED.attributes,
+		occurred_at = EXCLUDED.occurred_at,
+		row_version = CASE
+			WHEN $12 > 0 THEN EXCLUDED.row_version
+			ELSE hazards.row_version + 1
+		END,
+		fencing_token = GREATEST(hazards.fencing_token, EXCLUDED.fencing_token)
+	WHERE hazards.fencing_token <= EXCLUDED.fencing_token
+	  AND ($12 <= 0 OR hazards.row_version <= EXCLUDED.row_version);
+`
+
+func hazardUpsertArgs(h *domain.HazardEvent) ([]any, error) {
 	if h.Attributes == nil {
 		h.Attributes = make(map[string]any)
 	}
-
 	attrsJSON, err := json.Marshal(h.Attributes)
 	if err != nil {
-		return fmt.Errorf("failed to marshal hazard attributes: %w", err)
+		return nil, fmt.Errorf("failed to marshal hazard attributes: %w", err)
 	}
-
-	sql := `
-		INSERT INTO hazards (
-			hazard_id, source, source_ref_id, hazard_type, severity,
-			area_name, latitude, longitude, attributes, occurred_at, ingested_at, row_version, fencing_token
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, GREATEST($12, 1), $13)
-		ON CONFLICT (source, source_ref_id) DO UPDATE SET
-			severity = EXCLUDED.severity,
-			area_name = EXCLUDED.area_name,
-			latitude = EXCLUDED.latitude,
-			longitude = EXCLUDED.longitude,
-			attributes = EXCLUDED.attributes,
-			occurred_at = EXCLUDED.occurred_at,
-			row_version = CASE
-				WHEN $12 > 0 THEN EXCLUDED.row_version
-				ELSE hazards.row_version + 1
-			END,
-			fencing_token = GREATEST(hazards.fencing_token, EXCLUDED.fencing_token)
-		WHERE hazards.fencing_token <= EXCLUDED.fencing_token
-		  AND ($12 <= 0 OR hazards.row_version <= EXCLUDED.row_version);
-	`
-
 	ingestedAt := h.IngestedAt.UTC()
 	if ingestedAt.IsZero() {
 		ingestedAt = time.Now().UTC()
 	}
-
-	_, err = pool.Exec(ctx, sql,
+	return []any{
 		h.HazardID,
 		string(h.Source),
 		h.SourceRefID,
@@ -1913,9 +2133,61 @@ func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEv
 		ingestedAt,
 		h.RowVersion,
 		h.FencingToken,
-	)
+	}, nil
+}
+
+func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
+	pool, err := p.ensurePool(ctx)
 	if err != nil {
+		return err
+	}
+	args, err := hazardUpsertArgs(h)
+	if err != nil {
+		return err
+	}
+	if _, err = pool.Exec(ctx, upsertHazardSQL, args...); err != nil {
 		return fmt.Errorf("failed to save hazard %q: %w", h.HazardID, err)
+	}
+	return nil
+}
+
+func (p *postgresUnitBackend) SaveHazardsBatch(ctx context.Context, events []domain.HazardEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	pool, err := p.ensurePool(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin batch hazard tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	batch := &pgx.Batch{}
+	for i := range events {
+		args, err := hazardUpsertArgs(&events[i])
+		if err != nil {
+			return err
+		}
+		batch.Queue(upsertHazardSQL, args...)
+	}
+
+	br := tx.SendBatch(ctx, batch)
+	for range events {
+		if _, bErr := br.Exec(); bErr != nil {
+			_ = br.Close()
+			return fmt.Errorf("failed to save hazard batch: %w", bErr)
+		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("failed to close hazard batch: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit batch hazard tx: %w", err)
 	}
 	return nil
 }
@@ -2045,6 +2317,41 @@ func (p *postgresUnitBackend) GetHazardByID(ctx context.Context, hazardID string
 		return nil, fmt.Errorf("failed to query hazard by id %q: %w", hazardID, err)
 	}
 	return h, nil
+}
+
+func (p *postgresUnitBackend) GetHazardsByIDs(ctx context.Context, hazardIDs []string) ([]domain.HazardEvent, error) {
+	if len(hazardIDs) == 0 {
+		return nil, nil
+	}
+	pool, err := p.ensurePool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	querySQL := `
+		SELECT
+			hazard_id, source, source_ref_id, hazard_type, severity,
+			area_name, latitude, longitude, attributes, occurred_at, ingested_at, row_version, fencing_token
+		FROM hazards
+		WHERE hazard_id = ANY($1);
+	`
+	rows, err := pool.Query(ctx, querySQL, hazardIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query hazards by ids: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]domain.HazardEvent, 0, len(hazardIDs))
+	for rows.Next() {
+		h, err := scanHazardRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan hazard row: %w", err)
+		}
+		events = append(events, *h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during batch hazard iteration: %w", err)
+	}
+	return events, nil
 }
 
 func (p *postgresUnitBackend) GetHazardBySourceRef(ctx context.Context, source domain.Source, sourceRefID string) (*domain.HazardEvent, error) {

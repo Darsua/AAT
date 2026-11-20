@@ -80,7 +80,10 @@ class AuditAPIClient:
     def _get_json(self, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
         query = f"?{urllib.parse.urlencode(params)}" if params else ""
         url = f"{self.base_url}{path}{query}"
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "bnpb-audit-verifier/1.0",
+        }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         req = urllib.request.Request(url, headers=headers, method="GET")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -538,5 +539,319 @@ func TestRecoveredDLQMessageIsNotReopenedByStaleReplica(t *testing.T) {
 	}
 	if len(active) != 0 {
 		t.Fatalf("expected the primary to keep the message recovered after sync, got %+v", active)
+	}
+}
+
+func TestQueryAuditEventsPushdownAcrossShardsAndPartialOutage(t *testing.T) {
+	ctx := context.Background()
+	repo, backends, _ := buildThreeNodeShardedRepo(t)
+
+	base := time.Date(2026, 11, 18, 4, 0, 0, 0, time.UTC)
+	events := []domain.HazardEvent{
+		{HazardID: "haz-push-b", Source: domain.SourceBMKG, SourceRefID: "ref-b", HazardType: domain.HazardTypeSeismic, Severity: domain.SeverityNormal, AreaName: "Aceh", OccurredAt: base.Add(-4 * time.Minute), IngestedAt: base},
+		{HazardID: "haz-push-a", Source: domain.SourceSatelit, SourceRefID: "ref-a", HazardType: domain.HazardTypeWildfire, Severity: domain.SeveritySiaga, AreaName: "Riau", OccurredAt: base.Add(-5 * time.Minute), IngestedAt: base},
+		{HazardID: "haz-push-c", Source: domain.SourcePVMBG, SourceRefID: "ref-c", HazardType: domain.HazardTypeVolcanic, Severity: domain.SeverityWaspada, AreaName: "Merapi", OccurredAt: base.Add(-3 * time.Minute), IngestedAt: base.Add(1 * time.Second)},
+		{HazardID: "haz-push-d", Source: domain.SourceBMKG, SourceRefID: "ref-d", HazardType: domain.HazardTypeSeismic, Severity: domain.SeverityNormal, AreaName: "Palu", OccurredAt: base.Add(-2 * time.Minute), IngestedAt: base.Add(2 * time.Second)},
+		{HazardID: "haz-push-e", Source: domain.SourceBMKG, SourceRefID: "ref-e", HazardType: domain.HazardTypeSeismic, Severity: domain.SeverityAwas, AreaName: "Ambon", OccurredAt: base.Add(-1 * time.Minute), IngestedAt: base.Add(3 * time.Second)},
+	}
+	for i := range events {
+		if err := repo.SaveHazard(ctx, &events[i]); err != nil {
+			t.Fatalf("SaveHazard %s failed: %v", events[i].HazardID, err)
+		}
+	}
+
+	var walked []string
+	var cursor string
+	for {
+		res, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Limit: 2, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("QueryAuditEvents failed: %v", err)
+		}
+		for _, item := range res.Items {
+			walked = append(walked, item.HazardID)
+		}
+		if res.NextCursor == nil {
+			break
+		}
+		cursor = *res.NextCursor
+	}
+	wantOrder := []string{"haz-push-a", "haz-push-b", "haz-push-c", "haz-push-d", "haz-push-e"}
+	if !slices.Equal(walked, wantOrder) {
+		t.Fatalf("walked order = %v, want %v", walked, wantOrder)
+	}
+
+	// Offset cursor {"o": 2} and since/source filters must honor limit+offset pushdown.
+	offRes, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Limit: 2, Cursor: "eyJvIjoyfQ"})
+	if err != nil {
+		t.Fatalf("offset QueryAuditEvents failed: %v", err)
+	}
+	if len(offRes.Items) != 2 || offRes.Items[0].HazardID != "haz-push-c" || offRes.Items[1].HazardID != "haz-push-d" || offRes.NextCursor == nil {
+		t.Fatalf("unexpected offset cursor result: %+v", offRes)
+	}
+
+	bmkg := domain.SourceBMKG
+	since := base.Add(1 * time.Second)
+	fltRes, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Source: &bmkg, Since: &since, Limit: 10})
+	if err != nil {
+		t.Fatalf("filtered QueryAuditEvents failed: %v", err)
+	}
+	if len(fltRes.Items) != 2 || fltRes.Items[0].HazardID != "haz-push-d" || fltRes.Items[1].HazardID != "haz-push-e" {
+		t.Fatalf("unexpected source+since result: %+v", fltRes.Items)
+	}
+
+	// Partial outage preserves exact coverage via replicas while surfacing degraded units.
+	backends["shard-2"].SetHealthy(false)
+	backends["shard-1-r1"].SetHealthy(false)
+	partRes, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("partial QueryAuditEvents failed: %v", err)
+	}
+	if !partRes.Partial || len(partRes.UnavailableUnits) != 2 || len(partRes.Items) != 5 {
+		t.Fatalf("unexpected partial audit result: partial=%v unavailable=%v items=%d", partRes.Partial, partRes.UnavailableUnits, len(partRes.Items))
+	}
+}
+
+func TestComputeAuditChecksumUsesAuditRefsAndDedupPrecedence(t *testing.T) {
+	ctx := context.Background()
+	primary := NewMemoryUnitBackend()
+	replica := NewMemoryUnitBackend()
+	groups := []ShardGroup{
+		{
+			ShardID: "shard-1",
+			Units: []StorageUnit{
+				{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: primary},
+				{Unit: "shard-1-r1", Node: "ruby", Role: domain.StorageRoleReplica, Backend: replica},
+			},
+		},
+	}
+	repo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository failed: %v", err)
+	}
+
+	now := time.Date(2026, 11, 18, 5, 0, 0, 0, time.UTC)
+	if err := primary.SaveHazard(ctx, &domain.HazardEvent{
+		HazardID:     "haz-csum-1",
+		Source:       domain.SourceBMKG,
+		SourceRefID:  "ref-new-primary",
+		HazardType:   domain.HazardTypeSeismic,
+		Severity:     domain.SeveritySiaga,
+		AreaName:     "Aceh",
+		OccurredAt:   now,
+		IngestedAt:   now,
+		RowVersion:   2,
+		FencingToken: 5,
+	}); err != nil {
+		t.Fatalf("save primary failed: %v", err)
+	}
+	if err := replica.SaveHazard(ctx, &domain.HazardEvent{
+		HazardID:     "haz-csum-1",
+		Source:       domain.SourceBMKG,
+		SourceRefID:  "ref-stale-replica",
+		HazardType:   domain.HazardTypeSeismic,
+		Severity:     domain.SeveritySiaga,
+		AreaName:     "Aceh",
+		OccurredAt:   now,
+		IngestedAt:   now,
+		RowVersion:   1,
+		FencingToken: 4,
+	}); err != nil {
+		t.Fatalf("save replica failed: %v", err)
+	}
+
+	// Mark primary stale in repo state so non-stale replica precedence is also exercised cleanly.
+	csumPrimary, err := repo.ComputeAuditChecksum(ctx, nil, "ALL")
+	if err != nil {
+		t.Fatalf("ComputeAuditChecksum failed: %v", err)
+	}
+	eventsRes, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("QueryAuditEvents failed: %v", err)
+	}
+	if len(eventsRes.Items) != 1 || eventsRes.Items[0].SourceRefID != "ref-new-primary" {
+		t.Fatalf("expected primary record to win dedup, got %+v", eventsRes.Items)
+	}
+	if csumPrimary.Count != 1 {
+		t.Fatalf("expected count=1, got %d", csumPrimary.Count)
+	}
+
+	repo.markUnitStale("shard-1", true)
+	csumStale, err := repo.ComputeAuditChecksum(ctx, nil, "ALL")
+	if err != nil {
+		t.Fatalf("ComputeAuditChecksum with stale unit failed: %v", err)
+	}
+	eventsStale, err := repo.QueryAuditEvents(ctx, AuditEventsFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("QueryAuditEvents with stale unit failed: %v", err)
+	}
+	if len(eventsStale.Items) != 1 || eventsStale.Items[0].SourceRefID != "ref-stale-replica" || csumStale.Checksum == csumPrimary.Checksum {
+		t.Fatalf("expected non-stale replica to win over stale primary in both checksum and events, got item=%+v", eventsStale.Items)
+	}
+}
+
+type countingBackendSpy struct {
+	*MemoryUnitBackend
+	getByIDsCalls  int
+	saveBatchCalls int
+}
+
+func (s *countingBackendSpy) GetHazardsByIDs(ctx context.Context, hazardIDs []string) ([]domain.HazardEvent, error) {
+	s.getByIDsCalls++
+	return s.MemoryUnitBackend.GetHazardsByIDs(ctx, hazardIDs)
+}
+
+func (s *countingBackendSpy) SaveHazardsBatch(ctx context.Context, events []domain.HazardEvent) error {
+	s.saveBatchCalls++
+	return s.MemoryUnitBackend.SaveHazardsBatch(ctx, events)
+}
+
+func TestSyncShardReplicas_DiffFirstAndBatchedRecovery(t *testing.T) {
+	ctx := context.Background()
+	raw := map[string]*MemoryUnitBackend{
+		"shard-1":    NewMemoryUnitBackend(),
+		"shard-1-r1": NewMemoryUnitBackend(),
+		"shard-2":    NewMemoryUnitBackend(),
+		"shard-2-r1": NewMemoryUnitBackend(),
+		"shard-3":    NewMemoryUnitBackend(),
+		"shard-3-r1": NewMemoryUnitBackend(),
+	}
+	spies := make(map[string]*countingBackendSpy, len(raw))
+	for k, v := range raw {
+		spies[k] = &countingBackendSpy{MemoryUnitBackend: v}
+	}
+	groups := []ShardGroup{
+		{
+			ShardID: "shard-1",
+			Units: []StorageUnit{
+				{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: spies["shard-1"]},
+				{Unit: "shard-1-r1", Node: "ruby", Role: domain.StorageRoleReplica, Backend: spies["shard-1-r1"]},
+			},
+		},
+		{
+			ShardID: "shard-2",
+			Units: []StorageUnit{
+				{Unit: "shard-2", Node: "ruby", Role: domain.StorageRolePrimary, Backend: spies["shard-2"]},
+				{Unit: "shard-2-r1", Node: "akane", Role: domain.StorageRoleReplica, Backend: spies["shard-2-r1"]},
+			},
+		},
+		{
+			ShardID: "shard-3",
+			Units: []StorageUnit{
+				{Unit: "shard-3", Node: "akane", Role: domain.StorageRolePrimary, Backend: spies["shard-3"]},
+				{Unit: "shard-3-r1", Node: "aqua", Role: domain.StorageRoleReplica, Backend: spies["shard-3-r1"]},
+			},
+		},
+	}
+	repo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository failed: %v", err)
+	}
+
+	const total = 550
+	base := time.Date(2026, 11, 19, 1, 0, 0, 0, time.UTC)
+	for i := range total {
+		ts := base.Add(time.Duration(i) * time.Second)
+		ev := makeSampleHazard(fmt.Sprintf("haz-batch-%04d", i), fmt.Sprintf("ref-batch-%04d", i), "Jawa Tengah", ts, ts)
+		if err := repo.SaveHazard(ctx, &ev); err != nil {
+			t.Fatalf("SaveHazard %d failed: %v", i, err)
+		}
+	}
+	baseline, err := repo.ComputeAuditChecksum(ctx, nil, "ALL")
+	if err != nil {
+		t.Fatalf("baseline checksum failed: %v", err)
+	}
+
+	// Simulate ruby node wipe (shard-2 primary + shard-1-r1 replica).
+	raw["shard-2"].SetHealthy(false)
+	raw["shard-2"].Wipe()
+	raw["shard-1-r1"].SetHealthy(false)
+	raw["shard-1-r1"].Wipe()
+	raw["shard-2"].SetHealthy(true)
+	raw["shard-1-r1"].SetHealthy(true)
+
+	if err := repo.SyncShardReplicas(ctx); err != nil {
+		t.Fatalf("SyncShardReplicas recovery failed: %v", err)
+	}
+
+	if spies["shard-2"].saveBatchCalls == 0 || spies["shard-1-r1"].saveBatchCalls == 0 {
+		t.Fatalf("expected batched writes on wiped units, got shard-2=%d shard-1-r1=%d",
+			spies["shard-2"].saveBatchCalls, spies["shard-1-r1"].saveBatchCalls)
+	}
+	if spies["shard-2-r1"].getByIDsCalls == 0 || spies["shard-1"].getByIDsCalls == 0 {
+		t.Fatalf("expected batch fetches from surviving peers, got shard-2-r1=%d shard-1=%d",
+			spies["shard-2-r1"].getByIDsCalls, spies["shard-1"].getByIDsCalls)
+	}
+	if got := raw["shard-2"].Count() + raw["shard-1"].Count() + raw["shard-3"].Count(); got != total {
+		t.Fatalf("expected total %d across recovered primaries, got %d", total, got)
+	}
+	after, err := repo.ComputeAuditChecksum(ctx, nil, "ALL")
+	if err != nil || after.Count != baseline.Count || after.Checksum != baseline.Checksum {
+		t.Fatalf("checksum mismatch after recovery: baseline=%+v after=%+v err=%v", baseline, after, err)
+	}
+
+	// Reset spy counters and verify steady-state sync transfers 0 batches/rows.
+	for _, s := range spies {
+		s.getByIDsCalls = 0
+		s.saveBatchCalls = 0
+	}
+	if err := repo.SyncShardReplicas(ctx); err != nil {
+		t.Fatalf("steady-state SyncShardReplicas failed: %v", err)
+	}
+	for name, s := range spies {
+		if s.getByIDsCalls != 0 || s.saveBatchCalls != 0 {
+			t.Fatalf("steady-state sync unit %s had unexpected calls getByIDs=%d saveBatch=%d",
+				name, s.getByIDsCalls, s.saveBatchCalls)
+		}
+	}
+}
+
+func TestSyncShardReplicas_RespectsContextCancellation(t *testing.T) {
+	repo, _, _ := buildThreeNodeShardedRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := repo.SyncShardReplicas(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestSyncShardReplicas_ReconcilesSatelliteCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	repo, backends, _ := buildThreeNodeShardedRepo(t)
+
+	lease, ok, err := repo.AcquireOrRenewSourceLease(ctx, domain.SourceSatelit, "agg-1", 0, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("AcquireOrRenewSourceLease failed: ok=%v err=%v", ok, err)
+	}
+	fence := &domain.WriteFence{
+		LeaseKey:     LeaseKeyForSource(domain.SourceSatelit),
+		Source:       domain.SourceSatelit,
+		HolderID:     "agg-1",
+		FencingToken: lease.FencingToken,
+	}
+	wantCP := SatelliteCheckpoint{
+		Stream:     "satellite",
+		LastOffset: 42,
+		State:      []byte(`{"cells":{"c1":2}}`),
+	}
+	if err := repo.SaveSatelliteCheckpoint(ctx, wantCP, fence); err != nil {
+		t.Fatalf("SaveSatelliteCheckpoint failed: %v", err)
+	}
+
+	backends["shard-1-r1"].Wipe()
+	if got, err := backends["shard-1-r1"].GetSatelliteCheckpoint(ctx, "satellite"); err != nil || got != nil {
+		t.Fatalf("expected wiped shard-1-r1 checkpoint to be nil, got %+v err=%v", got, err)
+	}
+
+	if err := repo.SyncShardReplicas(ctx); err != nil {
+		t.Fatalf("SyncShardReplicas failed: %v", err)
+	}
+
+	restored, err := backends["shard-1-r1"].GetSatelliteCheckpoint(ctx, "satellite")
+	if err != nil || restored == nil {
+		t.Fatalf("expected restored satellite checkpoint on shard-1-r1, got %+v err=%v", restored, err)
+	}
+	if restored.LastOffset != wantCP.LastOffset || string(restored.State) != string(wantCP.State) {
+		t.Fatalf("restored checkpoint mismatch: got %+v want %+v", restored, wantCP)
 	}
 }
