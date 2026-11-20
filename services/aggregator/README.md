@@ -55,6 +55,7 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `SATELLITE_URL` | `https://satellite.naufarrel.dev` |
 | `SATELLITE_GROUP_TOKEN` | Required when enabled; secret, no default. |
 | `SATELLITE_LATENESS_MINUTES` | `360` (event-time watermark) |
+| `SATELLITE_STATE_RETENTION_HOURS` | `48`; fires this far behind the newest acquisition are closed and dropped from memory (minimum: lateness + 360 min) |
 | `SATELLITE_PROVINCE_CENTROIDS_FILE` | Empty. JSON array of `{"name","latitude","longitude"}` reference-province centroids for `area_name`. |
 | `PVMBG_FIELD_ALIASES` | Empty (no renamed fields accepted); `from=to` pairs, comma-separated. |
 | `PVMBG_COERCE_NUMERIC_STRINGS` | `false` |
@@ -109,7 +110,18 @@ Override development credentials through the environment.
   `merged_into`, `severity_before_retire`), because HazardEvent has no lifecycle
   field. Unparseable events are logged with their offset and counted, not
   retried. Progress, lag, and p95 persist latency are logged as
-  `satellite_progress` every 10 s.
+  `satellite_progress` every 10 s and exported on `/metrics` (`satellite_lag_events`,
+  `satellite_last_applied_offset`, `satellite_latest_offset`,
+  `satellite_event_persist_duration_seconds`, fire and disposition counts,
+  `satellite_checkpoint_bytes`, and `satellite_streaming` = 1 on the lease
+  holder), shown in the "Satellite wildfire stream (P4)" Grafana row.
+- Before each checkpoint, fires whose newest detection is more than
+  `SATELLITE_STATE_RETENTION_HOURS` behind the newest acquisition are closed:
+  no new detection can join them, so their detections are dropped from memory
+  and later checkpoints while the stored hazard stays as it is. Updates or
+  retracts that arrive for a closed fire are counted
+  (`satellite_unknown_references`) rather than applied, so the retention must
+  exceed how late the feed revises old detections.
 - Staged field reports from [Client API](../client-api/README.md) arrive on
   `REDPANDA_TOPIC_FIELD_REPORTS` (`bnpb.field-reports`) and are consumed under
   group `CONSUMER_GROUP_FIELD_REPORTS` (`bnpb-aggregator-field-reports`). To

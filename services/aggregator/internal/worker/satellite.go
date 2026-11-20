@@ -13,6 +13,7 @@ import (
 	"bnpb/aggregator/internal/domain"
 	"bnpb/aggregator/internal/repository"
 	"bnpb/aggregator/internal/satellite"
+	"bnpb/aggregator/internal/telemetry"
 )
 
 const (
@@ -22,6 +23,8 @@ const (
 	satelliteRetryWait          = 5 * time.Second
 	satelliteFatalWait          = 60 * time.Second
 	satelliteLatencyWindow      = 1000
+	defaultSatelliteRetention   = 48 * time.Hour
+	satelliteMetricsEvery       = 2 * time.Second
 )
 
 // SatelliteStore persists wildfire hazards and the stream checkpoint. When it also
@@ -47,6 +50,8 @@ type SatelliteStatus struct {
 	P95PersistMillis  float64         `json:"p95_persist_ms"`
 	RejectedEvents    int64           `json:"rejected_events"`
 	ActiveFires       int             `json:"active_fires"`
+	Streaming         bool            `json:"streaming"`
+	CheckpointBytes   int             `json:"checkpoint_bytes"`
 	Engine            satellite.Stats `json:"engine"`
 }
 
@@ -61,6 +66,8 @@ type SatelliteWorker struct {
 	lease              leaseGuard
 	checkpointInterval time.Duration
 	reportInterval     time.Duration
+	retention          time.Duration
+	reg                *telemetry.Registry
 	log                *slog.Logger
 	now                func() time.Time
 
@@ -82,9 +89,25 @@ func NewSatelliteWorker(feed SatelliteFeed, store SatelliteStore, cfg satellite.
 		lease:              newLeaseGuard(store, domain.SourceSatelit, log.With(slog.String("worker", "satellite"))),
 		checkpointInterval: defaultSatelliteCheckpoint,
 		reportInterval:     defaultSatelliteReportEvery,
+		retention:          defaultSatelliteRetention,
 		log:                log.With(slog.String("worker", "satellite")),
 		now:                time.Now,
 	}
+}
+
+// WithRetention sets how far behind the newest acquisition time a fire must fall before
+// it is closed and its detections are dropped from memory and checkpoints.
+func (w *SatelliteWorker) WithRetention(d time.Duration) *SatelliteWorker {
+	if d > 0 {
+		w.retention = d
+	}
+	return w
+}
+
+// WithTelemetry publishes stream progress and per-event latency as Prometheus metrics.
+func (w *SatelliteWorker) WithTelemetry(reg *telemetry.Registry) *SatelliteWorker {
+	w.reg = reg
+	return w
 }
 
 // WithLeaseConfig overrides replica holder identity, lease TTL, and renewal cadence.
@@ -107,11 +130,16 @@ func (w *SatelliteWorker) Status() SatelliteStatus {
 func (w *SatelliteWorker) Start(ctx context.Context) {
 	w.log.Info("starting satellite stream worker", slog.String("holder_id", w.lease.holderID))
 	go w.report(ctx)
+	if w.reg != nil {
+		go w.publishMetrics(ctx)
+	}
 	for {
 		fence, streamCtx, stopRenew, leader, err := w.lease.acquireCycle(ctx)
 		wait := w.lease.renewInterval
 		if err == nil && leader {
+			w.setStreaming(true)
 			err = w.runOnce(streamCtx, fence)
+			w.setStreaming(false)
 			lostLease := streamCtx.Err() != nil && ctx.Err() == nil
 			stopRenew()
 			switch {
@@ -226,10 +254,26 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 }
 
 func (w *SatelliteWorker) checkpoint(ctx context.Context, engine *satellite.Engine, offset int64, fence *domain.WriteFence) error {
+	// Close fires that can no longer grow before snapshotting, so memory and checkpoint
+	// size track the active window instead of the whole stream.
+	if closed, dropped := engine.Evict(w.retention); dropped > 0 {
+		w.mu.Lock()
+		for _, id := range closed {
+			delete(w.active, id)
+		}
+		w.status.ActiveFires = len(w.active)
+		w.status.Engine = engine.Stats()
+		w.mu.Unlock()
+		w.log.Info("satellite_state_evicted", slog.Int("closed_fires", len(closed)), slog.Int("dropped_detections", dropped),
+			slog.Duration("retention", w.retention))
+	}
 	state, err := json.Marshal(engine.Snapshot())
 	if err != nil {
 		return fmt.Errorf("encode satellite checkpoint: %w", err)
 	}
+	w.mu.Lock()
+	w.status.CheckpointBytes = len(state)
+	w.mu.Unlock()
 	err = w.store.SaveSatelliteCheckpoint(ctx, repository.SatelliteCheckpoint{
 		Stream:     satelliteStream,
 		LastOffset: offset,
@@ -242,6 +286,9 @@ func (w *SatelliteWorker) checkpoint(ctx context.Context, engine *satellite.Engi
 }
 
 func (w *SatelliteWorker) observe(engine *satellite.Engine, changes []satellite.Change, offset int64, latency time.Duration) {
+	if w.reg != nil {
+		w.reg.ObserveHistogram("satellite_event_persist_duration_seconds", map[string]string{"service": "aggregator"}, latency.Seconds())
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.latencies = append(w.latencies, latency)
@@ -276,6 +323,48 @@ func (w *SatelliteWorker) p95Locked() float64 {
 	sorted := append([]time.Duration(nil), window...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 	return float64(sorted[(len(sorted)*95-1)/100]) / float64(time.Millisecond)
+}
+
+func (w *SatelliteWorker) setStreaming(on bool) {
+	w.mu.Lock()
+	w.status.Streaming = on
+	w.mu.Unlock()
+}
+
+// publishMetrics exports stream progress as gauges. Only the lease holder streams, so
+// standbys report streaming=0; dashboards take the max across instances.
+func (w *SatelliteWorker) publishMetrics(ctx context.Context) {
+	ticker := time.NewTicker(satelliteMetricsEvery)
+	defer ticker.Stop()
+	labels := map[string]string{"service": "aggregator"}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		st := w.Status()
+		streaming := 0.0
+		if st.Streaming {
+			streaming = 1
+		}
+		for name, v := range map[string]float64{
+			"satellite_streaming":           streaming,
+			"satellite_last_applied_offset": float64(st.LastAppliedOffset),
+			"satellite_latest_offset":       float64(st.LatestOffset),
+			"satellite_lag_events":          float64(st.LagEvents),
+			"satellite_active_fires":        float64(st.ActiveFires),
+			"satellite_closed_fires":        float64(st.Engine.ClosedFires),
+			"satellite_singletons":          float64(st.Engine.Singletons),
+			"satellite_late_detections":     float64(st.Engine.Late),
+			"satellite_unknown_references":  float64(st.Engine.Unknown),
+			"satellite_rejected_events":     float64(st.RejectedEvents),
+			"satellite_checkpoint_bytes":    float64(st.CheckpointBytes),
+			"satellite_p95_persist_seconds": st.P95PersistMillis / 1000,
+		} {
+			w.reg.SetGauge(name, labels, v)
+		}
+	}
 }
 
 // report refreshes the feed's latest offset and logs progress so processing lag is visible.

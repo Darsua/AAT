@@ -88,6 +88,8 @@ type Stats struct {
 	Late          int `json:"late_beyond_watermark"`
 	Unknown       int `json:"unknown_detection"`
 	Singletons    int `json:"singletons"`
+	ClosedFires   int `json:"closed_fires,omitempty"`
+	Evicted       int `json:"evicted_detections,omitempty"`
 }
 
 type component struct {
@@ -142,6 +144,63 @@ func (e *Engine) Watermark() time.Time {
 		return time.Time{}
 	}
 	return e.maxEventTime.Add(-e.cfg.Lateness)
+}
+
+// MinRetention is the shortest safe Evict horizon: a new detection is accepted only
+// within Lateness of the newest acquisition and links only within MaxGap, so a
+// component whose newest detection is older than both can never grow again.
+func (e *Engine) MinRetention() time.Duration { return e.cfg.Lateness + e.cfg.MaxGap }
+
+// Evict closes components whose newest detection is more than horizon behind the newest
+// acquisition time, dropping their detections from memory and from later snapshots.
+// Their fires are final and stay persisted as they are; singletons stay counted. A
+// horizon below MinRetention is raised to it. Updates or retracts that later name an
+// evicted detection count as unknown, and a re-delivered one counts as late. It
+// returns the IDs of the fires it closed and the number of detections dropped.
+func (e *Engine) Evict(horizon time.Duration) (closed []string, dropped int) {
+	if e.maxEventTime.IsZero() {
+		return nil, 0
+	}
+	if min := e.MinRetention(); horizon < min {
+		horizon = min
+	}
+	cutoff := e.maxEventTime.Add(-horizon)
+	newest := make(map[*component]time.Time)
+	for k, c := range e.compOf {
+		if t := e.detections[k].acquired; t.After(newest[c]) {
+			newest[c] = t
+		}
+	}
+	for c, t := range newest {
+		if !t.Before(cutoff) {
+			continue
+		}
+		if c.id != "" && len(c.keys) >= minFireDetections {
+			e.stats.ClosedFires++
+			closed = append(closed, c.id)
+		}
+		for k := range c.keys {
+			e.unindex(e.detections[k])
+			delete(e.detections, k)
+			delete(e.compOf, k)
+			dropped++
+		}
+	}
+	for k, d := range e.low {
+		if d.acquired.Before(cutoff) {
+			delete(e.low, k)
+			dropped++
+		}
+	}
+	for k, d := range e.late {
+		if d.acquired.Before(cutoff) {
+			delete(e.late, k)
+			dropped++
+		}
+	}
+	e.stats.Evicted += dropped
+	sort.Strings(closed)
+	return closed, dropped
 }
 
 // Stats returns disposition counters.
