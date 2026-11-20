@@ -1,0 +1,71 @@
+=== Scenario 3: kill-leader (2026-11-20T15:42:47Z) ===
+
+--- Pre-scenario aggregator pods, leader_leases, source_fences ---
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp   1/1     Running   0          19m   10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd   1/1     Running   0          21m   10.42.2.68   aqua    <none>           <none>
+aggregator-796c9f59fd-vlbnp   1/1     Running   0          22m   10.42.3.54   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:42:45.308272+00 | 2026-11-20 15:43:00.308272+00
+ source:PVMBG         | aggregator-796c9f59fd-vlbnp |           345 | 2026-11-20 15:42:41.558278+00 | 2026-11-20 15:42:56.558279+00
+ source:SATELIT       | aggregator-796c9f59fd-vlbnp |            11 | 2026-11-20 15:42:44.010103+00 | 2026-11-20 15:42:59.010103+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:42:45.666545+00 | 2026-11-20 15:43:00.666545+00
+ source:SYNC          | aggregator-796c9f59fd-vlbnp |            26 | 2026-11-20 15:42:47.4384+00   | 2026-11-20 15:43:47.4384+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:42:45.928184+00
+ PVMBG         |               345 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:42:48.044528+00
+ SATELIT       |                11 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:42:47.430244+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:42:48.157372+00
+ SYNC          |                26 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:42:47.495102+00
+(5 rows)
+
+
+--- Trigger: /app run practice kill-leader (started_at=2026-11-20T15:42:48Z) ---
+Latihan "kill-leader": 1 langkah
+  - t+5s stop_pod role=aggregator nodes=any
+Permintaan 449c8e9d011b dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+command_exit_code=0
+
+--- Waiting for scenario completion in tester-agent logs ---
+[tester-agent-rgrbm / ruby]
+{"seq":12,"ts":"2026-11-20T15:42:52Z","action":"[L] langkah 1 mulai: stop_pod role=aggregator nodes=any","prev":"01a2682b0e3c632064de677359fa206bb092eab69700639bab6140f20c617dae","mac":"ec23b18ad12afd10fdee462247df7fab1f6f8806aedd44469ccc52e6bdeb75a4"}
+{"seq":13,"ts":"2026-11-20T15:42:52Z","action":"[L] pod aggregator-796c9f59fd-vlbnp (role=aggregator) pada node ruby dihentikan","prev":"0eb57f9916074055736cbfae24159f3000b001bdd5661698239da8a95895d06b","mac":"0c37d1e095b80ae23a7700fc0131e626bea1eab68f29897e8bac9025fcccb44e"}
+{"seq":14,"ts":"2026-11-20T15:42:52Z","action":"[L] langkah 1 selesai","prev":"6cc50e2ab94db5db0e517b55fec95586d2fb8aeb4e037a9797b2dfa7c63a1d1c","mac":"7394baf9ad83132fd6f8b686f43811e71473b791a9ba03fe3ec5031cfbfaabed"}
+{"seq":15,"ts":"2026-11-20T15:42:52Z","action":"[L] skenario selesai","prev":"80dd37242d50b5ab57817fd0670b5d95e2278eb6405f1d7e6812c886afc23439","mac":"4a31af14e8a4b4eb3b6642886c4edb51802c29e6c2e0f67d7137d333c1c75258"}
+{"seq":16,"ts":"2026-11-20T15:42:52Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"35180b967e5e818764c4e219129671e06f8e6d49a05d758e4ae87635678fa77d","mac":"82c3cd90ddd351575495bfc82477f39b924578d25a2611a13ce82d3d869f8d58"}
+
+--- Waiting for aggregator pods Ready + 12s lease failover check ---
+pod/aggregator-796c9f59fd-6h48d condition met
+pod/aggregator-796c9f59fd-9rmrp condition met
+pod/aggregator-796c9f59fd-jrzrd condition met
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-6h48d   1/1     Running   0          19s   10.42.3.56   ruby    <none>           <none>
+aggregator-796c9f59fd-9rmrp   1/1     Running   0          19m   10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd   1/1     Running   0          22m   10.42.2.68   aqua    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:43:13.775958+00 | 2026-11-20 15:43:28.775958+00
+ source:PVMBG         | aggregator-796c9f59fd-jrzrd |           346 | 2026-11-20 15:43:13.939792+00 | 2026-11-20 15:43:28.939792+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:43:12.590007+00 | 2026-11-20 15:43:27.590007+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:43:13.768598+00 | 2026-11-20 15:43:28.768598+00
+ source:SYNC          | aggregator-796c9f59fd-vlbnp |            26 | 2026-11-20 15:42:52.69309+00  | 2026-11-20 15:42:54.398698+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:43:14.601652+00
+ PVMBG         |               346 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:43:13.984458+00
+ SATELIT       |                12 | aggregator-796c9f59fd-6h48d | 2026-11-20 15:43:15.09373+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:43:14.135292+00
+ SYNC          |                26 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:42:52.728216+00
+(5 rows)
+
+--- Public API check (GET /api/v1/hazards?limit=5) ---
+HTTP 200
+meta= {'total': 64044, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+--- Audit checksum check ---
+{"source":"ALL","count":64044,"checksum":"6c7464dae250fdaeb71599825d39cb3fc06bcd748ca058c5f98815d5a2684418","algorithm":"sha256","as_of":"2026-11-20T15:43:20.344726811Z","partial":false,"unavailable_units":[]}

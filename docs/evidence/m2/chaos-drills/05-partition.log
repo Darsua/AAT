@@ -1,0 +1,200 @@
+=== Scenario 5: partition (2026-11-20T15:44:53Z) ===
+
+--- Pre-scenario leader_leases, source_fences & checksum ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:44:51.541532+00 | 2026-11-20 15:45:06.541532+00
+ source:PVMBG         | aggregator-796c9f59fd-jrzrd |           346 | 2026-11-20 15:44:52.830025+00 | 2026-11-20 15:45:07.830025+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:44:52.543103+00 | 2026-11-20 15:45:07.543103+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:44:52.491586+00 | 2026-11-20 15:45:07.491586+00
+ source:SYNC          | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:44:53.082149+00 | 2026-11-20 15:45:53.082149+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:44:52.040537+00
+ PVMBG         |               346 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:44:52.882091+00
+ SATELIT       |                12 | aggregator-796c9f59fd-6h48d | 2026-11-20 15:44:53.980148+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:44:52.689618+00
+ SYNC          |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:44:53.103957+00
+(5 rows)
+
+{"source":"ALL","count":64075,"checksum":"d4e08adee2f99a410a1076188f828409f45852d52b35c90905857e7a2b9d3ed2","algorithm":"sha256","as_of":"2026-11-20T15:44:57.056167539Z","partial":false,"unavailable_units":[]}
+
+
+--- Trigger: /app run practice partition (started_at=2026-11-20T15:44:57Z) ---
+Latihan "partition": 1 langkah
+  - t+5s block_internode role= nodes=all
+Permintaan f6575ebc5312 dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+command_exit_code=0
+
+--- Waiting for partition inject + heal in tester-agent logs (and probing API during partition) ---
+[tester-agent-8rv96 / akane]
+{"seq":1,"ts":"2026-11-20T15:44:58Z","action":"[L] skenario \"partition\" (practice) mulai; 1 langkah","prev":"","mac":"582874fcba4a28150bfcb7ac6f47f38ba3ca6b56ae26848caf3b8c8911a4e2c2"}
+{"seq":2,"ts":"2026-11-20T15:45:03Z","action":"[L] langkah 1 mulai: block_internode selama 30s","prev":"38fd65cb8f680258aae53af86af6309e956d7814733798da04e11e01125f2de7","mac":"dc4655cb311ee4d9aa791839b3049b889189637498536014596e044888090ec6"}
+{"seq":3,"ts":"2026-11-20T15:45:03Z","action":"[L] langkah 1 gagal: biner iptables tidak ditemukan di host (/host/sbin, /host/usr/sbin, dsb)","prev":"27460832f81065b0d26c03d1b6405fe01d99d85977cf5713cbc66737506adc50","mac":"54c100a15e7c916ea32826e0df043d9261adc1ac99646febc11c4b7f740b36ee"}
+{"seq":4,"ts":"2026-11-20T15:45:03Z","action":"[L] skenario selesai","prev":"1ef04ece02fbfb7c654fbb73db295f75c1e0984daca5e1cc3fc5373b65427be5","mac":"b8993283298d2507a8216cd7f0484f1a6137be45eae09eb4cf788e42132027d4"}
+{"seq":5,"ts":"2026-11-20T15:45:03Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"adfcb08081f1eecb7438af7db1e63f63ca11b209ee86572f257b79d99fc5a7a0","mac":"d3c932d6c543297b52fc296f89fe719326a64d60476a4da90a4143eaecff376b"}
+[tester-agent-rgrbm / ruby]
+{"seq":24,"ts":"2026-11-20T15:45:01Z","action":"[L] langkah 1 mulai: block_internode selama 30s","prev":"748204ade233647c0798a92407d75990f2b57a66727da91822f6fbe5c3d10807","mac":"6bb90adef3ee50b23193e96d3e748347ee583902b5bfe963686f195fc3c86535"}
+{"seq":25,"ts":"2026-11-20T15:45:01Z","action":"[L] langkah 1 gagal: biner iptables tidak ditemukan di host (/host/sbin, /host/usr/sbin, dsb)","prev":"71f263d640fc6eeb9a86b31adc73b4692ef3772237b5be250551542e7f62489d","mac":"d288cf1c7c8e1dae8f6708ae5e5f3ffb9ba9a3f428e6b2228b89294fe83fa41f"}
+{"seq":26,"ts":"2026-11-20T15:45:01Z","action":"[L] skenario selesai","prev":"46f69896e3163e096dd521b8b440f50256854eafc3a6d911fb465e480525ff61","mac":"c045566e331c495d6025369addea119268bd751d863a2791f877a52cc4618cf3"}
+{"seq":27,"ts":"2026-11-20T15:45:01Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"aa11c330a75fd4cab14f60ffcaf7f71a90c84941e33d58e0cd4863d7d5ca67fc","mac":"894bbbb5e6a984748375abac978cc8993511a2c071b00c5ce039ba84f60268d0"}
+
+--- Waiting 15s for post-partition lease & shard convergence ---
+NAME                                   READY   STATUS      RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-6h48d            1/1     Running     0               2m28s   10.42.3.56   ruby    <none>           <none>
+aggregator-796c9f59fd-9rmrp            1/1     Running     0               22m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            1/1     Running     0               24m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running     0               6h40m   10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running     0               24m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running     0               24m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-fhgrq    1/1     Running     0               64m     10.42.3.52   ruby    <none>           <none>
+dashboard-consumer-555c7f744c-qt948    1/1     Running     0               64m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running     0               6h40m   10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running     0               6h40m   10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-6mw7v     1/1     Running     0               6h8m    10.42.3.43   ruby    <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     1/1     Running     0               6h8m    10.42.0.51   akane   <none>           <none>
+redpanda-0                             1/1     Running     0               6h40m   10.42.3.33   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed   0               6h40m   10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running     1 (14m ago)     6h51m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running     0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running     1 (6h59m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           1/1     Running     0               87s     10.42.3.57   ruby    <none>           <none>
+summarizer-consumer-55f598478b-4nlms   1/1     Running     0               64m     10.42.3.51   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:45:19.346073+00 | 2026-11-20 15:45:34.346073+00
+ source:PVMBG         | aggregator-796c9f59fd-jrzrd |           346 | 2026-11-20 15:45:19.942774+00 | 2026-11-20 15:45:34.942774+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:45:22.499247+00 | 2026-11-20 15:45:37.499247+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:45:22.883772+00 | 2026-11-20 15:45:37.883773+00
+ source:SYNC          | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:45:23.101055+00 | 2026-11-20 15:46:23.101055+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:45:23.969167+00
+ PVMBG         |               346 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:45:21.846343+00
+ SATELIT       |                12 | aggregator-796c9f59fd-6h48d | 2026-11-20 15:45:22.973167+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:45:23.108379+00
+ SYNC          |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:45:23.156812+00
+(5 rows)
+
+--- Post-recovery Audit API checksum & Public API ---
+{"source":"ALL","count":64083,"checksum":"8b5a187ea78a96eb7da4544e8be4f2f2eba71bb7715262521beba33413712263","algorithm":"sha256","as_of":"2026-11-20T15:45:23.535922147Z","partial":false,"unavailable_units":[]}
+
+Post-recovery Public API HTTP 200
+meta= {'total': 64083, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+
+
+
+# === Live 35s Inter-Node Network Partition Drill (isolating akane 10.5.27.242 from aqua 10.5.27.240 & ruby 10.5.27.241) ===
+started_at=2026-11-20T15:51:48Z
+--- Pre-partition state ---
+NAME                          READY   STATUS    RESTARTS       AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-6h48d   1/1     Running   0              8m54s   10.42.3.56   ruby    <none>           <none>
+aggregator-796c9f59fd-9rmrp   1/1     Running   0              28m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd   1/1     Running   0              30m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn         1/1     Running   0              6h46m   10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg    1/1     Running   0              31m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8    1/1     Running   0              31m     10.42.0.59   akane   <none>           <none>
+store-akane-0                 1/1     Running   0              2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                  1/1     Running   1 (7h5m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                  1/1     Running   0              7m53s   10.42.3.57   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          expires_at           |              now
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-6h48d |           351 | 2026-11-20 15:52:03.672159+00 | 2026-11-20 15:51:49.091125+00
+ source:PVMBG         | aggregator-796c9f59fd-6h48d |           347 | 2026-11-20 15:51:59.577296+00 | 2026-11-20 15:51:49.091125+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:52:02.526996+00 | 2026-11-20 15:51:49.091125+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            28 | 2026-11-20 15:52:02.500928+00 | 2026-11-20 15:51:49.091125+00
+ source:SYNC          | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:52:33.399528+00 | 2026-11-20 15:51:49.091125+00
+(5 rows)
+
+    source     |          holder_id          | max_fencing_token |          updated_at
+---------------+-----------------------------+-------------------+-------------------------------
+ BMKG          | aggregator-796c9f59fd-6h48d |               351 | 2026-11-20 15:51:48.742518+00
+ PVMBG         | aggregator-796c9f59fd-6h48d |               347 | 2026-11-20 15:51:46.278812+00
+ SATELIT       | aggregator-796c9f59fd-6h48d |                12 | 2026-11-20 15:51:47.574793+00
+ SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |                28 | 2026-11-20 15:51:47.672726+00
+ SYNC          | aggregator-796c9f59fd-jrzrd |                27 | 2026-11-20 15:51:33.432904+00
+(5 rows)
+
+pre_checksum={"source":"ALL","count":64198,"checksum":"38a8d2d49e4769e565cfecdf97581db70b65613b5a17ec4292fd3523f1b4cdc2","algorithm":"sha256","as_of":"2026-11-20T15:51:49.466004628Z","partial":false,"unavailable_units":[]}
+pre_public http=200
+ meta= {'total': 64198, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+--- Applying 35s bidirectional iptables partition on akane (blocking 10.5.27.240 & 10.5.27.241) ---
+partition_active_utc=2026-11-20T15:51:51Z
+-A INPUT -s 10.5.27.241/32 -j DROP
+-A INPUT -s 10.5.27.240/32 -j DROP
+-A OUTPUT -d 10.5.27.241/32 -j DROP
+-A OUTPUT -d 10.5.27.240/32 -j DROP
+akane_to_aqua_ping=blocked
+--- Mid-partition probes (~t+18s, partition active until ~t+35s, UTC=2026-11-20T15:52:11Z) ---
+mid_checksum_1={"source":"ALL","count":64198,"checksum":"38a8d2d49e4769e565cfecdf97581db70b65613b5a17ec4292fd3523f1b4cdc2","algorithm":"sha256","as_of":"2026-11-20T15:52:12.408922616Z","partial":true,"unavailable_units":["shard-2-r1","shard-3"]}  __CODE__:200
+mid_public_1 http=000
+ curl: (28) Operation timed out after 4004 milliseconds with 0 bytes received
+
+mid_public_2 http=000
+ curl: (28) Operation timed out after 4004 milliseconds with 0 bytes received
+
+mid_public_3 http=000
+ curl: (28) Operation timed out after 4004 milliseconds with 0 bytes received
+
+      lease_key       |          holder_id          | fencing_token |          expires_at           |              now
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-jrzrd |           352 | 2026-11-20 15:52:31.581741+00 | 2026-11-20 15:52:26.607758+00
+ source:PVMBG         | aggregator-796c9f59fd-jrzrd |           348 | 2026-11-20 15:52:30.263694+00 | 2026-11-20 15:52:26.607758+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:52:34.967126+00 | 2026-11-20 15:52:26.607758+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-6h48d |            29 | 2026-11-20 15:52:27.364642+00 | 2026-11-20 15:52:26.607758+00
+ source:SYNC          | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:53:25.477745+00 | 2026-11-20 15:52:26.607758+00
+(5 rows)
+
+    source     |          holder_id          | max_fencing_token |          updated_at
+---------------+-----------------------------+-------------------+-------------------------------
+ BMKG          | aggregator-796c9f59fd-jrzrd |               352 | 2026-11-20 15:52:16.603757+00
+ PVMBG         | aggregator-796c9f59fd-jrzrd |               348 | 2026-11-20 15:52:15.295474+00
+ SATELIT       | aggregator-796c9f59fd-6h48d |                12 | 2026-11-20 15:52:19.996054+00
+ SENSOR_PANTAI | aggregator-796c9f59fd-6h48d |                29 | 2026-11-20 15:52:12.394144+00
+ SYNC          | aggregator-796c9f59fd-jrzrd |                27 | 2026-11-20 15:52:25.521092+00
+(5 rows)
+
+--- Post-heal verification (~t+50s, UTC=2026-11-20T15:52:52Z) ---
+partition_active_utc=2026-11-20T15:51:51Z
+-A INPUT -s 10.5.27.241/32 -j DROP
+-A INPUT -s 10.5.27.240/32 -j DROP
+-A OUTPUT -d 10.5.27.241/32 -j DROP
+-A OUTPUT -d 10.5.27.240/32 -j DROP
+akane_to_aqua_ping=blocked
+partition_healed_utc=2026-11-20T15:52:27Z
+iptables_clean=true
+NAME                          READY   STATUS    RESTARTS       AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-6h48d   1/1     Running   0              10m     10.42.3.56   ruby    <none>           <none>
+aggregator-796c9f59fd-9rmrp   1/1     Running   0              29m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd   1/1     Running   0              32m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn         1/1     Running   0              6h47m   10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg    1/1     Running   0              32m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8    1/1     Running   0              32m     10.42.0.59   akane   <none>           <none>
+store-akane-0                 1/1     Running   0              2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                  1/1     Running   1 (7h6m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                  1/1     Running   0              8m59s   10.42.3.57   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          expires_at           |              now
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           353 | 2026-11-20 15:53:06.581994+00 | 2026-11-20 15:52:55.191911+00
+ source:PVMBG         | aggregator-796c9f59fd-6h48d |           349 | 2026-11-20 15:53:10.055464+00 | 2026-11-20 15:52:55.191911+00
+ source:SATELIT       | aggregator-796c9f59fd-6h48d |            12 | 2026-11-20 15:53:07.531359+00 | 2026-11-20 15:52:55.191911+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-6h48d |            30 | 2026-11-20 15:53:08.668292+00 | 2026-11-20 15:52:55.191911+00
+ source:SYNC          | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:53:53.102602+00 | 2026-11-20 15:52:55.191911+00
+(5 rows)
+
+    source     |          holder_id          | max_fencing_token |          updated_at
+---------------+-----------------------------+-------------------+-------------------------------
+ BMKG          | aggregator-796c9f59fd-9rmrp |               353 | 2026-11-20 15:52:52.041243+00
+ PVMBG         | aggregator-796c9f59fd-6h48d |               349 | 2026-11-20 15:52:51.637168+00
+ SATELIT       | aggregator-796c9f59fd-6h48d |                12 | 2026-11-20 15:52:52.566861+00
+ SENSOR_PANTAI | aggregator-796c9f59fd-6h48d |                30 | 2026-11-20 15:52:54.904125+00
+ SYNC          | aggregator-796c9f59fd-jrzrd |                27 | 2026-11-20 15:52:53.156366+00
+(5 rows)
+
+post_checksum={"source":"ALL","count":64214,"checksum":"25926405951c0b463877247a6f69cf40a4c27f063c5a29e3138748aa3c7dfd6b","algorithm":"sha256","as_of":"2026-11-20T15:52:55.305203334Z","partial":false,"unavailable_units":[]}
+post_public http=200
+ meta= {'total': 64217, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5

@@ -1,0 +1,100 @@
+=== Scenario 1: clock-skew (2026-11-20T15:31:09Z) ===
+
+--- Pre-scenario pods & leases ---
+NAME                                   READY   STATUS      RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp            1/1     Running     0               7m49s   10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            1/1     Running     0               10m     10.42.2.68   aqua    <none>           <none>
+aggregator-796c9f59fd-vlbnp            1/1     Running     0               10m     10.42.3.54   ruby    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running     0               6h26m   10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running     0               10m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running     0               10m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-fhgrq    1/1     Running     0               50m     10.42.3.52   ruby    <none>           <none>
+dashboard-consumer-555c7f744c-qt948    1/1     Running     0               50m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running     0               6h26m   10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running     0               6h26m   10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-6mw7v     1/1     Running     0               5h54m   10.42.3.43   ruby    <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     1/1     Running     0               5h54m   10.42.0.51   akane   <none>           <none>
+redpanda-0                             1/1     Running     0               6h26m   10.42.3.33   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed   0               6h25m   10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running     1 (11s ago)     6h37m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running     0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running     1 (6h45m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           1/1     Running     0               3d10h   10.42.3.23   ruby    <none>           <none>
+summarizer-consumer-55f598478b-4nlms   1/1     Running     0               50m     10.42.3.51   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:31:07.944312+00 | 2026-11-20 15:31:22.944312+00
+ source:PVMBG         | aggregator-796c9f59fd-vlbnp |           345 | 2026-11-20 15:31:04.896748+00 | 2026-11-20 15:31:19.896748+00
+ source:SATELIT       | aggregator-796c9f59fd-vlbnp |            11 | 2026-11-20 15:31:08.933962+00 | 2026-11-20 15:31:23.933962+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:31:08.945308+00 | 2026-11-20 15:31:23.945308+00
+ source:SYNC          | aggregator-796c9f59fd-vlbnp |            26 | 2026-11-20 15:30:52.712028+00 | 2026-11-20 15:31:52.712028+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:31:12.662854+00
+ PVMBG         |               345 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:31:12.730346+00
+ SATELIT       |                11 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:31:08.9753+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:31:13.722299+00
+ SYNC          |                26 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:30:47.455236+00
+(5 rows)
+
+
+--- Trigger: /app run practice clock-skew (started_at=2026-11-20T15:31:14Z) ---
+Latihan "clock-skew": 1 langkah
+  - t+5s shift_clock role= nodes=any
+Permintaan 7177a369edce dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+command_exit_code=0
+
+--- Waiting for scenario completion in tester-agent logs ---
+[tester-agent-rgrbm / ruby]
+{"seq":1,"ts":"2026-11-20T15:31:14Z","action":"[L] skenario \"clock-skew\" (practice) mulai; 1 langkah","prev":"","mac":"4e71f469f47f14e30682017bd139ea95e96c358d67b7fdab014affcbbed46f7a"}
+{"seq":2,"ts":"2026-11-20T15:31:19Z","action":"[L] langkah 1 mulai: shift_clock +300s selama 30s nodes=any","prev":"61147edbfbda03f5e2a22095e4e73a99657c1dbb33c6f11693dcc8b6c7d9ecd4","mac":"88bcb13f97439c6c3a7dae841457a0609d806ac92c60b408a9b3ba9dd7e7ac8f"}
+{"seq":3,"ts":"2026-11-20T15:31:49Z","action":"[L] langkah 1 selesai","prev":"73c5a4c05f5fe27d5565b45319f31c60fbc6de8c0f3bcafd48b59040c02dc26c","mac":"ec4bb748f0fd0affb58b75d62f3dd07a20c788fad082425f01ec313a37363958"}
+{"seq":4,"ts":"2026-11-20T15:31:49Z","action":"[L] skenario selesai","prev":"77caff41464d306d05a5b762df7d1d2d1a94ffa829e7dd8b6f4c199944fc449b","mac":"8c593ff6c05eae78a768d47fb2ff38c4bc845d07e8f4cdd694aee82937f0a11b"}
+{"seq":5,"ts":"2026-11-20T15:31:49Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"8ed01c446c371b8b7d5bcf23a781e6c7802428af2e183f38f1b576b16a95d53e","mac":"ed0d8bcaafb96e86891323895a7661794e506126f33f7c69e2741ec47e5385a7"}
+
+--- Post-scenario recovery verification ---
+NAME                                   READY   STATUS      RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp            1/1     Running     0               8m42s   10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            1/1     Running     0               11m     10.42.2.68   aqua    <none>           <none>
+aggregator-796c9f59fd-vlbnp            1/1     Running     0               11m     10.42.3.54   ruby    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running     0               6h26m   10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running     0               11m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running     0               11m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-fhgrq    1/1     Running     0               51m     10.42.3.52   ruby    <none>           <none>
+dashboard-consumer-555c7f744c-qt948    1/1     Running     0               51m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running     0               6h26m   10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running     0               6h26m   10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-6mw7v     1/1     Running     0               5h55m   10.42.3.43   ruby    <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     1/1     Running     0               5h55m   10.42.0.51   akane   <none>           <none>
+redpanda-0                             1/1     Running     0               6h27m   10.42.3.33   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed   0               6h26m   10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running     1 (64s ago)     6h37m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running     0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running     1 (6h46m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           1/1     Running     0               3d10h   10.42.3.23   ruby    <none>           <none>
+summarizer-consumer-55f598478b-4nlms   1/1     Running     0               51m     10.42.3.51   ruby    <none>           <none>
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-796c9f59fd-9rmrp |           350 | 2026-11-20 15:32:00.378741+00 | 2026-11-20 15:32:15.378741+00
+ source:PVMBG         | aggregator-796c9f59fd-vlbnp |           345 | 2026-11-20 15:32:02.674763+00 | 2026-11-20 15:32:17.674763+00
+ source:SATELIT       | aggregator-796c9f59fd-vlbnp |            11 | 2026-11-20 15:31:58.909701+00 | 2026-11-20 15:32:13.909701+00
+ source:SENSOR_PANTAI | aggregator-796c9f59fd-jrzrd |            27 | 2026-11-20 15:31:54.931172+00 | 2026-11-20 15:32:09.931172+00
+ source:SYNC          | aggregator-796c9f59fd-vlbnp |            26 | 2026-11-20 15:31:52.524104+00 | 2026-11-20 15:32:52.524104+00
+(5 rows)
+
+    source     | max_fencing_token |          holder_id          |          updated_at
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               350 | aggregator-796c9f59fd-9rmrp | 2026-11-20 15:32:00.85946+00
+ PVMBG         |               345 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:32:02.714368+00
+ SATELIT       |                11 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:31:58.938797+00
+ SENSOR_PANTAI |                27 | aggregator-796c9f59fd-jrzrd | 2026-11-20 15:31:54.95318+00
+ SYNC          |                26 | aggregator-796c9f59fd-vlbnp | 2026-11-20 15:31:52.57301+00
+(5 rows)
+
+--- Public API check (GET /api/v1/hazards?limit=5) ---
+HTTP 200
+meta= {'total': 63808, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+--- Audit checksum check ---
+{"source":"ALL","count":63809,"checksum":"8c807b28012019a48c541bc1747bb990407de672ce4f04a40a3df10088eb35a4","algorithm":"sha256","as_of":"2026-11-20T15:32:05.861183124Z","partial":false,"unavailable_units":[]}

@@ -1,0 +1,88 @@
+=== Scenario 2: schema (2026-11-20T15:32:24Z) ===
+
+--- Pre-scenario DLQ & audit unprocessed check ---
+{"items":[],"next_cursor":null}
+
+
+--- Trigger: /app run practice schema (started_at=2026-11-20T15:32:24Z) ---
+Latihan "schema": 1 langkah
+  - t+5s call_mock_admin role= nodes=
+Permintaan 50dd513e6dbd dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+command_exit_code=0
+
+--- Waiting for scenario completion in tester-agent logs ---
+[tester-agent-rgrbm / ruby]
+{"seq":2,"ts":"2026-11-20T15:31:19Z","action":"[L] langkah 1 mulai: shift_clock +300s selama 30s nodes=any","prev":"61147edbfbda03f5e2a22095e4e73a99657c1dbb33c6f11693dcc8b6c7d9ecd4","mac":"88bcb13f97439c6c3a7dae841457a0609d806ac92c60b408a9b3ba9dd7e7ac8f"}
+{"seq":7,"ts":"2026-11-20T15:32:28Z","action":"[L] langkah 1 mulai: call_mock_admin POST /admin/schema-version","prev":"1f94d8bf6bd4c599af92bca5d43900bfa6686182c1692b4a2e221f8ac70152a2","mac":"fc9e3c6e8189fba65e7199ee9879e2c1bcb7dfddc60914fe5623d9f4db40e6ce"}
+{"seq":8,"ts":"2026-11-20T15:32:28Z","action":"[L] langkah 1 gagal: Post \"http://10.43.41.97:8081/admin/schema-version\": dial tcp 10.43.41.97:8081: connect: connection refused","prev":"71ffd1cf3ab7ad10be5a03dcdc10ff84e12ff08ddc373e954a88a075b97bfca9","mac":"dec7341957ac0ed88bb99327f992b67c30d673cb8b5b8ef72ddba92cfdf0d487"}
+{"seq":9,"ts":"2026-11-20T15:32:28Z","action":"[L] skenario selesai","prev":"137fb374be56907aa868b68ae1c0d5864170246af7055861b77b48c2ef1501c5","mac":"8a88b28fdf89c774a94aef3bbc022444260e9c76a2f493ef85790157cb6f7b93"}
+{"seq":10,"ts":"2026-11-20T15:32:28Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"47018ef1ace9d64a8d7512deedc1f51f1fbc130a3c750cbf95d35fd738948100","mac":"e226c2c1e2f5fad208bc921e3fa8c9e6e527ad80074942642915dcc9b98574b4"}
+
+--- Post-scenario DLQ & Audit API verification ---
+GET /internal/audit/unprocessed?source=PVMBG:
+{"items":[],"next_cursor":null}
+
+GET /internal/audit/checksum:
+{"source":"ALL","count":63818,"checksum":"cd9d8f9d2682ce58a322164d07c3c70abf4bc45df4cbba3275f934f7c1c7ad37","algorithm":"sha256","as_of":"2026-11-20T15:32:43.71982257Z","partial":false,"unavailable_units":[]}
+
+
+--- dlq_messages across shards (bnpb_shard_1, bnpb_shard_2, bnpb_shard_3) ---
+[store-aqua-0 / bnpb_shard_1]
+ message_id | source | status | attempts | reason_prefix | received_at
+------------+--------+--------+----------+---------------+-------------
+(0 rows)
+
+[store-ruby-0 / bnpb_shard_2]
+ message_id | source | status | attempts | reason_prefix | received_at
+------------+--------+--------+----------+---------------+-------------
+(0 rows)
+
+[store-akane-0 / bnpb_shard_3]
+ message_id | source | status | attempts | reason_prefix | received_at
+------------+--------+--------+----------+---------------+-------------
+(0 rows)
+
+
+--- mock-pvmbg & aggregator schema recovery check ---
+
+=== Live Contract-Authenticated M2 P3 Schema Drill (2026-11-20T15:41:48Z) ===
+Note: tester-agent 'practice schema' sent unauthenticated POST {"version":2} to first role=mock Service (mock-bmkg:8081) from hostNetwork.
+Testing documented contract endpoint POST http://mock-pvmbg:8082/admin/schema-version with Bearer PVMBG_TOKEN:
+
+--- 1. Switch mock-pvmbg to incompatible mode: rename_field ---
+{"include_confidence_level":true,"message":"Dynamic schema updated successfully","mode":"rename_field","status":"updated"}
+
+--- Polling under rename_field for 15s (Aggregator strict policy) ---
+--- 2. Inspect Audit API /internal/audit/unprocessed?source=PVMBG ---
+{"items":[{"message_id":"pvmbg-68048b74fe4e64b4f6d236cbb369f08e","source":"PVMBG","received_at":"2026-11-20T15:41:52.198216Z","reason":"schema_incompatible: missing required field 'report_id'","retryable":false,"attempts":1,"status":"parked"},{"message_id":"pvmbg-4dd5732e0b9341968259ba7fa7d6b43b","source":"PVMBG","received_at":"2026-11-20T15:41:52.352647Z","reason":"schema_incompatible: missing required field 'report_id'","retryable":false,"attempts":1,"status":"parked"},{"message_id":"pvmbg-b4db3622942a215487f86c0bbcc57835","source":"PVMBG","received_at":"2026-11-20T15:41:52.38098Z","reason":"schema_incompatible: missing required field 'report_id'","retryable":false,"attempts":1,"status":"parked"}],"next_cursor":null}
+
+--- 3. Inspect dlq_messages across shards ---
+[store-aqua-0 / bnpb_shard_1]
+ message_id | source | status | attempts | reason_prefix | received_at
+------------+--------+--------+----------+---------------+-------------
+(0 rows)
+
+[store-ruby-0 / bnpb_shard_2]
+ message_id | source | status | attempts | reason_prefix | received_at
+------------+--------+--------+----------+---------------+-------------
+(0 rows)
+
+[store-akane-0 / bnpb_shard_3]
+               message_id               | source | status | attempts |                      reason_prefix                      |          received_at
+----------------------------------------+--------+--------+----------+---------------------------------------------------------+-------------------------------
+ pvmbg-b4db3622942a215487f86c0bbcc57835 | PVMBG  | parked |        1 | schema_incompatible: missing required field 'report_id' | 2026-11-20 15:41:52.38098+00
+ pvmbg-4dd5732e0b9341968259ba7fa7d6b43b | PVMBG  | parked |        1 | schema_incompatible: missing required field 'report_id' | 2026-11-20 15:41:52.352647+00
+ pvmbg-68048b74fe4e64b4f6d236cbb369f08e | PVMBG  | parked |        1 | schema_incompatible: missing required field 'report_id' | 2026-11-20 15:41:52.198216+00
+(3 rows)
+
+--- 4. Check aggregator logs during incompatible schema window ---
+{"time":"2026-11-20T15:41:52.352601349Z","level":"WARN","msg":"pvmbg_payload_rejected","service":"aggregator","worker":"pvmbg-poller","message_id":"pvmbg-68048b74fe4e64b4f6d236cbb369f08e","status":"parked","attempts":1,"reason":"schema_incompatible: missing required field 'report_id'"}
+{"time":"2026-11-20T15:41:52.380902509Z","level":"WARN","msg":"pvmbg_payload_rejected","service":"aggregator","worker":"pvmbg-poller","message_id":"pvmbg-4dd5732e0b9341968259ba7fa7d6b43b","status":"parked","attempts":1,"reason":"schema_incompatible: missing required field 'report_id'"}
+{"time":"2026-11-20T15:41:52.425545588Z","level":"WARN","msg":"pvmbg_payload_rejected","service":"aggregator","worker":"pvmbg-poller","message_id":"pvmbg-b4db3622942a215487f86c0bbcc57835","status":"parked","attempts":1,"reason":"schema_incompatible: missing required field 'report_id'"}
+{"time":"2026-11-20T15:42:04.492901366Z","level":"WARN","msg":"pvmbg_payload_rejected","service":"aggregator","worker":"pvmbg-poller","message_id":"pvmbg-fb77a051eb09910f1d8aaa8e68c71f46","status":"parked","attempts":1,"reason":"schema_incompatible: missing required field 'report_id'"}
+--- 5. Restore mock-pvmbg to mode: additive (include_confidence_level=true) ---
+{"include_confidence_level":true,"message":"Dynamic schema updated successfully","mode":"additive","status":"updated"}
+
+--- 6. Post-restore health & degradation status ---
+VOLCANIC meta= {"total": 2197, "degraded": false, "stale_since": null}
+{"source":"ALL","count":64021,"checksum":"2e1d2b3bcb5b7ada587abff7058ae5e10680ce7e610b018ce4a8e44251c04202","algorithm":"sha256","as_of":"2026-11-20T15:42:20.110154949Z","partial":false,"unavailable_units":[]}

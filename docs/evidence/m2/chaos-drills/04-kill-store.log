@@ -1,0 +1,42 @@
+=== Scenario 4: kill-store (2026-11-20T15:43:44Z) ===
+
+--- Pre-scenario store pods & audit checksum ---
+NAME            READY   STATUS    RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+store-akane-0   1/1     Running   0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0    1/1     Running   1 (6h57m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0    1/1     Running   0               3d10h   10.42.3.23   ruby    <none>           <none>
+{"source":"ALL","count":64060,"checksum":"cd87bc83e030ad02869a7662ae5c834dd902fe707bb3f9919d55339db0a348e8","algorithm":"sha256","as_of":"2026-11-20T15:43:45.539265853Z","partial":false,"unavailable_units":[]}
+
+
+--- Trigger: /app run practice kill-store (started_at=2026-11-20T15:43:46Z) ---
+Latihan "kill-store": 1 langkah
+  - t+5s stop_pod role=store nodes=any
+Permintaan b11d65166dcf dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+command_exit_code=0
+
+--- Polling tester-agent logs & sampling Public API availability during store disruption ---
+[t+6s Public API probe]
+HTTP 200
+meta= {'total': 64061, 'limit': 5, 'offset': 0, 'degraded': True, 'stale_since': '2026-11-20T15:43:51.744570614Z'} count= 5
+[tester-agent-rgrbm / ruby]
+{"seq":18,"ts":"2026-11-20T15:43:49Z","action":"[L] langkah 1 mulai: stop_pod role=store nodes=any","prev":"5c06ca108951021b4d536e7673945e1614d758235410be8ec43a76f6eaf14f48","mac":"bed632bb45510d80f5c787e8f907f73e59123391fd6c6ffa51d660bd35b12c8d"}
+{"seq":19,"ts":"2026-11-20T15:43:49Z","action":"[L] pod store-ruby-0 (role=store) pada node ruby dihentikan","prev":"ad8000e36bac29ece5c00397deb39dc87151162712caeeaf3586d78725c81da1","mac":"5aa0a881fc6e0e6b4826eec8982bbdcfbbd9bf48c3260b3ad6b8c39bd3a6f0ab"}
+{"seq":20,"ts":"2026-11-20T15:43:49Z","action":"[L] langkah 1 selesai","prev":"0fd73ffe462854179c75cea67e216ed80f8fb3c370baefc48ba953bdcdf6938a","mac":"0fae0d15ed8d627fadee1b5cb31761a3e8d3979a650a90d02e85200a951af2d4"}
+{"seq":21,"ts":"2026-11-20T15:43:49Z","action":"[L] skenario selesai","prev":"0ee784bfa6acf6cf0d54f373388d52d0d9bb91bbaeaeef306d3633f9a76089a4","mac":"5f64c7d82ad8dcee28b0e13f476526c3dbd6b1a9817e06f3f37072975aec91db"}
+{"seq":22,"ts":"2026-11-20T15:43:49Z","action":"[L] pemulihan akhir selesai; keadaan bersih","prev":"2b873ac5c74c38db04c2ee986a68cd34a5f19fff60747e4126eb78ab997b2cfb","mac":"545c196d1f4c58ef79f6163cb63c5511138daf5f3eefd624c9ba050f037e41d9"}
+
+--- Waiting for all store pods Ready + 20s replica reconciliation ---
+pod/store-akane-0 condition met
+pod/store-aqua-0 condition met
+pod/store-ruby-0 condition met
+NAME            READY   STATUS    RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+store-akane-0   1/1     Running   0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0    1/1     Running   1 (6h58m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0    1/1     Running   0               27s     10.42.3.57   ruby    <none>           <none>
+--- Post-recovery Audit API checksum & Public API ---
+{"source":"ALL","count":64067,"checksum":"e23edada1c79ff725d0301955f89c05b4e824da5ebc42892f6d16346e28f1f90","algorithm":"sha256","as_of":"2026-11-20T15:44:22.547996106Z","partial":false,"unavailable_units":[]}
+
+Post-recovery Public API HTTP 200
+meta= {'total': 64068, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+--- Aggregator store recovery logs ---
+{"time":"2026-11-20T15:42:55.437399121Z","level":"INFO","msg":"successfully established canonical postgres storage shards","service":"aggregator","attempt":1,"shard_count":3}

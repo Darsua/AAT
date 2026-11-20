@@ -1,0 +1,220 @@
+# Scenario 6: wipe-node (non-control-plane worker akane / store-akane-0)
+started_at=2026-11-20T15:53:49Z
+
+--- Pre-wipe Audit API checksums ---
+ALL={"source":"ALL","count":64230,"checksum":"d06c9ac8d30503bb004e46dd87a9f4aef1af3c328a4e39b4296881ae95cdf23c","algorithm":"sha256","as_of":"2026-11-20T15:53:48.383649363Z","partial":false,"unavailable_units":[]}
+BMKG={"source":"BMKG","count":2267,"checksum":"bec432d4d1ba8ad4b0b6c016e14a82cbdf47fcb956c244fe2d8e07c36a7a135a","algorithm":"sha256","as_of":"2026-11-20T15:53:47.968537969Z","partial":false,"unavailable_units":[]}
+PVMBG={"source":"PVMBG","count":2266,"checksum":"fe0703d798209bb459e27895f02806ab18cbccabb406ae376e7b0af60b413a71","algorithm":"sha256","as_of":"2026-11-20T15:53:51.889419728Z","partial":false,"unavailable_units":[]}
+SATELIT={"source":"SATELIT","count":33955,"checksum":"1230b1b834eb5bfb063de3b31b22355c58fa5ae6799d8c4ce36255e284a38049","algorithm":"sha256","as_of":"2026-11-20T15:53:51.366510129Z","partial":false,"unavailable_units":[]}
+SENSOR_PANTAI={"source":"SENSOR_PANTAI","count":25743,"checksum":"8af03fe5232786b2d95bfbf59ae7e246599ecfe11a96ef5f0fd192be1f865bfd","algorithm":"sha256","as_of":"2026-11-20T15:53:53.316610533Z","partial":false,"unavailable_units":[]}
+
+--- Pre-wipe per-shard PostgreSQL counts (hazards / dlq_messages) ---
+[store-aqua-0/bnpb_shard_1]
+hazards=20268
+dlq=0
+[store-aqua-0/bnpb_shard_3_r1]
+hazards=23576
+dlq=3
+[store-ruby-0/bnpb_shard_2]
+hazards=20388
+dlq=1
+[store-ruby-0/bnpb_shard_1_r1]
+hazards=20268
+dlq=0
+[store-akane-0/bnpb_shard_3]
+hazards=23577
+dlq=3
+[store-akane-0/bnpb_shard_2_r1]
+hazards=20388
+dlq=1
+sample_shard3_hazard_id=haz-pvmbg-pvmbg-rpt-live-20261120-102300-000456
+pre_wipe_location={"hazard_id":"haz-pvmbg-pvmbg-rpt-live-20261120-102300-000456","locations":[{"node":"akane","unit":"shard-3","role":"primary"},{"node":"aqua","unit":"shard-3-r1","role":"replica"}],"partial":false}
+
+--- Invoking tester-agent: /app run practice wipe-node ---
+tester_since=2026-11-20T15:53:59Z
+Latihan "wipe-node": 1 langkah
+  - t+5s wipe_and_shutdown role=store nodes=any
+Permintaan f5ffb9989272 dikirim. Lihat hasil dengan: kubectl logs -n tester-agent -l app=tester-agent
+--- tester-agent DaemonSet logs since 2026-11-20T15:53:59Z ---
+[pod/tester-agent-47f8n]
+[pod/tester-agent-8rv96]
+[pod/tester-agent-rgrbm]
+
+--- Mid-outage observations while ruby was powered off (~15:54:05Z - 16:02Z UTC) ---
+* runner-1 aat-ruby.service exited 0/SUCCESS (ACPI S5 Power down) at 22:54:05 WIB / 15:54:05 UTC; with Restart=on-failure, QEMU did not auto-reboot on clean guest poweroff.
+* ruby node entered NotReady; CoreDNS was scheduled solely on ruby, stalling cluster DNS until CoreDNS evicted & rescheduled onto aqua.
+* Single-replica redpanda-0 (pinned to ruby in k8s/base/broker.yaml) went unreachable; aggregator /health BrokerPinger returned HTTP 503 so surviving aggregator pods (aqua, akane) went 0/1 Ready.
+* Mid-outage API probes: GET https://audit-aat.darsu.dev/internal/audit/checksum -> HTTP 503 ("no available server"); GET https://aat.darsu.dev/api/v1/hazards?limit=5 -> HTTP 500 (5000ms upstream timeout to aggregator:8083).
+* Note: surviving aggregator pods also logged "all storage units are unavailable: begin lease tx: context deadline exceeded" while store-ruby (10.42.3.x) packets dropped on powered-off ruby.
+
+--- Updating aat-*.service to Restart=always & booting ruby ---
+[runner-1:aat-ruby.service] Restart=always
+[runner-2:aat-akane.service] Restart=always
+[nexus:aat-aqua.service] Restart=always
+starting aat-ruby.service on runner-1 at 2026-11-20T16:03:21Z
+wait_1 (1x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_2 (2x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_3 (3x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_4 (4x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_5 (5x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_6 (6x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_7 (7x5s): ruby_Ready=Unknown store-ruby=true redpanda=true
+wait_8 (8x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_9 (9x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_10 (10x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_11 (11x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_12 (12x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_13 (13x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_14 (14x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_15 (15x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_16 (16x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_17 (17x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_18 (18x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_19 (19x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_20 (20x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_21 (21x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_22 (22x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_23 (23x5s): ruby_Ready=True store-ruby=false redpanda=false
+wait_24 (24x5s): ruby_Ready=True store-ruby=false redpanda=false
+ruby_boot_converged=0 at 2026-11-20T16:05:52Z
+NAME    STATUS   ROLES           AGE    VERSION        INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION                         CONTAINER-RUNTIME
+akane   Ready    <none>          4d7h   v1.37.2+k3s1   10.5.27.242   <none>        Debian GNU/Linux 13 (trixie)   6.12.115+deb13.1-cloud-amd64 (amd64)   containerd://2.3.7-k3s1
+aqua    Ready    control-plane   12d    v1.37.2+k3s1   10.5.27.240   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+ruby    Ready    <none>          12d    v1.37.2+k3s1   10.5.27.241   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+NAME                                   READY   STATUS             RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp            0/1     Running            0               42m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-bqcbd            0/1     Running            0               5m59s   10.42.0.64   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            0/1     Running            0               45m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running            0               7h      10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running            0               45m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running            0               45m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-c8hq2    0/1     CrashLoopBackOff   5 (111s ago)    5m59s   10.42.0.62   akane   <none>           <none>
+dashboard-consumer-555c7f744c-qt948    0/1     CrashLoopBackOff   6 (2m13s ago)   84m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running            0               7h      10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running            0               7h      10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     0/1     CrashLoopBackOff   6 (119s ago)    6h28m   10.42.0.51   akane   <none>           <none>
+notifier-consumer-776d6987d5-nfpfp     0/1     CrashLoopBackOff   5 (103s ago)    5m59s   10.42.2.70   aqua    <none>           <none>
+redpanda-0                             0/1     Running            2 (15s ago)     103s    10.42.3.69   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed          0               7h      10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running            1 (34m ago)     7h11m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running            0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running            1 (7h19m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           0/1     Running            3 (15s ago)     104s    10.42.3.68   ruby    <none>           <none>
+summarizer-consumer-55f598478b-ghphg   0/1     CrashLoopBackOff   5 (111s ago)    5m59s   10.42.2.69   aqua    <none>           <none>
+
+--- tester-agent-rgrbm (ruby) logs after reboot ---
+error: unknown flag: --field-selector
+See 'kubectl logs --help' for usage.
+
+--- Host store-ruby check & PostgreSQL state upon reboot ---
+
+--- Recovery from wipe-node poweroff & inspection of store-ruby ---
+* tester-agent/tester-run (f5ffb9989272, status=go, coordinator=ruby) caused tester-agent-rgrbm to re-trigger wipe_and_shutdown on each Restart=always boot until tester-run was deleted.
+* After deleting wedged ConfigMap tester-agent/tester-run, ruby, store-ruby-0, redpanda-0, and aggregator (3/3) stabilized cleanly.
+* Host check on ruby confirmed /var/lib/bnpb-store/store-ruby/pgdata remained intact (TESTER_HOST_STORE_DIR is unset on upstream tester-agent DaemonSet): store-ruby-0 bnpb_shard_2=20399, bnpb_shard_1_r1=20353.
+sample_shard2_hazard_id=haz-pvmbg-pvmbg-rpt-live-20261120-102910-000493
+
+--- Executing live store wipe (TRUNCATE hazards, dlq_messages) on worker store-ruby-0 (bnpb_shard_2, bnpb_shard_1_r1) ---
+wipe_started_at=2026-11-20T16:09:22Z
+TRUNCATE TABLE
+[post-truncate store-ruby-0/bnpb_shard_2]
+hazards=7
+dlq=0
+TRUNCATE TABLE
+[post-truncate store-ruby-0/bnpb_shard_1_r1]
+hazards=5
+dlq=0
+resync_poll_1 (1x10s): shard2=16007/20502 shard1_r1=61/20357
+resync_poll_2 (2x10s): shard2=20504/20504 shard1_r1=156/20357
+resync_poll_3 (3x10s): shard2=20506/20506 shard1_r1=14698/20358
+resync_poll_4 (4x10s): shard2=20507/20507 shard1_r1=20359/20359
+resync_converged=1 at 2026-11-20T16:10:19Z
+
+--- Aggregator replica sync log excerpt ---
+
+--- Post-recovery workload pods ---
+NAME                                   READY   STATUS             RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp            1/1     Running            0               47m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-bqcbd            1/1     Running            0               11m     10.42.0.64   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            1/1     Running            0               50m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running            0               7h5m    10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running            0               50m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running            0               50m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-c8hq2    0/1     CrashLoopBackOff   6 (4m11s ago)   11m     10.42.0.62   akane   <none>           <none>
+dashboard-consumer-555c7f744c-qt948    1/1     Running            7 (7m25s ago)   90m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running            0               7h5m    10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running            0               7h5m    10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     1/1     Running            7 (7m11s ago)   6h34m   10.42.0.51   akane   <none>           <none>
+notifier-consumer-776d6987d5-nfpfp     0/1     CrashLoopBackOff   6 (3m57s ago)   11m     10.42.2.70   aqua    <none>           <none>
+redpanda-0                             1/1     Running            7 (2m56s ago)   6m55s   10.42.3.82   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed          0               7h5m    10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running            1 (40m ago)     7h16m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running            0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running            1 (7h25m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           1/1     Running            8 (2m56s ago)   6m56s   10.42.3.84   ruby    <none>           <none>
+summarizer-consumer-55f598478b-ghphg   0/1     CrashLoopBackOff   6 (3m49s ago)   11m     10.42.2.69   aqua    <none>           <none>
+
+--- Post-recovery per-shard PostgreSQL counts (hazards / dlq_messages) ---
+[store-aqua-0/bnpb_shard_1]
+hazards=20362
+dlq=0
+[store-aqua-0/bnpb_shard_3_r1]
+hazards=23714
+dlq=3
+[store-ruby-0/bnpb_shard_2]
+hazards=20511
+dlq=1
+[store-ruby-0/bnpb_shard_1_r1]
+hazards=20362
+dlq=0
+[store-akane-0/bnpb_shard_3]
+hazards=23714
+dlq=3
+[store-akane-0/bnpb_shard_2_r1]
+hazards=20511
+dlq=1
+
+--- Post-recovery Audit API checksums ---
+ALL={"source":"ALL","count":64588,"checksum":"b91caa52fd2fa3e12cab6da7f50ade4a7cf575a396fa4b39035137eb4a7a2597","algorithm":"sha256","as_of":"2026-11-20T16:11:08.363680353Z","partial":false,"unavailable_units":[]}
+BMKG={"source":"BMKG","count":2371,"checksum":"c2775a631c8e24d7634760e22f54d9c0e644b91f930bd1ba3ef2e289579cde6d","algorithm":"sha256","as_of":"2026-11-20T16:11:08.568760163Z","partial":false,"unavailable_units":[]}
+PVMBG={"source":"PVMBG","count":2370,"checksum":"4f419de6986eb2b08580b61dce5dd6b7d2ec5f98ab53410d335aef806ee074f0","algorithm":"sha256","as_of":"2026-11-20T16:11:09.61371869Z","partial":false,"unavailable_units":[]}
+SATELIT={"source":"SATELIT","count":34104,"checksum":"d3c11b43037d47dbc3f288e8ef9062f8bccb03b96308133b7eb5148d21fc40ff","algorithm":"sha256","as_of":"2026-11-20T16:11:09.309508745Z","partial":false,"unavailable_units":[]}
+SENSOR_PANTAI={"source":"SENSOR_PANTAI","count":25743,"checksum":"8af03fe5232786b2d95bfbf59ae7e246599ecfe11a96ef5f0fd192be1f865bfd","algorithm":"sha256","as_of":"2026-11-20T16:11:10.566144708Z","partial":false,"unavailable_units":[]}
+
+--- Post-recovery Audit API location parity ---
+shard2_location={"hazard_id":"haz-pvmbg-pvmbg-rpt-live-20261120-102910-000493","locations":[{"node":"ruby","unit":"shard-2","role":"primary"},{"node":"akane","unit":"shard-2-r1","role":"replica"}],"partial":false}
+shard3_location={"hazard_id":"haz-pvmbg-pvmbg-rpt-live-20261120-102300-000456","locations":[{"node":"akane","unit":"shard-3","role":"primary"},{"node":"aqua","unit":"shard-3-r1","role":"replica"}],"partial":false}
+
+--- Post-recovery Public API ---
+post_public http=200
+ meta= {'total': 64588, 'limit': 5, 'offset': 0, 'degraded': False, 'stale_since': None} count= 5
+
+--- Final verified all-pods 1/1 Running state (UTC=2026-11-20T16:14:13Z) ---
+NAME    STATUS   ROLES           AGE    VERSION        INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION                         CONTAINER-RUNTIME
+akane   Ready    <none>          4d7h   v1.37.2+k3s1   10.5.27.242   <none>        Debian GNU/Linux 13 (trixie)   6.12.115+deb13.1-cloud-amd64 (amd64)   containerd://2.3.7-k3s1
+aqua    Ready    control-plane   12d    v1.37.2+k3s1   10.5.27.240   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+ruby    Ready    <none>          12d    v1.37.2+k3s1   10.5.27.241   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+NAME                                   READY   STATUS      RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-796c9f59fd-9rmrp            1/1     Running     0               50m     10.42.0.61   akane   <none>           <none>
+aggregator-796c9f59fd-bqcbd            1/1     Running     0               14m     10.42.0.64   akane   <none>           <none>
+aggregator-796c9f59fd-jrzrd            1/1     Running     0               53m     10.42.2.68   aqua    <none>           <none>
+auth-5f6bc66576-nqznn                  1/1     Running     0               7h9m    10.42.0.41   akane   <none>           <none>
+client-api-58cbf85bf-rrtrg             1/1     Running     0               53m     10.42.2.67   aqua    <none>           <none>
+client-api-58cbf85bf-v58k8             1/1     Running     0               53m     10.42.0.59   akane   <none>           <none>
+dashboard-consumer-555c7f744c-c8hq2    1/1     Running     7 (7m20s ago)   14m     10.42.0.62   akane   <none>           <none>
+dashboard-consumer-555c7f744c-qt948    1/1     Running     7 (10m ago)     93m     10.42.2.62   aqua    <none>           <none>
+mock-bmkg-5d747774c6-69f46             1/1     Running     0               7h9m    10.42.0.39   akane   <none>           <none>
+mock-pvmbg-676dc795d9-6bvwr            1/1     Running     0               7h9m    10.42.0.40   akane   <none>           <none>
+notifier-consumer-776d6987d5-m6wvs     1/1     Running     7 (10m ago)     6h37m   10.42.0.51   akane   <none>           <none>
+notifier-consumer-776d6987d5-nfpfp     1/1     Running     7 (7m6s ago)    14m     10.42.2.70   aqua    <none>           <none>
+redpanda-0                             1/1     Running     7 (6m5s ago)    10m     10.42.3.82   ruby    <none>           <none>
+redpanda-topic-init-rgvds              0/1     Completed   0               7h8m    10.42.0.44   akane   <none>           <none>
+sensor-pantai-57688665c7-dxd4p         1/1     Running     1 (43m ago)     7h20m   10.42.0.34   akane   <none>           <none>
+store-akane-0                          1/1     Running     0               2d10h   10.42.0.31   akane   <none>           <none>
+store-aqua-0                           1/1     Running     1 (7h28m ago)   4d4h    10.42.2.33   aqua    <none>           <none>
+store-ruby-0                           1/1     Running     8 (6m5s ago)    10m     10.42.3.84   ruby    <none>           <none>
+summarizer-consumer-55f598478b-ghphg   1/1     Running     7 (6m58s ago)   14m     10.42.2.69   aqua    <none>           <none>
+NAME                 READY   STATUS    RESTARTS        AGE    IP            NODE    NOMINATED NODE   READINESS GATES
+tester-agent-47f8n   1/1     Running   4 (7h28m ago)   12d    10.5.27.240   aqua    <none>           <none>
+tester-agent-8rv96   1/1     Running   3 (2d11h ago)   4d7h   10.5.27.242   akane   <none>           <none>
+tester-agent-rgrbm   1/1     Running   13 (6m6s ago)   12d    10.5.27.241   ruby    <none>           <none>
