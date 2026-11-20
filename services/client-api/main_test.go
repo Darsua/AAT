@@ -180,6 +180,29 @@ func TestGetHazardByID(t *testing.T) {
 	}
 }
 
+func TestGetHazardByIDNotFoundSingleLookup(t *testing.T) {
+	var calls atomic.Int32
+	var gotID string
+	aggregator := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		gotID = r.URL.Query().Get("id")
+		writeAggregatorResponse(t, w, []hazardEvent{}, 0)
+	})
+	handler, signingSecret := newTestClientAPI(t, aggregator)
+	token := signTestAccessToken(t, signingSecret, scopeAll, jwtIssuer, time.Now().Add(time.Minute))
+
+	response := performClientRequest(handler, "/api/v1/hazards/haz-missing-42?fields=all", token)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d: %s", response.Code, response.Body.String())
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected single point-lookup call to aggregator, got %d", calls.Load())
+	}
+	if gotID != "haz-missing-42" {
+		t.Fatalf("expected id=haz-missing-42 query parameter, got %q", gotID)
+	}
+}
+
 func TestAggregatorFailureReturnsInternalServerError(t *testing.T) {
 	aggregator := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "UNAVAILABLE", Message: "aggregator unavailable"})

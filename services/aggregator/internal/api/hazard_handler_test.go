@@ -334,3 +334,68 @@ func TestHealthHandler_DrainingReturns503(t *testing.T) {
 		t.Errorf("expected DOWN status while draining, got %q", status.Status)
 	}
 }
+
+type mockByIDQuerier struct {
+	mockHazardQuerier
+	byID       map[string]domain.HazardEvent
+	lookupHits int
+}
+
+func (m *mockByIDQuerier) GetHazardByID(_ context.Context, hazardID string) (*domain.HazardEvent, error) {
+	m.lookupHits++
+	if ev, ok := m.byID[hazardID]; ok {
+		copyEv := ev
+		return &copyEv, nil
+	}
+	return nil, nil
+}
+
+func TestHazardHandler_ByIDQuery(t *testing.T) {
+	now := time.Now().UTC()
+	mockRepo := &mockByIDQuerier{
+		byID: map[string]domain.HazardEvent{
+			"haz-target-1": {
+				HazardID:   "haz-target-1",
+				Source:     domain.SourceBMKG,
+				HazardType: domain.HazardTypeSeismic,
+				Severity:   domain.SeverityWaspada,
+				AreaName:   "Bandung",
+				OccurredAt: now,
+				IngestedAt: now,
+			},
+		},
+	}
+
+	handler := NewHazardHandler(mockRepo)
+
+	reqHit := httptest.NewRequest(http.MethodGet, "/internal/hazards?id=haz-target-1&limit=1", nil)
+	recHit := httptest.NewRecorder()
+	handler.ServeHTTP(recHit, reqHit)
+	if recHit.Code != http.StatusOK {
+		t.Fatalf("expected 200 for found id, got %d", recHit.Code)
+	}
+	var respHit HazardListResponse
+	if err := json.Unmarshal(recHit.Body.Bytes(), &respHit); err != nil {
+		t.Fatalf("decode hit response: %v", err)
+	}
+	if respHit.Meta.Total != 1 || len(respHit.Data) != 1 || respHit.Data[0].HazardID != "haz-target-1" {
+		t.Fatalf("unexpected hit payload: %+v", respHit)
+	}
+
+	reqMiss := httptest.NewRequest(http.MethodGet, "/internal/hazards?id=haz-missing&limit=1", nil)
+	recMiss := httptest.NewRecorder()
+	handler.ServeHTTP(recMiss, reqMiss)
+	if recMiss.Code != http.StatusOK {
+		t.Fatalf("expected 200 for missing id, got %d", recMiss.Code)
+	}
+	var respMiss HazardListResponse
+	if err := json.Unmarshal(recMiss.Body.Bytes(), &respMiss); err != nil {
+		t.Fatalf("decode miss response: %v", err)
+	}
+	if respMiss.Meta.Total != 0 || len(respMiss.Data) != 0 {
+		t.Fatalf("expected empty response for missing id, got %+v", respMiss)
+	}
+	if mockRepo.lookupHits != 2 {
+		t.Fatalf("expected 2 point lookups, got %d", mockRepo.lookupHits)
+	}
+}

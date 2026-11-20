@@ -24,6 +24,11 @@ type HazardQuerier interface {
 	QueryHazards(ctx context.Context, filter repository.HazardFilter) ([]domain.HazardEvent, int, error)
 }
 
+// HazardByIDQuerier is an optional extension of HazardQuerier supporting O(1) shard point lookups.
+type HazardByIDQuerier interface {
+	GetHazardByID(ctx context.Context, hazardID string) (*domain.HazardEvent, error)
+}
+
 // HazardListResponse represents the JSON response for GET /internal/hazards.
 type HazardListResponse struct {
 	Data []domain.HazardEvent `json:"data"`
@@ -157,7 +162,30 @@ func (h *HazardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		filter.Offset = off
 	}
 
-	events, total, err := h.repo.QueryHazards(r.Context(), filter)
+	var (
+		events []domain.HazardEvent
+		total  int
+		err    error
+	)
+	if idStr := strings.TrimSpace(q.Get("id")); idStr != "" {
+		if byIDRepo, ok := h.repo.(HazardByIDQuerier); ok {
+			var ev *domain.HazardEvent
+			ev, err = byIDRepo.GetHazardByID(r.Context(), idStr)
+			if err == nil {
+				if ev != nil {
+					events = []domain.HazardEvent{*ev}
+					total = 1
+				} else {
+					events = []domain.HazardEvent{}
+					total = 0
+				}
+			}
+		} else {
+			events, total, err = h.repo.QueryHazards(r.Context(), filter)
+		}
+	} else {
+		events, total, err = h.repo.QueryHazards(r.Context(), filter)
+	}
 	if err != nil {
 		log := logger.FromContext(r.Context())
 		log.Error("failed to query hazards", "error", err)

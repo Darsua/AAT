@@ -106,6 +106,7 @@ type publicListResponse struct {
 
 // QueryFilter contains transport-independent hazard query parameters.
 type QueryFilter struct {
+	HazardID   string
 	Since      string
 	HazardType string
 	Severity   string
@@ -331,6 +332,23 @@ func (h *apiHandler) getHazardByID(w http.ResponseWriter, r *http.Request) {
 
 func (h *apiHandler) findHazardByID(ctx context.Context, id string) (hazardEvent, bool, error) {
 	const pageSize = 500 // Aggregator maximum page size.
+	firstResp, err := h.hazardService.GetHazards(ctx, QueryFilter{
+		HazardID: id,
+		Limit:    1,
+		Offset:   0,
+	})
+	if err != nil {
+		return hazardEvent{}, false, err
+	}
+	for _, event := range firstResp.Data {
+		if event.HazardID == id {
+			return event, true, nil
+		}
+	}
+	if len(firstResp.Data) == 0 {
+		return hazardEvent{}, false, nil
+	}
+
 	for offset := 0; ; {
 		filter := QueryFilter{
 			Limit:  pageSize,
@@ -354,6 +372,9 @@ func (h *apiHandler) findHazardByID(ctx context.Context, id string) (hazardEvent
 
 func (c *RemoteAggregatorClient) GetHazards(ctx context.Context, filter QueryFilter) (*HazardResponse, error) {
 	query := make(url.Values)
+	if filter.HazardID != "" {
+		query.Set("id", filter.HazardID)
+	}
 	if filter.Since != "" {
 		query.Set("since", filter.Since)
 	}
