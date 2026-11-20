@@ -108,11 +108,20 @@ func main() {
 	}
 	defer kafkaWriter.Close()
 
+	fieldReportReader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:     brokers,
+		Topic:       cfg.FieldReportsTopic,
+		GroupID:     cfg.FieldReportsGroup,
+		StartOffset: kafka.FirstOffset,
+		MaxWait:     500 * time.Millisecond,
+	})
+	defer fieldReportReader.Close()
+
 	// Initialize observability registry and tracer
 	reg := telemetry.NewRegistry()
 	tracer := telemetry.NewTracer("aggregator")
 
-	// Initialize background polling and outbox relay workers
+	// Initialize background polling, field-report consumer, and outbox relay workers
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 
@@ -123,6 +132,8 @@ func main() {
 		WithDLQRetryBudget(cfg.DLQRetryBudget)
 	outboxRelay := worker.NewOutboxRelay(hazardRepo, kafkaWriter, 500*time.Millisecond, log)
 	outboxRelay.WithTelemetry(reg, tracer)
+	fieldReportConsumer := worker.NewFieldReportConsumer(fieldReportReader, hazardRepo, log).
+		WithTelemetry(reg, tracer)
 
 	var workerWg sync.WaitGroup
 	if cfg.SatelliteEnabled {
@@ -158,7 +169,7 @@ func main() {
 			}()
 		}
 	}
-	workerWg.Add(3)
+	workerWg.Add(4)
 	go func() {
 		defer workerWg.Done()
 		bmkgPoller.Start(workerCtx)
@@ -170,6 +181,10 @@ func main() {
 	go func() {
 		defer workerWg.Done()
 		outboxRelay.Start(workerCtx)
+	}()
+	go func() {
+		defer workerWg.Done()
+		fieldReportConsumer.Start(workerCtx)
 	}()
 
 	if hasReplicaUnits(shardSpecs) {

@@ -110,6 +110,12 @@ func (s *KafkaFieldReportStager) Stage(ctx context.Context, report StagedFieldRe
 	if report.IdempotencyKey != "" {
 		headers = append(headers, kafka.Header{Key: "Idempotency-Key", Value: []byte(report.IdempotencyKey)})
 	}
+	if st := traceFromContext(ctx); st.TraceID != "" && st.SpanID != "" {
+		headers = append(headers, kafka.Header{
+			Key:   traceparentHeader,
+			Value: []byte(formatTraceparent(st.TraceID, st.SpanID, st.Sampled)),
+		})
+	}
 
 	return s.writer.WriteMessages(ctx, kafka.Message{
 		Key:     []byte(report.ReportID),

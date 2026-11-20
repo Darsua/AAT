@@ -53,6 +53,7 @@ data:
   CONSUMER_GROUP_DASHBOARD: "bnpb-dashboard-group"
   CONSUMER_GROUP_NOTIFIER: "bnpb-notifier-group"
   CONSUMER_GROUP_SUMMARIZER: "bnpb-summarizer-group"
+  CONSUMER_GROUP_FIELD_REPORTS: "bnpb-aggregator-field-reports"
 
   # Non-blocking AI situation summarizer configuration (#36)
   AI_API_URL: "http://10.5.24.125:11434/v1/chat/completions"

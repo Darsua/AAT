@@ -64,9 +64,12 @@ scope checks.
     survives `client-api` crashes but not broker disk loss; multi-broker
     clusters require replication factor >= 2 and `min.insync.replicas` >= 2.
   - Downstream consumption from `bnpb.field-reports` into canonical PostgreSQL
-    (offset commit after transactional DB+outbox write, `ON CONFLICT`
-    deduplication, and canonical `source` enum mapping) belongs to
-    [Aggregator](../aggregator/README.md).
+    runs in [Aggregator](../aggregator/README.md) (`CONSUMER_GROUP_FIELD_REPORTS`,
+    mapping `SEISMIC->BMKG`, `VOLCANIC->PVMBG`, `WILDFIRE->SATELIT`,
+    `COASTAL->SENSOR_PANTAI` with `attributes.submission_channel = "FIELD_REPORT"`,
+    offset commit strictly after transactional DB+outbox persistence,
+    `(source, source_ref_id)` deduplication, and `dlq_messages` parking for
+    malformed payloads).
 
 ## Authorization and upstream behavior
 

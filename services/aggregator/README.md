@@ -48,6 +48,8 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `PVMBG_URL` | `http://mock-pvmbg:8082` |
 | `REDPANDA_BROKERS` | `redpanda:9092` |
 | `TOPIC` | `bnpb.hazard-events` |
+| `REDPANDA_TOPIC_FIELD_REPORTS` | `bnpb.field-reports` (staged field-report topic consumed into canonical storage) |
+| `CONSUMER_GROUP_FIELD_REPORTS` | `bnpb-aggregator-field-reports` |
 | `POLL_INTERVAL_SECS` | `3` |
 | `SATELLITE_ENABLED` | `false` |
 | `SATELLITE_URL` | `https://satellite.naufarrel.dev` |
@@ -108,6 +110,17 @@ Override development credentials through the environment.
   field. Unparseable events are logged with their offset and counted, not
   retried. Progress, lag, and p95 persist latency are logged as
   `satellite_progress` every 10 s.
+- Staged field reports from [Client API](../client-api/README.md) arrive on
+  `REDPANDA_TOPIC_FIELD_REPORTS` (`bnpb.field-reports`) and are consumed under
+  group `CONSUMER_GROUP_FIELD_REPORTS` (`bnpb-aggregator-field-reports`). To
+  preserve the frozen `HazardEvent.source` enum without contract changes,
+  `hazard_type` maps deterministically to `source` (`SEISMIC->BMKG`,
+  `VOLCANIC->PVMBG`, `WILDFIRE->SATELIT`, `COASTAL->SENSOR_PANTAI`) with
+  `hazard_id = "haz-field-" + report_id`, `source_ref_id = report_id`, and
+  `attributes.submission_channel = "FIELD_REPORT"`. Offsets are committed only
+  after transactional hazard+outbox persistence; matching `payload_sha256`
+  redeliveries are deduplicated via `(source, source_ref_id)`, and malformed
+  messages are parked in `dlq_messages` (`Retryable: false`) before committing.
 - Compose keeps the Aggregator on the internal-only network, so it cannot reach
   the external feed there; use the Kubernetes deployment. The payload format was
   checked against the live feed on 2026-11-17: offsets start at 0, detections
@@ -136,6 +149,6 @@ and the HTTP listener binds all interfaces.
 - [Adapters](internal/adapter/) and [normalization](internal/normalizer/normalizer.go)
 - [Sharding engine](internal/repository/sharding.go), [fencing & leases](internal/repository/fencing.go), [repository](internal/repository/hazard_repo.go), and [migrations](migrations/)
 - [Audit API handler](internal/api/audit_handler.go) and [health/drain handler](internal/api/health.go)
-- [Pollers](internal/worker/poller.go) and [outbox relay](internal/worker/outbox_relay.go)
+- [Pollers](internal/worker/poller.go), [field-report consumer](internal/worker/field_reports.go), and [outbox relay](internal/worker/outbox_relay.go)
 - [Satellite wildfire clustering and feed client](internal/satellite/)
 - [Canonical flow diagram](../../docs/diagrams/aggregator-flow.mmd)
