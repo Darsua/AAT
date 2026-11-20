@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,20 +20,23 @@ import (
 
 // Fallback to localhost:19092 if BROKERS is not set.
 const (
-	defaultBrokers      = "localhost:19092"
-	defaultTopic        = "bnpb.hazard-events"
-	defaultGroupID      = "bnpb-dashboard-group"
-	defaultAggregator   = "http://aggregator:8083"
-	defaultSyncInterval = 5 * time.Second
-	correlationHeader   = "X-Correlation-ID"
+	defaultBrokers          = "localhost:19092"
+	defaultTopic            = "bnpb.hazard-events"
+	defaultGroupID          = "bnpb-dashboard-group"
+	defaultAggregator       = "http://aggregator:8083"
+	defaultSyncInterval     = 5 * time.Second
+	defaultFullSyncInterval = 300 * time.Second
+	correlationHeader       = "X-Correlation-ID"
 )
 
 type Config struct {
-	Brokers       []string
-	Topic         string
-	GroupID       string
-	AggregatorURL string
-	SyncInterval  time.Duration
+	Brokers          []string
+	Topic            string
+	GroupID          string
+	AggregatorURL    string
+	AuditToken       string
+	SyncInterval     time.Duration
+	FullSyncInterval time.Duration
 }
 
 type messageReader interface {
@@ -66,10 +68,87 @@ type ProcessResult struct {
 	SeverityCount int
 }
 
+type compactHazard struct {
+	HazardID          string
+	Source            string
+	SourceRefID       string
+	HazardType        string
+	Severity          string
+	AreaName          string
+	OccurredAt        time.Time
+	IngestedAt        time.Time
+	CorrelatedTsunami bool
+}
+
+func internCanonical(s string) string {
+	switch s {
+	case "BMKG":
+		return "BMKG"
+	case "PVMBG":
+		return "PVMBG"
+	case "SATELIT":
+		return "SATELIT"
+	case "SENSOR_PANTAI":
+		return "SENSOR_PANTAI"
+	case "LAPORAN_LAPANGAN":
+		return "LAPORAN_LAPANGAN"
+	case "SEISMIC":
+		return "SEISMIC"
+	case "VOLCANIC":
+		return "VOLCANIC"
+	case "WILDFIRE":
+		return "WILDFIRE"
+	case "COASTAL":
+		return "COASTAL"
+	case "NORMAL":
+		return "NORMAL"
+	case "WASPADA":
+		return "WASPADA"
+	case "SIAGA":
+		return "SIAGA"
+	case "AWAS":
+		return "AWAS"
+	default:
+		return s
+	}
+}
+
+func toCompactHazard(ev HazardEvent) compactHazard {
+	return compactHazard{
+		HazardID:          ev.HazardID,
+		Source:            internCanonical(ev.Source),
+		SourceRefID:       ev.SourceRefID,
+		HazardType:        internCanonical(ev.HazardType),
+		Severity:          internCanonical(ev.Severity),
+		AreaName:          ev.AreaName,
+		OccurredAt:        ev.OccurredAt.UTC(),
+		IngestedAt:        ev.IngestedAt.UTC(),
+		CorrelatedTsunami: hasCorrelatedTsunami(ev),
+	}
+}
+
+func (c compactHazard) toHazardEvent() HazardEvent {
+	var attrs map[string]any
+	if c.CorrelatedTsunami {
+		attrs = map[string]any{"potential_tsunami": true}
+	}
+	return HazardEvent{
+		HazardID:    c.HazardID,
+		Source:      c.Source,
+		SourceRefID: c.SourceRefID,
+		HazardType:  c.HazardType,
+		Severity:    c.Severity,
+		AreaName:    c.AreaName,
+		Attributes:  attrs,
+		OccurredAt:  c.OccurredAt,
+		IngestedAt:  c.IngestedAt,
+	}
+}
+
 // Dashboard owns the update-aware hazard projection, aggregates, and sync state.
 type Dashboard struct {
 	mu                  sync.RWMutex
-	events              map[string]HazardEvent
+	events              map[string]compactHazard
 	byType              map[string]int // counts by hazard type
 	bySeverity          map[string]int // counts by severity
 	degraded            bool
@@ -80,11 +159,16 @@ type Dashboard struct {
 	lastSyncAt          *time.Time
 	lastKafkaEventAt    *time.Time
 	syncIntervalSeconds int
+	initialSynced       bool
+	lastFullSyncAt      time.Time
+	lastChecksumAt      time.Time
+	maxIngestedAt       time.Time
+	consecutiveDrift    int
 }
 
 func NewDashboard() *Dashboard {
 	return &Dashboard{
-		events:              make(map[string]HazardEvent),
+		events:              make(map[string]compactHazard),
 		byType:              make(map[string]int),
 		bySeverity:          make(map[string]int),
 		syncIntervalSeconds: int(defaultSyncInterval.Seconds()),
@@ -150,8 +234,9 @@ func (d *Dashboard) Process(event HazardEvent) ProcessResult {
 		return ProcessResult{Retracted: true, Updated: removed}
 	}
 
-	if existing, exists := d.events[event.HazardID]; exists {
-		if shouldSkipUpdate(existing, event) {
+	compact := toCompactHazard(event)
+	if existing, exists := d.events[compact.HazardID]; exists {
+		if shouldSkipUpdate(existing, compact) {
 			return ProcessResult{Duplicate: true}
 		}
 		if d.byType[existing.HazardType] > 0 {
@@ -160,27 +245,33 @@ func (d *Dashboard) Process(event HazardEvent) ProcessResult {
 		if d.bySeverity[existing.Severity] > 0 {
 			d.bySeverity[existing.Severity]--
 		}
-		d.events[event.HazardID] = cloneHazardEvent(event)
-		d.byType[event.HazardType]++
-		d.bySeverity[event.Severity]++
+		d.events[compact.HazardID] = compact
+		if !compact.IngestedAt.IsZero() && compact.IngestedAt.After(d.maxIngestedAt) {
+			d.maxIngestedAt = compact.IngestedAt
+		}
+		d.byType[compact.HazardType]++
+		d.bySeverity[compact.Severity]++
 		return ProcessResult{
 			Updated:       true,
-			TypeCount:     d.byType[event.HazardType],
-			SeverityCount: d.bySeverity[event.Severity],
+			TypeCount:     d.byType[compact.HazardType],
+			SeverityCount: d.bySeverity[compact.Severity],
 		}
 	}
 
-	d.events[event.HazardID] = cloneHazardEvent(event)
-	d.byType[event.HazardType]++
-	d.bySeverity[event.Severity]++
+	d.events[compact.HazardID] = compact
+	if !compact.IngestedAt.IsZero() && compact.IngestedAt.After(d.maxIngestedAt) {
+		d.maxIngestedAt = compact.IngestedAt
+	}
+	d.byType[compact.HazardType]++
+	d.bySeverity[compact.Severity]++
 
 	return ProcessResult{
-		TypeCount:     d.byType[event.HazardType],
-		SeverityCount: d.bySeverity[event.Severity],
+		TypeCount:     d.byType[compact.HazardType],
+		SeverityCount: d.bySeverity[compact.Severity],
 	}
 }
 
-func shouldSkipUpdate(existing, incoming HazardEvent) bool {
+func shouldSkipUpdate(existing, incoming compactHazard) bool {
 	if !incoming.IngestedAt.IsZero() && !existing.IngestedAt.IsZero() {
 		if incoming.IngestedAt.Before(existing.IngestedAt) {
 			return true
@@ -194,59 +285,31 @@ func shouldSkipUpdate(existing, incoming HazardEvent) bool {
 			return true
 		}
 	}
-	return hazardEventsEqual(existing, incoming)
+	return compactHazardsEqual(existing, incoming)
 }
 
-func hazardEventsEqual(a, b HazardEvent) bool {
-	if a.HazardID != b.HazardID ||
-		a.Source != b.Source ||
-		a.SourceRefID != b.SourceRefID ||
-		a.HazardType != b.HazardType ||
-		a.Severity != b.Severity ||
-		a.AreaName != b.AreaName ||
-		!a.OccurredAt.Equal(b.OccurredAt) ||
-		!a.IngestedAt.Equal(b.IngestedAt) {
-		return false
-	}
-	if !floatPtrEqual(a.Latitude, b.Latitude) || !floatPtrEqual(a.Longitude, b.Longitude) {
-		return false
-	}
-	return reflect.DeepEqual(a.Attributes, b.Attributes)
-}
-
-func floatPtrEqual(a, b *float64) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
-}
-
-func cloneHazardEvent(e HazardEvent) HazardEvent {
-	cp := e
-	if e.Latitude != nil {
-		v := *e.Latitude
-		cp.Latitude = &v
-	}
-	if e.Longitude != nil {
-		v := *e.Longitude
-		cp.Longitude = &v
-	}
-	if len(e.Attributes) > 0 {
-		attrs := make(map[string]any, len(e.Attributes))
-		for k, v := range e.Attributes {
-			attrs[k] = v
-		}
-		cp.Attributes = attrs
-	}
-	return cp
+func compactHazardsEqual(a, b compactHazard) bool {
+	return a.HazardID == b.HazardID &&
+		a.Source == b.Source &&
+		a.SourceRefID == b.SourceRefID &&
+		a.HazardType == b.HazardType &&
+		a.Severity == b.Severity &&
+		a.AreaName == b.AreaName &&
+		a.CorrelatedTsunami == b.CorrelatedTsunami &&
+		a.OccurredAt.Equal(b.OccurredAt) &&
+		a.IngestedAt.Equal(b.IngestedAt)
 }
 
 func (d *Dashboard) rebuildCountersLocked() {
 	d.byType = make(map[string]int)
 	d.bySeverity = make(map[string]int)
+	d.maxIngestedAt = time.Time{}
 	for _, ev := range d.events {
 		d.byType[ev.HazardType]++
 		d.bySeverity[ev.Severity]++
+		if !ev.IngestedAt.IsZero() && ev.IngestedAt.After(d.maxIngestedAt) {
+			d.maxIngestedAt = ev.IngestedAt
+		}
 	}
 }
 
@@ -257,12 +320,20 @@ func loadConfig() Config {
 			syncInterval = time.Duration(secs) * time.Second
 		}
 	}
+	fullSyncInterval := defaultFullSyncInterval
+	if raw := strings.TrimSpace(os.Getenv("DASHBOARD_FULL_SYNC_INTERVAL_SECS")); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			fullSyncInterval = time.Duration(secs) * time.Second
+		}
+	}
 	return Config{
-		Brokers:       splitAndTrim(getEnv("REDPANDA_BROKERS", defaultBrokers)),
-		Topic:         getEnv("TOPIC", defaultTopic),
-		GroupID:       getEnv("CONSUMER_GROUP", defaultGroupID),
-		AggregatorURL: strings.TrimRight(getEnv("AGGREGATOR_URL", defaultAggregator), "/"),
-		SyncInterval:  syncInterval,
+		Brokers:          splitAndTrim(getEnv("REDPANDA_BROKERS", defaultBrokers)),
+		Topic:            getEnv("TOPIC", defaultTopic),
+		GroupID:          getEnv("CONSUMER_GROUP", defaultGroupID),
+		AggregatorURL:    strings.TrimRight(getEnv("AGGREGATOR_URL", defaultAggregator), "/"),
+		AuditToken:       strings.TrimSpace(os.Getenv("AUDIT_TOKEN")),
+		SyncInterval:     syncInterval,
+		FullSyncInterval: fullSyncInterval,
 	}
 }
 
@@ -435,7 +506,7 @@ func main() {
 	reg := newRegistry()
 	tracer := newTracer("dashboard-consumer", logger)
 	startDashboardServerWithTelemetry(ctx, getEnv("PORT", "8085"), dashboard, reg)
-	startAggregatorSyncLoop(ctx, config.AggregatorURL, config.SyncInterval, &http.Client{Timeout: 4 * time.Second}, dashboard)
+	startAggregatorSyncLoopWithConfig(ctx, config, &http.Client{Timeout: 20 * time.Second}, dashboard)
 
 	logger.Info("consuming hazard events",
 		slog.String("topic", config.Topic),

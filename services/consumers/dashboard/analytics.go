@@ -6,14 +6,23 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 )
+
+const (
+	maxAnalyticsResponseEvents  = 500
+	defaultAuditChecksumInterval = 30 * time.Second
+)
+
+var errAuditUnavailable = errors.New("audit api unavailable")
 
 //go:embed dashboard.html
 var dashboardHTML string
@@ -59,6 +68,7 @@ type SnapshotOptions struct {
 	TypeFilter     string
 	SeverityFilter string
 	SourceFilter   string
+	IncludeEvents  bool
 }
 
 type AnalyticsSnapshot struct {
@@ -77,8 +87,51 @@ type AnalyticsSnapshot struct {
 	Status                 DashboardStatus  `json:"status"`
 }
 
+type wireAttributes struct {
+	PotentialTsunami bool            `json:"potential_tsunami"`
+	TsunamiWarning   json.RawMessage `json:"tsunami_warning"`
+}
+
+type wireHazardEvent struct {
+	HazardID    string         `json:"hazard_id"`
+	Source      string         `json:"source"`
+	SourceRefID string         `json:"source_ref_id"`
+	HazardType  string         `json:"hazard_type"`
+	Severity    string         `json:"severity"`
+	AreaName    string         `json:"area_name"`
+	Attributes  wireAttributes `json:"attributes"`
+	OccurredAt  time.Time      `json:"occurred_at"`
+	IngestedAt  time.Time      `json:"ingested_at"`
+}
+
+func (w wireHazardEvent) toCompact() compactHazard {
+	ht := internCanonical(w.HazardType)
+	tsunami := false
+	if ht == "SEISMIC" {
+		if w.Attributes.PotentialTsunami {
+			tsunami = true
+		} else {
+			raw := strings.TrimSpace(string(w.Attributes.TsunamiWarning))
+			if raw != "" && raw != "null" {
+				tsunami = true
+			}
+		}
+	}
+	return compactHazard{
+		HazardID:          w.HazardID,
+		Source:            internCanonical(w.Source),
+		SourceRefID:       w.SourceRefID,
+		HazardType:        ht,
+		Severity:          internCanonical(w.Severity),
+		AreaName:          w.AreaName,
+		OccurredAt:        w.OccurredAt.UTC(),
+		IngestedAt:        w.IngestedAt.UTC(),
+		CorrelatedTsunami: tsunami,
+	}
+}
+
 type aggregatorListResponse struct {
-	Data []HazardEvent `json:"data"`
+	Data []wireHazardEvent `json:"data"`
 	Meta struct {
 		Total      int        `json:"total"`
 		Degraded   bool       `json:"degraded"`
@@ -86,45 +139,29 @@ type aggregatorListResponse struct {
 	} `json:"meta"`
 }
 
-// ReconcileSnapshot merges an Aggregator snapshot into Dashboard state and removes retracted records when complete.
-func (d *Dashboard) ReconcileSnapshot(
-	events []HazardEvent,
-	syncStartedAt time.Time,
+type auditEventsResponse struct {
+	Items            []wireHazardEvent `json:"items"`
+	NextCursor       *string           `json:"next_cursor"`
+	Partial          bool              `json:"partial"`
+	UnavailableUnits []string          `json:"unavailable_units"`
+}
+
+type auditChecksumResponse struct {
+	Source           string   `json:"source"`
+	Count            int      `json:"count"`
+	Checksum         string   `json:"checksum"`
+	Partial          bool     `json:"partial"`
+	UnavailableUnits []string `json:"unavailable_units"`
+}
+
+func (d *Dashboard) applySyncStatusLocked(
 	degraded bool,
 	partial bool,
 	unavailableUnits []string,
 	staleSince *time.Time,
 	reason string,
+	now time.Time,
 ) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	seen := make(map[string]struct{}, len(events))
-	for _, ev := range events {
-		if ev.HazardID == "" || ev.HazardType == "" || ev.Severity == "" {
-			continue
-		}
-		seen[ev.HazardID] = struct{}{}
-		if existing, ok := d.events[ev.HazardID]; !ok || !shouldSkipUpdate(existing, ev) {
-			d.events[ev.HazardID] = cloneHazardEvent(ev)
-		}
-	}
-
-	if !degraded && !partial {
-		for id, existing := range d.events {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			// Preserve newly consumed Kafka events that arrived while the snapshot was being fetched.
-			if existing.IngestedAt.IsZero() || existing.IngestedAt.Before(syncStartedAt) {
-				delete(d.events, id)
-			}
-		}
-	}
-
-	d.rebuildCountersLocked()
-
-	now := time.Now().UTC()
 	d.lastSyncAt = &now
 	d.degraded = degraded
 	d.partialData = partial || degraded
@@ -150,6 +187,151 @@ func (d *Dashboard) ReconcileSnapshot(
 	} else if d.staleSince == nil {
 		d.staleSince = &now
 	}
+}
+
+// LocalParity returns the projected event count, SourceRefID checksum, and sync state.
+func (d *Dashboard) LocalParity() (count int, checksum string, initialSynced bool, wasDegraded bool, maxIngested time.Time, lastFullSync time.Time) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	refs := make([]string, 0, len(d.events))
+	for _, ev := range d.events {
+		if ev.SourceRefID != "" {
+			refs = append(refs, ev.SourceRefID)
+		}
+	}
+	return len(d.events), computeSourceRefChecksum(refs), d.initialSynced, d.partialData || d.degraded, d.maxIngestedAt, d.lastFullSyncAt
+}
+
+// NoteChecksumDrift increments consecutive parity drift detections and returns the count.
+func (d *Dashboard) NoteChecksumDrift() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.consecutiveDrift++
+	return d.consecutiveDrift
+}
+
+// ClearChecksumDrift resets consecutive parity drift detections to zero.
+func (d *Dashboard) ClearChecksumDrift() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.consecutiveDrift = 0
+}
+
+// ShouldCheckAuditChecksum reports whether enough time has elapsed since the last checksum probe.
+func (d *Dashboard) ShouldCheckAuditChecksum(interval time.Duration) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lastChecksumAt.IsZero() || time.Since(d.lastChecksumAt) >= interval
+}
+
+// RecordAuditChecksumCheck records the timestamp of a completed /internal/audit/checksum call.
+func (d *Dashboard) RecordAuditChecksumCheck(at time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lastChecksumAt = at.UTC()
+}
+
+// UpdateSyncStatus updates sync timestamps and degradation flags without altering events.
+func (d *Dashboard) UpdateSyncStatus(
+	degraded bool,
+	partial bool,
+	unavailableUnits []string,
+	staleSince *time.Time,
+	reason string,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.applySyncStatusLocked(degraded, partial, unavailableUnits, staleSince, reason, time.Now().UTC())
+}
+
+// MergeCompactDelta upserts incremental records without pruning older entries.
+func (d *Dashboard) MergeCompactDelta(
+	records []compactHazard,
+	degraded bool,
+	partial bool,
+	unavailableUnits []string,
+	staleSince *time.Time,
+	reason string,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	changed := false
+	for _, ev := range records {
+		if ev.HazardID == "" || ev.HazardType == "" || ev.Severity == "" {
+			continue
+		}
+		if existing, ok := d.events[ev.HazardID]; !ok || !shouldSkipUpdate(existing, ev) {
+			d.events[ev.HazardID] = ev
+			changed = true
+		}
+	}
+	if changed {
+		d.rebuildCountersLocked()
+	}
+	d.applySyncStatusLocked(degraded, partial, unavailableUnits, staleSince, reason, time.Now().UTC())
+}
+
+// ReconcileCompactSnapshot merges a compact full snapshot and removes retracted records when complete.
+func (d *Dashboard) ReconcileCompactSnapshot(
+	records []compactHazard,
+	syncStartedAt time.Time,
+	degraded bool,
+	partial bool,
+	unavailableUnits []string,
+	staleSince *time.Time,
+	reason string,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	seen := make(map[string]struct{}, len(records))
+	for _, ev := range records {
+		if ev.HazardID == "" || ev.HazardType == "" || ev.Severity == "" {
+			continue
+		}
+		seen[ev.HazardID] = struct{}{}
+		if existing, ok := d.events[ev.HazardID]; !ok || !shouldSkipUpdate(existing, ev) {
+			d.events[ev.HazardID] = ev
+		}
+	}
+
+	now := time.Now().UTC()
+	if !degraded && !partial {
+		for id, existing := range d.events {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			// Preserve newly consumed Kafka events that arrived while the snapshot was being fetched.
+			if existing.IngestedAt.IsZero() || existing.IngestedAt.Before(syncStartedAt) {
+				delete(d.events, id)
+			}
+		}
+		d.initialSynced = true
+		d.lastFullSyncAt = now
+		d.consecutiveDrift = 0
+	}
+
+	d.rebuildCountersLocked()
+	d.applySyncStatusLocked(degraded, partial, unavailableUnits, staleSince, reason, now)
+}
+
+// ReconcileSnapshot merges an Aggregator snapshot into Dashboard state and removes retracted records when complete.
+func (d *Dashboard) ReconcileSnapshot(
+	events []HazardEvent,
+	syncStartedAt time.Time,
+	degraded bool,
+	partial bool,
+	unavailableUnits []string,
+	staleSince *time.Time,
+	reason string,
+) {
+	compact := make([]compactHazard, 0, len(events))
+	for _, ev := range events {
+		compact = append(compact, toCompactHazard(ev))
+	}
+	d.ReconcileCompactSnapshot(compact, syncStartedAt, degraded, partial, unavailableUnits, staleSince, reason)
 }
 
 // RecordSyncFailure preserves cached aggregates while marking the dashboard partial/degraded.
@@ -197,11 +379,15 @@ func resolveWindow(window string, sinceOverride *time.Time, now time.Time) (stri
 	}
 }
 
-func eventTimestamp(ev HazardEvent) time.Time {
-	if !ev.OccurredAt.IsZero() {
-		return ev.OccurredAt.UTC()
+func pickTimestamp(occurredAt, ingestedAt time.Time) time.Time {
+	if !occurredAt.IsZero() {
+		return occurredAt.UTC()
 	}
-	return ev.IngestedAt.UTC()
+	return ingestedAt.UTC()
+}
+
+func eventTimestamp(ev HazardEvent) time.Time {
+	return pickTimestamp(ev.OccurredAt, ev.IngestedAt)
 }
 
 func hasCorrelatedTsunami(ev HazardEvent) bool {
@@ -264,7 +450,6 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 	tsunamiCount := 0
 	var sourceRefs []string
 	var matchingEvents []HazardEvent
-	var latestEventTime time.Time
 
 	for _, ev := range d.events {
 		if opts.TypeFilter != "" && !strings.EqualFold(ev.HazardType, opts.TypeFilter) {
@@ -277,10 +462,7 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 			continue
 		}
 
-		ts := eventTimestamp(ev)
-		if ts.After(latestEventTime) {
-			latestEventTime = ts
-		}
+		ts := pickTimestamp(ev.OccurredAt, ev.IngestedAt)
 		if since != nil && !ts.IsZero() && ts.Before(*since) {
 			continue
 		}
@@ -288,13 +470,15 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 		total++
 		byType[ev.HazardType]++
 		bySeverity[ev.Severity]++
-		if hasCorrelatedTsunami(ev) {
+		if ev.CorrelatedTsunami {
 			tsunamiCount++
 		}
 		if ev.SourceRefID != "" {
 			sourceRefs = append(sourceRefs, ev.SourceRefID)
 		}
-		matchingEvents = append(matchingEvents, cloneHazardEvent(ev))
+		if opts.IncludeEvents {
+			matchingEvents = append(matchingEvents, ev.toHazardEvent())
+		}
 
 		areaName := strings.TrimSpace(ev.AreaName)
 		if areaName == "" {
@@ -337,7 +521,7 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 			}
 			b.Total++
 			b.ByType[ev.HazardType]++
-			if hasCorrelatedTsunami(ev) {
+			if ev.CorrelatedTsunami {
 				b.Tsunami++
 			}
 		}
@@ -362,14 +546,19 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 		return timeseries[i].Bucket < timeseries[j].Bucket
 	})
 
-	sort.Slice(matchingEvents, func(i, j int) bool {
-		ti := eventTimestamp(matchingEvents[i])
-		tj := eventTimestamp(matchingEvents[j])
-		if !ti.Equal(tj) {
-			return ti.After(tj)
+	if len(matchingEvents) > 0 {
+		sort.Slice(matchingEvents, func(i, j int) bool {
+			ti := eventTimestamp(matchingEvents[i])
+			tj := eventTimestamp(matchingEvents[j])
+			if !ti.Equal(tj) {
+				return ti.After(tj)
+			}
+			return matchingEvents[i].HazardID < matchingEvents[j].HazardID
+		})
+		if len(matchingEvents) > maxAnalyticsResponseEvents {
+			matchingEvents = matchingEvents[:maxAnalyticsResponseEvents]
 		}
-		return matchingEvents[i].HazardID < matchingEvents[j].HazardID
-	})
+	}
 
 	syncInterval := d.syncIntervalSeconds
 	if syncInterval <= 0 {
@@ -423,22 +612,169 @@ func (d *Dashboard) SnapshotWithOptions(opts SnapshotOptions, now time.Time) Ana
 	}
 }
 
-func syncFromAggregator(ctx context.Context, baseURL string, client *http.Client, dashboard *Dashboard) error {
-	if strings.TrimSpace(baseURL) == "" || dashboard == nil {
+type syncProbe struct {
+	total      int
+	degraded   bool
+	partial    bool
+	staleSince *time.Time
+	units      map[string]struct{}
+}
+
+func addUnavailableUnits(dst map[string]struct{}, units []string) {
+	for _, u := range units {
+		if trimmed := strings.TrimSpace(u); trimmed != "" {
+			dst[trimmed] = struct{}{}
+		}
+	}
+}
+
+func sortedUnavailableUnits(unitSet map[string]struct{}) []string {
+	if len(unitSet) == 0 {
 		return nil
 	}
-	if client == nil {
-		client = &http.Client{Timeout: 4 * time.Second}
+	out := make([]string, 0, len(unitSet))
+	for u := range unitSet {
+		out = append(out, u)
 	}
+	sort.Strings(out)
+	return out
+}
 
-	recordErr := func(err error) error {
-		dashboard.RecordSyncFailure(err, time.Now().UTC())
-		return err
+func buildSyncStatusReason(degraded, partial bool, unavailableUnits []string) string {
+	if partial && len(unavailableUnits) > 0 {
+		return "Partial storage outage: unavailable units " + strings.Join(unavailableUnits, ", ")
 	}
+	if partial {
+		return "Partial storage outage reported by Aggregator"
+	}
+	if degraded {
+		return "Upstream or storage degradation reported by Aggregator"
+	}
+	return ""
+}
 
-	syncStartedAt := time.Now().UTC()
+func doGetBody(ctx context.Context, client *http.Client, endpoint, bearerToken string) (int, http.Header, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return resp.StatusCode, resp.Header, nil, readErr
+	}
+	return resp.StatusCode, resp.Header, body, nil
+}
+
+func fetchHazardProbe(ctx context.Context, baseURL string, client *http.Client) (syncProbe, error) {
+	endpoint := fmt.Sprintf("%s/internal/hazards?limit=1&offset=0", strings.TrimRight(baseURL, "/"))
+	status, hdr, body, err := doGetBody(ctx, client, endpoint, "")
+	if err != nil {
+		return syncProbe{}, err
+	}
+	if status != http.StatusOK {
+		return syncProbe{}, fmt.Errorf("aggregator returned HTTP %d", status)
+	}
+	var page aggregatorListResponse
+	if err := json.Unmarshal(body, &page); err != nil {
+		return syncProbe{}, fmt.Errorf("decode aggregator response: %w", err)
+	}
+	p := syncProbe{
+		total:    page.Meta.Total,
+		degraded: page.Meta.Degraded,
+		units:    make(map[string]struct{}),
+	}
+	if page.Meta.StaleSince != nil {
+		t := page.Meta.StaleSince.UTC()
+		p.staleSince = &t
+	}
+	if strings.EqualFold(hdr.Get("X-Storage-Partial"), "true") {
+		p.partial = true
+	}
+	if rawUnits := strings.TrimSpace(hdr.Get("X-Unavailable-Units")); rawUnits != "" {
+		p.partial = true
+		addUnavailableUnits(p.units, strings.Split(rawUnits, ","))
+	}
+	return p, nil
+}
+
+func fetchAuditPages(ctx context.Context, baseURL, auditToken string, client *http.Client, since *time.Time) ([]compactHazard, bool, []string, error) {
+	base := strings.TrimRight(baseURL, "/") + "/internal/audit/events"
+	var out []compactHazard
+	partialAny := false
+	unitSet := make(map[string]struct{})
+	cursor := ""
+
+	for {
+		params := url.Values{}
+		params.Set("limit", "1000")
+		if since != nil && !since.IsZero() {
+			params.Set("since", since.UTC().Format(time.RFC3339Nano))
+		}
+		if cursor != "" {
+			params.Set("cursor", cursor)
+		}
+
+		status, _, body, err := doGetBody(ctx, client, base+"?"+params.Encode(), auditToken)
+		if err != nil {
+			return nil, false, nil, err
+		}
+		if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
+			return nil, false, nil, errAuditUnavailable
+		}
+		if status != http.StatusOK {
+			return nil, false, nil, fmt.Errorf("audit events returned HTTP %d", status)
+		}
+
+		var page auditEventsResponse
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, false, nil, fmt.Errorf("decode audit events response: %w", err)
+		}
+		if page.Partial {
+			partialAny = true
+		}
+		addUnavailableUnits(unitSet, page.UnavailableUnits)
+
+		for _, item := range page.Items {
+			out = append(out, item.toCompact())
+		}
+		if len(page.Items) == 0 || page.NextCursor == nil || *page.NextCursor == "" || *page.NextCursor == cursor {
+			break
+		}
+		cursor = *page.NextCursor
+	}
+	return out, partialAny, sortedUnavailableUnits(unitSet), nil
+}
+
+func fetchAuditChecksum(ctx context.Context, baseURL, auditToken string, client *http.Client) (auditChecksumResponse, error) {
+	endpoint := strings.TrimRight(baseURL, "/") + "/internal/audit/checksum"
+	status, _, body, err := doGetBody(ctx, client, endpoint, auditToken)
+	if err != nil {
+		return auditChecksumResponse{}, err
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
+		return auditChecksumResponse{}, errAuditUnavailable
+	}
+	if status != http.StatusOK {
+		return auditChecksumResponse{}, fmt.Errorf("audit checksum returned HTTP %d", status)
+	}
+	var cs auditChecksumResponse
+	if err := json.Unmarshal(body, &cs); err != nil {
+		return auditChecksumResponse{}, fmt.Errorf("decode audit checksum response: %w", err)
+	}
+	return cs, nil
+}
+
+func runLegacyFullSync(ctx context.Context, baseURL string, client *http.Client, dashboard *Dashboard, syncStartedAt time.Time) error {
 	const pageSize = 500
-	var allEvents []HazardEvent
+	var allEvents []compactHazard
 	degraded := false
 	partial := false
 	var staleSince *time.Time
@@ -446,27 +782,22 @@ func syncFromAggregator(ctx context.Context, baseURL string, client *http.Client
 
 	for offset := 0; ; {
 		endpoint := fmt.Sprintf("%s/internal/hazards?limit=%d&offset=%d", strings.TrimRight(baseURL, "/"), pageSize, offset)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		status, hdr, body, err := doGetBody(ctx, client, endpoint, "")
 		if err != nil {
-			return recordErr(err)
+			dashboard.RecordSyncFailure(err, time.Now().UTC())
+			return err
 		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return recordErr(err)
-		}
-
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-		_ = resp.Body.Close()
-		if readErr != nil {
-			return recordErr(readErr)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return recordErr(fmt.Errorf("aggregator returned HTTP %d", resp.StatusCode))
+		if status != http.StatusOK {
+			err := fmt.Errorf("aggregator returned HTTP %d", status)
+			dashboard.RecordSyncFailure(err, time.Now().UTC())
+			return err
 		}
 
 		var page aggregatorListResponse
 		if err := json.Unmarshal(body, &page); err != nil {
-			return recordErr(fmt.Errorf("decode aggregator response: %w", err))
+			err = fmt.Errorf("decode aggregator response: %w", err)
+			dashboard.RecordSyncFailure(err, time.Now().UTC())
+			return err
 		}
 
 		if page.Meta.Degraded {
@@ -476,53 +807,189 @@ func syncFromAggregator(ctx context.Context, baseURL string, client *http.Client
 			t := page.Meta.StaleSince.UTC()
 			staleSince = &t
 		}
-		if strings.EqualFold(resp.Header.Get("X-Storage-Partial"), "true") {
+		if strings.EqualFold(hdr.Get("X-Storage-Partial"), "true") {
 			partial = true
 		}
-		if units := strings.TrimSpace(resp.Header.Get("X-Unavailable-Units")); units != "" {
+		if units := strings.TrimSpace(hdr.Get("X-Unavailable-Units")); units != "" {
 			partial = true
-			for _, u := range strings.Split(units, ",") {
-				if trimmed := strings.TrimSpace(u); trimmed != "" {
-					unitSet[trimmed] = struct{}{}
-				}
-			}
+			addUnavailableUnits(unitSet, strings.Split(units, ","))
 		}
 
-		allEvents = append(allEvents, page.Data...)
+		for _, ev := range page.Data {
+			allEvents = append(allEvents, ev.toCompact())
+		}
 		if len(page.Data) == 0 || offset+len(page.Data) >= page.Meta.Total {
 			break
 		}
 		offset += len(page.Data)
 	}
 
-	var unavailableUnits []string
-	for u := range unitSet {
-		unavailableUnits = append(unavailableUnits, u)
-	}
-	sort.Strings(unavailableUnits)
+	unavailableUnits := sortedUnavailableUnits(unitSet)
+	reason := buildSyncStatusReason(degraded, partial, unavailableUnits)
+	dashboard.ReconcileCompactSnapshot(allEvents, syncStartedAt, degraded, partial, unavailableUnits, staleSince, reason)
+	return nil
+}
 
-	reason := ""
-	if partial && len(unavailableUnits) > 0 {
-		reason = "Partial storage outage: unavailable units " + strings.Join(unavailableUnits, ", ")
-	} else if partial {
-		reason = "Partial storage outage reported by Aggregator"
-	} else if degraded {
-		reason = "Upstream or storage degradation reported by Aggregator"
+func syncFromAggregator(ctx context.Context, baseURL string, client *http.Client, dashboard *Dashboard) error {
+	return syncFromAggregatorWithAudit(ctx, baseURL, "", defaultFullSyncInterval, client, dashboard)
+}
+
+func syncFromAggregatorWithAudit(
+	ctx context.Context,
+	baseURL string,
+	auditToken string,
+	fullSyncInterval time.Duration,
+	client *http.Client,
+	dashboard *Dashboard,
+) error {
+	if strings.TrimSpace(baseURL) == "" || dashboard == nil {
+		return nil
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 20 * time.Second}
+	}
+	if fullSyncInterval <= 0 {
+		fullSyncInterval = defaultFullSyncInterval
 	}
 
-	dashboard.ReconcileSnapshot(allEvents, syncStartedAt, degraded, partial, unavailableUnits, staleSince, reason)
+	recordErr := func(err error) error {
+		dashboard.RecordSyncFailure(err, time.Now().UTC())
+		return err
+	}
+
+	syncStartedAt := time.Now().UTC()
+	probe, err := fetchHazardProbe(ctx, baseURL, client)
+	if err != nil {
+		return recordErr(err)
+	}
+
+	unavailableUnits := sortedUnavailableUnits(probe.units)
+	reason := buildSyncStatusReason(probe.degraded, probe.partial, unavailableUnits)
+
+	localCount, localChecksum, initialSynced, wasDegraded, maxIngested, lastFullSync := dashboard.LocalParity()
+
+	legacyOrStatus := func() error {
+		if (probe.partial || probe.degraded) && initialSynced {
+			dashboard.UpdateSyncStatus(probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
+			return nil
+		}
+		if !probe.partial && !probe.degraded && initialSynced && !wasDegraded && localCount == probe.total && time.Since(lastFullSync) < fullSyncInterval {
+			dashboard.UpdateSyncStatus(false, false, nil, nil, "")
+			return nil
+		}
+		return runLegacyFullSync(ctx, baseURL, client, dashboard, syncStartedAt)
+	}
+
+	if auditToken == "" {
+		return legacyOrStatus()
+	}
+
+	if initialSynced && !wasDegraded && !probe.partial && !probe.degraded && time.Since(lastFullSync) < fullSyncInterval {
+		if !maxIngested.IsZero() {
+			since := maxIngested.Add(-15 * time.Second).UTC()
+			deltaEvents, dPartial, dUnits, err := fetchAuditPages(ctx, baseURL, auditToken, client, &since)
+			if errors.Is(err, errAuditUnavailable) {
+				return legacyOrStatus()
+			}
+			if err != nil {
+				return recordErr(err)
+			}
+			if dPartial {
+				probe.partial = true
+			}
+			addUnavailableUnits(probe.units, dUnits)
+			unavailableUnits = sortedUnavailableUnits(probe.units)
+			reason = buildSyncStatusReason(probe.degraded, probe.partial, unavailableUnits)
+			if len(deltaEvents) > 0 {
+				dashboard.MergeCompactDelta(deltaEvents, probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
+				localCount, localChecksum, _, _, _, lastFullSync = dashboard.LocalParity()
+			}
+		}
+
+		if localCount != probe.total || dashboard.ShouldCheckAuditChecksum(defaultAuditChecksumInterval) {
+			cs, err := fetchAuditChecksum(ctx, baseURL, auditToken, client)
+			if errors.Is(err, errAuditUnavailable) {
+				return legacyOrStatus()
+			}
+			if err != nil {
+				return recordErr(err)
+			}
+			dashboard.RecordAuditChecksumCheck(time.Now().UTC())
+			if cs.Partial {
+				probe.partial = true
+			}
+			addUnavailableUnits(probe.units, cs.UnavailableUnits)
+			unavailableUnits = sortedUnavailableUnits(probe.units)
+			reason = buildSyncStatusReason(probe.degraded, probe.partial, unavailableUnits)
+
+			if probe.partial || probe.degraded {
+				dashboard.UpdateSyncStatus(probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
+				return nil
+			}
+
+			checksumMatch := (localCount == 0 && cs.Count == 0) || localChecksum == cs.Checksum
+			if localCount == cs.Count && checksumMatch {
+				dashboard.ClearChecksumDrift()
+				dashboard.UpdateSyncStatus(false, false, nil, nil, "")
+				return nil
+			}
+
+			drift := dashboard.NoteChecksumDrift()
+			if !((localCount > cs.Count || drift >= 3) && time.Since(lastFullSync) >= 30*time.Second) && localCount <= cs.Count {
+				dashboard.UpdateSyncStatus(probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
+				return nil
+			}
+		} else {
+			dashboard.ClearChecksumDrift()
+			dashboard.UpdateSyncStatus(false, false, nil, nil, "")
+			return nil
+		}
+	}
+
+	if (probe.partial || probe.degraded) && initialSynced {
+		dashboard.UpdateSyncStatus(probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
+		return nil
+	}
+
+	allEvents, fPartial, fUnits, err := fetchAuditPages(ctx, baseURL, auditToken, client, nil)
+	if errors.Is(err, errAuditUnavailable) {
+		return legacyOrStatus()
+	}
+	if err != nil {
+		return recordErr(err)
+	}
+	if fPartial {
+		probe.partial = true
+	}
+	addUnavailableUnits(probe.units, fUnits)
+	unavailableUnits = sortedUnavailableUnits(probe.units)
+	reason = buildSyncStatusReason(probe.degraded, probe.partial, unavailableUnits)
+	dashboard.ReconcileCompactSnapshot(allEvents, syncStartedAt, probe.degraded, probe.partial, unavailableUnits, probe.staleSince, reason)
 	return nil
 }
 
 func startAggregatorSyncLoop(ctx context.Context, baseURL string, interval time.Duration, client *http.Client, dashboard *Dashboard) {
-	if strings.TrimSpace(baseURL) == "" || dashboard == nil {
+	startAggregatorSyncLoopWithConfig(ctx, Config{
+		AggregatorURL:    baseURL,
+		SyncInterval:     interval,
+		FullSyncInterval: defaultFullSyncInterval,
+	}, client, dashboard)
+}
+
+func startAggregatorSyncLoopWithConfig(ctx context.Context, cfg Config, client *http.Client, dashboard *Dashboard) {
+	if strings.TrimSpace(cfg.AggregatorURL) == "" || dashboard == nil {
 		return
 	}
+	interval := cfg.SyncInterval
 	if interval <= 0 {
 		interval = defaultSyncInterval
 	}
+	fullSyncInterval := cfg.FullSyncInterval
+	if fullSyncInterval <= 0 {
+		fullSyncInterval = defaultFullSyncInterval
+	}
 	go func() {
-		if err := syncFromAggregator(ctx, baseURL, client, dashboard); err != nil && ctx.Err() == nil {
+		if err := syncFromAggregatorWithAudit(ctx, cfg.AggregatorURL, cfg.AuditToken, fullSyncInterval, client, dashboard); err != nil && ctx.Err() == nil {
 			log.Printf("[dashboard] initial aggregator sync failed: %v", err)
 		}
 		ticker := time.NewTicker(interval)
@@ -532,7 +999,7 @@ func startAggregatorSyncLoop(ctx context.Context, baseURL string, interval time.
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := syncFromAggregator(ctx, baseURL, client, dashboard); err != nil && ctx.Err() == nil {
+				if err := syncFromAggregatorWithAudit(ctx, cfg.AggregatorURL, cfg.AuditToken, fullSyncInterval, client, dashboard); err != nil && ctx.Err() == nil {
 					log.Printf("[dashboard] aggregator sync failed: %v", err)
 				}
 			}
@@ -547,6 +1014,7 @@ func analyticsHandler(dashboard *Dashboard) http.HandlerFunc {
 			TypeFilter:     strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("type"))),
 			SeverityFilter: strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("severity"))),
 			SourceFilter:   strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("source"))),
+			IncludeEvents:  strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_events")), "true"),
 		}
 		if rawSince := strings.TrimSpace(r.URL.Query().Get("since")); rawSince != "" {
 			parsed, err := time.Parse(time.RFC3339, rawSince)

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -356,5 +358,239 @@ func TestDashboardRetractionSupport(t *testing.T) {
 	snapFinal := d.Snapshot("all", nil, now)
 	if snapFinal.TotalHazards != 0 {
 		t.Fatalf("expected 0 hazards, got %d", snapFinal.TotalHazards)
+	}
+}
+
+func TestAuditSyncCursorDeltaChecksumAndRetractionRecovery(t *testing.T) {
+	t0 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+
+	var mu sync.Mutex
+	events := []HazardEvent{
+		{
+			HazardID:    "haz-a-1",
+			Source:      "BMKG",
+			SourceRefID: "ref-a-1",
+			HazardType:  "SEISMIC",
+			Severity:    "WASPADA",
+			AreaName:    "Bantul",
+			OccurredAt:  t0,
+			IngestedAt:  t0,
+		},
+		{
+			HazardID:    "haz-a-2",
+			Source:      "PVMBG",
+			SourceRefID: "ref-a-2",
+			HazardType:  "VOLCANIC",
+			Severity:    "SIAGA",
+			AreaName:    "Merapi",
+			OccurredAt:  t0.Add(1 * time.Minute),
+			IngestedAt:  t0.Add(1 * time.Minute),
+		},
+	}
+	var fullWalkPages atomic.Int32
+	var deltaCalls atomic.Int32
+	var checksumCalls atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/internal/hazards":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": events[:min(1, len(events))],
+				"meta": map[string]any{"total": len(events), "degraded": false, "stale_since": nil},
+			})
+		case "/internal/audit/events":
+			if r.Header.Get("Authorization") != "Bearer test-audit-secret" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			q := r.URL.Query()
+			if rawSince := q.Get("since"); rawSince != "" {
+				deltaCalls.Add(1)
+				sinceT, err := time.Parse(time.RFC3339Nano, rawSince)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				var items []HazardEvent
+				for _, ev := range events {
+					if !ev.IngestedAt.Before(sinceT) {
+						items = append(items, ev)
+					}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"items":             items,
+					"next_cursor":       nil,
+					"partial":           false,
+					"unavailable_units": []string{},
+				})
+				return
+			}
+
+			fullWalkPages.Add(1)
+			cursor := q.Get("cursor")
+			switch cursor {
+			case "":
+				next := "page-2"
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"items":             events[:1],
+					"next_cursor":       &next,
+					"partial":           false,
+					"unavailable_units": []string{},
+				})
+			case "page-2":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"items":             events[1:],
+					"next_cursor":       nil,
+					"partial":           false,
+					"unavailable_units": []string{},
+				})
+			default:
+				http.Error(w, "bad cursor", http.StatusBadRequest)
+			}
+		case "/internal/audit/checksum":
+			if r.Header.Get("Authorization") != "Bearer test-audit-secret" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			checksumCalls.Add(1)
+			var refs []string
+			for _, ev := range events {
+				refs = append(refs, ev.SourceRefID)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"source":            "ALL",
+				"count":             len(events),
+				"checksum":          computeSourceRefChecksum(refs),
+				"partial":           false,
+				"unavailable_units": []string{},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	d := NewDashboard()
+
+	// 1. Initial sync walks /internal/audit/events across 2 cursor pages.
+	if err := syncFromAggregatorWithAudit(context.Background(), srv.URL, "test-audit-secret", 5*time.Minute, srv.Client(), d); err != nil {
+		t.Fatalf("initial audit sync failed: %v", err)
+	}
+	if fullWalkPages.Load() != 2 {
+		t.Fatalf("expected 2 full-walk pages on initial sync, got %d", fullWalkPages.Load())
+	}
+	if snap := d.Snapshot("all", nil, t0.Add(2*time.Minute)); snap.TotalHazards != 2 || snap.Status.PartialData {
+		t.Fatalf("unexpected snapshot after initial audit sync: %+v", snap)
+	}
+
+	// 2. Append a third event; steady-state sync should ingest via ?since= + checksum without a full walk.
+	mu.Lock()
+	events = append(events, HazardEvent{
+		HazardID:    "haz-a-3",
+		Source:      "SATELIT",
+		SourceRefID: "ref-a-3",
+		HazardType:  "WILDFIRE",
+		Severity:    "AWAS",
+		AreaName:    "Riau",
+		OccurredAt:  t0.Add(2 * time.Minute),
+		IngestedAt:  t0.Add(2 * time.Minute),
+	})
+	mu.Unlock()
+
+	if err := syncFromAggregatorWithAudit(context.Background(), srv.URL, "test-audit-secret", 5*time.Minute, srv.Client(), d); err != nil {
+		t.Fatalf("incremental audit sync failed: %v", err)
+	}
+	if fullWalkPages.Load() != 2 {
+		t.Fatalf("expected no additional full walk during incremental sync, got fullWalkPages=%d", fullWalkPages.Load())
+	}
+	if deltaCalls.Load() != 1 || checksumCalls.Load() != 1 {
+		t.Fatalf("expected 1 delta call and 1 checksum call, got delta=%d checksum=%d", deltaCalls.Load(), checksumCalls.Load())
+	}
+	if snap := d.Snapshot("all", nil, t0.Add(3*time.Minute)); snap.TotalHazards != 3 || snap.ByType["WILDFIRE"] != 1 {
+		t.Fatalf("unexpected snapshot after delta sync: %+v", snap)
+	}
+
+	// 3. Steady-state unchanged tick checks checksum without triggering a full walk.
+	if err := syncFromAggregatorWithAudit(context.Background(), srv.URL, "test-audit-secret", 5*time.Minute, srv.Client(), d); err != nil {
+		t.Fatalf("steady-state audit sync failed: %v", err)
+	}
+	if fullWalkPages.Load() != 2 {
+		t.Fatalf("expected fullWalkPages=2 when parity holds, got %d", fullWalkPages.Load())
+	}
+
+	// 4. Retract haz-a-1 on server -> localCount > cs.Count triggers full cursor reconciliation.
+	mu.Lock()
+	events = events[1:]
+	mu.Unlock()
+
+	if err := syncFromAggregatorWithAudit(context.Background(), srv.URL, "test-audit-secret", 5*time.Minute, srv.Client(), d); err != nil {
+		t.Fatalf("retraction audit sync failed: %v", err)
+	}
+	if fullWalkPages.Load() != 4 {
+		t.Fatalf("expected full cursor reconciliation after retraction (fullWalkPages=4), got %d", fullWalkPages.Load())
+	}
+	if snap := d.Snapshot("all", nil, t0.Add(4*time.Minute)); snap.TotalHazards != 2 || snap.ByType["SEISMIC"] != 0 {
+		t.Fatalf("expected haz-a-1 removed after full reconciliation, got %+v", snap)
+	}
+}
+
+func TestAnalyticsDefaultOmitsEventsAndOptInCapsAt500(t *testing.T) {
+	d := NewDashboard()
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 510; i++ {
+		d.Process(HazardEvent{
+			HazardID:    fmt.Sprintf("haz-cap-%03d", i),
+			Source:      "SATELIT",
+			SourceRefID: fmt.Sprintf("ref-cap-%03d", i),
+			HazardType:  "WILDFIRE",
+			Severity:    "WASPADA",
+			AreaName:    "Jambi",
+			OccurredAt:  now.Add(time.Duration(i) * time.Second),
+			IngestedAt:  now.Add(time.Duration(i) * time.Second),
+		})
+	}
+
+	h := newHTTPHandler(d)
+
+	// Default response omits events array.
+	recDefault := httptest.NewRecorder()
+	h.ServeHTTP(recDefault, httptest.NewRequest(http.MethodGet, "/api/analytics?window=all", nil))
+	if recDefault.Code != http.StatusOK {
+		t.Fatalf("default /api/analytics status = %d", recDefault.Code)
+	}
+	var rawDefault map[string]any
+	if err := json.Unmarshal(recDefault.Body.Bytes(), &rawDefault); err != nil {
+		t.Fatalf("decode default response: %v", err)
+	}
+	if _, hasEvents := rawDefault["events"]; hasEvents {
+		t.Fatalf("expected default /api/analytics to omit events field")
+	}
+	if int(rawDefault["total_hazards"].(float64)) != 510 {
+		t.Fatalf("total_hazards = %v, want 510", rawDefault["total_hazards"])
+	}
+
+	// Opt-in include_events=true returns newest 500 events.
+	recWithEvents := httptest.NewRecorder()
+	h.ServeHTTP(recWithEvents, httptest.NewRequest(http.MethodGet, "/api/analytics?window=all&include_events=true", nil))
+	if recWithEvents.Code != http.StatusOK {
+		t.Fatalf("include_events /api/analytics status = %d", recWithEvents.Code)
+	}
+	var snapWithEvents AnalyticsSnapshot
+	if err := json.Unmarshal(recWithEvents.Body.Bytes(), &snapWithEvents); err != nil {
+		t.Fatalf("decode include_events response: %v", err)
+	}
+	if snapWithEvents.TotalHazards != 510 {
+		t.Fatalf("total_hazards = %d, want 510", snapWithEvents.TotalHazards)
+	}
+	if len(snapWithEvents.Events) != maxAnalyticsResponseEvents {
+		t.Fatalf("events len = %d, want %d", len(snapWithEvents.Events), maxAnalyticsResponseEvents)
+	}
+	if snapWithEvents.Events[0].HazardID != "haz-cap-509" {
+		t.Fatalf("newest event = %q, want haz-cap-509", snapWithEvents.Events[0].HazardID)
 	}
 }

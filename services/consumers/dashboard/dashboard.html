@@ -1186,6 +1186,8 @@
     }
 
     // Render Regional Breakdown Table
+    const MAX_RENDERED_REGIONS = 200;
+
     function renderRegions(areas, searchQuery) {
       const tbody = document.getElementById('areaTableBody');
       tbody.innerHTML = '';
@@ -1197,7 +1199,7 @@
         return;
       }
 
-      filtered.forEach(a => {
+      filtered.slice(0, MAX_RENDERED_REGIONS).forEach(a => {
         const tr = document.createElement('tr');
         const count = a.count || 0;
 
@@ -1229,6 +1231,12 @@
         `;
         tbody.appendChild(tr);
       });
+
+      if (filtered.length > MAX_RENDERED_REGIONS) {
+        const noteRow = document.createElement('tr');
+        noteRow.innerHTML = `<td colspan="4" style="color:var(--color-text-muted);text-align:center;padding:12px;">Showing top ${MAX_RENDERED_REGIONS} of ${filtered.length.toLocaleString()} matching regions — use search to filter</td>`;
+        tbody.appendChild(noteRow);
+      }
     }
 
     async function loadDashboard() {
