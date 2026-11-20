@@ -176,7 +176,9 @@ func main() {
 				satellite.Config{Lateness: cfg.SatelliteLateness},
 				locate,
 				log,
-			).WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval)
+			).WithLeaseConfig(cfg.InstanceID, cfg.LeaseTTL, cfg.LeaseRenewInterval).
+				WithRetention(cfg.SatelliteRetention).
+				WithTelemetry(reg)
 			workerWg.Add(1)
 			go func() {
 				defer workerWg.Done()

@@ -44,6 +44,9 @@ type Config struct {
 	SatelliteURL      string
 	SatelliteToken    string
 	SatelliteLateness time.Duration
+	// How long a fire must fall behind the newest acquisition before it is closed and
+	// its detections are dropped from memory and checkpoints.
+	SatelliteRetention time.Duration
 	// JSON array of {"name","latitude","longitude"} reference-province centroids for area_name.
 	SatelliteProvinceFile string
 
@@ -143,6 +146,9 @@ func Load() *Config {
 	cfg.SatelliteURL = getEnv("SATELLITE_URL", "https://satellite.naufarrel.dev")
 	cfg.SatelliteToken = getEnv("SATELLITE_GROUP_TOKEN", "")
 	cfg.SatelliteProvinceFile = getEnv("SATELLITE_PROVINCE_CENTROIDS_FILE", "")
+	if hours := getEnvInt("SATELLITE_STATE_RETENTION_HOURS", 0); hours > 0 {
+		cfg.SatelliteRetention = time.Duration(hours) * time.Hour
+	}
 	if mins := getEnvInt("SATELLITE_LATENESS_MINUTES", 0); mins > 0 {
 		cfg.SatelliteLateness = time.Duration(mins) * time.Minute
 	}

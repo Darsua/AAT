@@ -108,6 +108,126 @@
           "legendFormat": "p95 {{service}}"
         }
       ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Satellite wildfire stream (P4)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Satellite Processing Lag (events behind feed)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "lag (events)"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Satellite Offsets (applied vs feed latest)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_last_applied_offset and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "last applied"
+        },
+        {
+          "expr": "max(satellite_latest_offset and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "feed latest"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Satellite Ingress-to-Persist Latency (p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(satellite_event_persist_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 (1m histogram)"
+        },
+        {
+          "expr": "max(satellite_p95_persist_seconds and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "p95 (last 1000 events)"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Satellite Fires and Dispositions",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "open fires"
+        },
+        {
+          "expr": "max(satellite_closed_fires and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "closed fires"
+        },
+        {
+          "expr": "max(satellite_singletons and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "singletons"
+        },
+        {
+          "expr": "max(satellite_late_detections and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "late beyond watermark"
+        },
+        {
+          "expr": "max(satellite_unknown_references and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "updates/retracts for unknown keys"
+        },
+        {
+          "expr": "max(satellite_rejected_events and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "rejected events"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Satellite Throughput and Streaming Instances",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(rate(satellite_last_applied_offset[1m]) and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "events/s applied"
+        },
+        {
+          "expr": "sum(satellite_streaming)",
+          "legendFormat": "streaming instances (should be 1)"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Satellite Checkpoint Size",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "max(satellite_checkpoint_bytes and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "checkpoint bytes"
+        }
+      ]
     }
   ]
 }
