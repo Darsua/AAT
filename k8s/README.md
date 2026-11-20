@@ -16,7 +16,7 @@ The cluster runs on three isolated QEMU/KVM virtual machines hosted across separ
 
 Supporting lab infrastructure used by this deployment:
 
-- **`mainframe` (`10.5.24.112`)**: Intel Core i5-10500T, 8 GB RAM, Debian 13; acts as the Cloudflare Zero Trust SSH bastion (`ssh.sister.works`) and Tunnel gateway routing `k8s-aat.darsu.dev` (Kubernetes API) and `aat.darsu.dev` / `*.aat.darsu.dev` (application ingress).
+- **`mainframe` (`10.5.24.112`)**: Intel Core i5-10500T, 8 GB RAM, Debian 13; acts as the Cloudflare Zero Trust SSH bastion (`ssh.sister.works`), Tunnel gateway routing `k8s-aat.darsu.dev` (Kubernetes API) and `aat.darsu.dev` / `audit-aat.darsu.dev` (application ingress), and LAN egress proxy (`tinyproxy` `:8888`, providing WARP-backed outbound HTTPS for cluster VMs such as `aggregator`'s satellite feed).
 - **`langley` / `imac-gpu` (`10.5.24.125`)**: Intel Core iMac with AMD Radeon Pro 5500 XT (8 GiB VRAM, macOS); runs `llama-server` (`works.sister.llama-server`, Vulkan/MoltenVK) serving `Qwen3.5-9B-Q4_K_M` (`qwen3.5:9b`) on `:11434`, reachable over the `10.5.24.0/22` LAN by `summarizer-consumer` (`#36`) and externally via Cloudflare Access at `https://ai.sister.works`.
 - **Golden VM images**: All three guest VMs maintain `vm-<name>-golden.qcow2` base snapshots on their physical hosts for pre-test preparation only; snapshots are never restored during an assessed self-recovery window.
 
@@ -27,7 +27,7 @@ Supporting lab infrastructure used by this deployment:
 - Validate rendered manifests locally with `./scripts/deploy_k8s.sh --dry-run` (or `make k8s-validate`).
 - Deploy the complete initial stack in one command (provisioning `bnpb-credentials` from `.env`/environment if absent) with `./scripts/deploy_k8s.sh` (or `make k8s-deploy`).
 
-The documented access path is Cloudflare Tunnel through gateway `mainframe`, with `k8s-aat.darsu.dev` for the Kubernetes API and `aat.darsu.dev` / `*.aat.darsu.dev` for application ingress. DNS/tunnel availability does not establish that an application is deployed. TLS and bearer authentication are distinct; do not describe bearer-token access as mutual TLS.
+The documented access path is Cloudflare Tunnel through gateway `mainframe`, with `k8s-aat.darsu.dev` for the Kubernetes API and `aat.darsu.dev` / `audit-aat.darsu.dev` for application ingress. DNS/tunnel availability does not establish that an application is deployed. TLS and bearer authentication are distinct; do not describe bearer-token access as mutual TLS.
 
 ### Storage and topology constraints
 
@@ -79,7 +79,7 @@ Load generators run outside application component pods. The course table has no 
 
 Only Aggregator application pods may access canonical PostgreSQL. Store-to-store replication is separate infrastructure traffic. Verify enforcement from allowed and denied pods with the actual CNI; policy YAML alone is not proof. Preserve Tester Agent access. Broker policies permit `role=aggregator`, `role=consumer`, `role=broker`, and `role=api` (for `POST /field-reports` staging under #27) without opening canonical storage to the gateway.
 
-`kustomization.yaml` excludes `secrets.template.yaml` so `kubectl apply -k k8s/base` cannot overwrite provisioned cluster credentials with empty placeholders. `allow-ingress-controllers` permits port `8084` (`auth`) alongside `8080`, `8083`, and `3000`; `bnpb-config` and `secrets.template.yaml` include the runtime keys read directly by the Go services (`AUTH_URL`, `TOPIC`, `POLL_INTERVAL_SECS`, `JWT_TTL_SECONDS`, `AUTH_*_CLIENT_*`, `CONSUMER_GROUP_*`, `BMKG_KEY`, `PVMBG_TOKEN`, `AI_API_URL`, `AI_MODEL`, `AI_API_KEY`) alongside M2 keys. `summarizer-consumer` runs isolated on port `8087` (`128Mi`/`256Mi`). Observability scrape/trace paths and M2 multi-topic routing still need integration verification as workloads land.
+`kustomization.yaml` excludes `secrets.template.yaml` so `kubectl apply -k k8s/base` cannot overwrite provisioned cluster credentials with empty placeholders. `allow-ingress-controllers` permits port `8084` (`auth`) alongside `8080`, `8083`, and `3000`; `bnpb-ingress` routes `/auth` (`auth:8084`), `/dashboard` (`dashboard-consumer:8085`), `/summaries` (`summarizer-consumer:8087`), and `/` (`client-api:8080`) on `aat.darsu.dev`, plus `/internal/audit` (`aggregator:8083`) on `audit-aat.darsu.dev`. `bnpb-config` and `secrets.template.yaml` include the runtime keys read directly by the Go services (`AUTH_URL`, `TOPIC`, `POLL_INTERVAL_SECS`, `JWT_TTL_SECONDS`, `AUTH_*_CLIENT_*`, `CONSUMER_GROUP_*`, `BMKG_KEY`, `PVMBG_TOKEN`, `AI_API_URL`, `AI_MODEL`, `AI_API_KEY`) alongside M2 keys. `summarizer-consumer` runs on port `8087` (`128Mi`/`256Mi`). Observability scrape/trace paths and M2 multi-topic routing still need integration verification as workloads land.
 
 ## Autoscaling (bonus, #37)
 

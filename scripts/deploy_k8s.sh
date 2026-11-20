@@ -163,7 +163,7 @@ kubectl rollout status statefulset/redpanda -n "${NAMESPACE}" --timeout=180s
 kubectl wait --for=condition=complete job/redpanda-topic-init -n "${NAMESPACE}" --timeout=180s
 
 echo "[k8s-deploy] Waiting for application Deployments..."
-for deploy in mock-bmkg mock-pvmbg aggregator auth client-api dashboard-consumer notifier-consumer summarizer-consumer; do
+for deploy in mock-bmkg mock-pvmbg sensor-pantai aggregator auth client-api dashboard-consumer notifier-consumer summarizer-consumer; do
   kubectl rollout status "deployment/${deploy}" -n "${NAMESPACE}" --timeout=180s
 done
 

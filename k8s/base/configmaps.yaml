@@ -21,7 +21,7 @@ data:
   PVMBG_URL: "http://mock-pvmbg:8082"
   SENSOR_PANTAI_URL: "http://sensor-pantai:8080"
   SATELLITE_URL: "https://satellite.naufarrel.dev"
-  SATELLITE_ENABLED: "false"
+  SATELLITE_ENABLED: "true"
   SATELLITE_LATENESS_MINUTES: "360"
   SATELLITE_STATE_RETENTION_HOURS: "48"
   SATELLITE_PROVINCE_CENTROIDS_FILE: ""
@@ -59,5 +59,8 @@ data:
   # Non-blocking AI situation summarizer configuration (#36)
   AI_API_URL: "http://10.5.24.125:11434/v1/chat/completions"
   AI_MODEL: "qwen3.5:9b"
-  AI_TIMEOUT_MS: "20000"
+  AI_TIMEOUT_MS: "30000"
+  AI_MAX_TOKENS: "120"
   AI_MAX_CALLS_PER_MIN: "12"
+  SUMMARY_MIN_INTERVAL_MS: "15000"
+  AI_CB_COOLDOWN_SECS: "45"

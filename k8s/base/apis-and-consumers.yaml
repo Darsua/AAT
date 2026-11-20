@@ -191,6 +191,8 @@ spec:
           env:
             - name: PORT
               value: "8085"
+            - name: GOMEMLIMIT
+              value: "200MiB"
             - name: CONSUMER_GROUP
               valueFrom:
                 configMapKeyRef:
