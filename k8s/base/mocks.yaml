@@ -145,3 +145,73 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sensor-pantai
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: sensor-pantai
+    role: mock
+spec:
+  selector:
+    app: sensor-pantai
+    role: mock
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-pantai
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: sensor-pantai
+    role: mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sensor-pantai
+      role: mock
+  template:
+    metadata:
+      labels:
+        app: sensor-pantai
+        role: mock
+    spec:
+      containers:
+        - name: sensor-pantai
+          image: sustuna/sensor-pantai@sha256:51fbd90d3891ad6e9f5768ad330ffb65205644cb29e50da65c7538f2e0b4397d
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PANTAI_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: PANTAI_AUTH_TOKEN
+          resources:
+            requests:
+              memory: "64Mi"
+            limits:
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3

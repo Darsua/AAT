@@ -103,6 +103,18 @@ services:
       timeout: 3s
       retries: 5
 
+  sensor-pantai:
+    image: sustuna/sensor-pantai@sha256:51fbd90d3891ad6e9f5768ad330ffb65205644cb29e50da65c7538f2e0b4397d
+    environment:
+      PANTAI_AUTH_TOKEN: ${PANTAI_AUTH_TOKEN:-pantai-secret-token-2026}
+    networks:
+      - bnpb-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   aggregator:
     build: ./services/aggregator
     environment:
@@ -116,6 +128,11 @@ services:
       BMKG_KEY: ${BMKG_API_KEY:-bmkg-secret-key-2026}
       PVMBG_URL: ${PVMBG_URL:-http://mock-pvmbg:8082}
       PVMBG_TOKEN: ${PVMBG_TOKEN:-pvmbg-bearer-token-2026}
+      SENSOR_PANTAI_URL: ${SENSOR_PANTAI_URL:-http://sensor-pantai:8080}
+      PANTAI_AUTH_TOKEN: ${PANTAI_AUTH_TOKEN:-pantai-secret-token-2026}
+      COASTAL_POLL_INTERVAL_SECS: ${COASTAL_POLL_INTERVAL_SECS:-2}
+      COASTAL_TIMEOUT_MS: ${COASTAL_TIMEOUT_MS:-2000}
+      COASTAL_FRESHNESS_TTL_SECS: ${COASTAL_FRESHNESS_TTL_SECS:-30}
       POLL_INTERVAL_SECS: ${POLL_INTERVAL_SECS:-3}
       AUDIT_TOKEN: ${AUDIT_TOKEN:-audit-secret-token-2026}
       AUDIT_ALL_SOURCES_LABEL: ${AUDIT_ALL_SOURCES_LABEL:-ALL}
@@ -188,6 +205,8 @@ services:
       REDPANDA_BROKERS: ${REDPANDA_BROKERS:-redpanda:9092}
       REDPANDA_TOPIC_FIELD_REPORTS: ${REDPANDA_TOPIC_FIELD_REPORTS:-bnpb.field-reports}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      QOS_MAX_CONCURRENT: ${QOS_MAX_CONCURRENT:-100}
+      QOS_MEDIA_SHED_THRESHOLD: ${QOS_MEDIA_SHED_THRESHOLD:-70}
     depends_on:
       aggregator:
         condition: service_healthy
@@ -238,6 +257,7 @@ services:
       CONSUMER_GROUP: ${CONSUMER_GROUP_NOTIFIER:-bnpb-notifier-group}
       TOPIC: ${KAFKA_TOPIC_HAZARDS:-bnpb.hazard-events}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      NOTIFIER_RECEIPT_LOG: ${NOTIFIER_RECEIPT_LOG:-/tmp/notifier-receipts.jsonl}
     depends_on:
       redpanda:
         condition: service_healthy

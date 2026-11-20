@@ -21,6 +21,11 @@ type Config struct {
 	BMKGKey              string
 	PVMBGURL             string
 	PVMBGToken           string
+	SensorPantaiURL      string
+	SensorPantaiToken    string
+	CoastalPollInterval  time.Duration
+	CoastalTimeout       time.Duration
+	CoastalFreshnessTTL  time.Duration
 	PollIntervalSecs     time.Duration
 	LogLevel             string
 	AuditToken           string
@@ -89,6 +94,19 @@ func Load() *Config {
 		drainDelayMs = 0
 	}
 
+	coastalPollSecs := getEnvInt("COASTAL_POLL_INTERVAL_SECS", 2)
+	if coastalPollSecs <= 0 {
+		coastalPollSecs = 2
+	}
+	coastalTimeoutMs := getEnvInt("COASTAL_TIMEOUT_MS", 2000)
+	if coastalTimeoutMs <= 0 {
+		coastalTimeoutMs = 2000
+	}
+	coastalFreshSecs := getEnvInt("COASTAL_FRESHNESS_TTL_SECS", 30)
+	if coastalFreshSecs <= 0 {
+		coastalFreshSecs = 30
+	}
+
 	cfg := &Config{
 		Port:                 getEnv("PORT", "8083"),
 		DatabaseURL:          getEnv("DATABASE_URL", ""),
@@ -102,6 +120,11 @@ func Load() *Config {
 		BMKGKey:              getEnv("BMKG_KEY", ""),
 		PVMBGURL:             getEnv("PVMBG_URL", "http://mock-pvmbg:8082"),
 		PVMBGToken:           getEnv("PVMBG_TOKEN", ""),
+		SensorPantaiURL:      getEnv("SENSOR_PANTAI_URL", ""),
+		SensorPantaiToken:    getEnv("PANTAI_AUTH_TOKEN", ""),
+		CoastalPollInterval:  time.Duration(coastalPollSecs) * time.Second,
+		CoastalTimeout:       time.Duration(coastalTimeoutMs) * time.Millisecond,
+		CoastalFreshnessTTL:  time.Duration(coastalFreshSecs) * time.Second,
 		PollIntervalSecs:     time.Duration(pollSecs) * time.Second,
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 		AuditToken:           getEnv("AUDIT_TOKEN", ""),

@@ -9,18 +9,21 @@ import (
 
 // Tracker maintains upstream provider operational health and degraded timestamps.
 type Tracker struct {
-	mu              sync.RWMutex
-	bmkgHealthy     bool
-	bmkgStaleSince  *time.Time
-	pvmbgHealthy    bool
-	pvmbgStaleSince *time.Time
+	mu                sync.RWMutex
+	bmkgHealthy       bool
+	bmkgStaleSince    *time.Time
+	pvmbgHealthy      bool
+	pvmbgStaleSince   *time.Time
+	coastalHealthy    bool
+	coastalStaleSince *time.Time
 }
 
 // NewTracker creates a new Tracker initialized with all upstreams healthy.
 func NewTracker() *Tracker {
 	return &Tracker{
-		bmkgHealthy:  true,
-		pvmbgHealthy: true,
+		bmkgHealthy:    true,
+		pvmbgHealthy:   true,
+		coastalHealthy: true,
 	}
 }
 
@@ -58,6 +61,23 @@ func (t *Tracker) SetPVMBGStatus(healthy bool) {
 	}
 }
 
+// SetCoastalStatus updates the operational health of the Coastal Sensor upstream poller.
+func (t *Tracker) SetCoastalStatus(healthy bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if healthy {
+		t.coastalHealthy = true
+		t.coastalStaleSince = nil
+	} else {
+		if t.coastalHealthy {
+			now := time.Now().UTC()
+			t.coastalStaleSince = &now
+		}
+		t.coastalHealthy = false
+	}
+}
+
 // GetDegradedStatus returns circuit status and oldest stale timestamp based on requested hazard type.
 func (t *Tracker) GetDegradedStatus(hazardType *domain.HazardType) (bool, *time.Time) {
 	t.mu.RLock()
@@ -69,18 +89,17 @@ func (t *Tracker) GetDegradedStatus(hazardType *domain.HazardType) (bool, *time.
 			return !t.bmkgHealthy, t.bmkgStaleSince
 		case domain.HazardTypeVolcanic:
 			return !t.pvmbgHealthy, t.pvmbgStaleSince
+		case domain.HazardTypeCoastal:
+			return !t.coastalHealthy, t.coastalStaleSince
 		}
 	}
 
 	// For global/unfiltered queries, degraded if any upstream is down
-	if !t.pvmbgHealthy || !t.bmkgHealthy {
+	if !t.pvmbgHealthy || !t.bmkgHealthy || !t.coastalHealthy {
 		var oldest *time.Time
-		if t.pvmbgStaleSince != nil {
-			oldest = t.pvmbgStaleSince
-		}
-		if t.bmkgStaleSince != nil {
-			if oldest == nil || t.bmkgStaleSince.Before(*oldest) {
-				oldest = t.bmkgStaleSince
+		for _, candidate := range []*time.Time{t.pvmbgStaleSince, t.bmkgStaleSince, t.coastalStaleSince} {
+			if candidate != nil && (oldest == nil || candidate.Before(*oldest)) {
+				oldest = candidate
 			}
 		}
 		return true, oldest
