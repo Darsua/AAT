@@ -23,6 +23,7 @@ data:
   SATELLITE_URL: "https://satellite.naufarrel.dev"
   SATELLITE_ENABLED: "false"
   SATELLITE_LATENESS_MINUTES: "360"
+  SATELLITE_STATE_RETENTION_HOURS: "48"
   SATELLITE_PROVINCE_CENTROIDS_FILE: ""
 
   # Poller, JWT, and client identity settings

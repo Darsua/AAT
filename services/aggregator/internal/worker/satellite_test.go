@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"bnpb/aggregator/internal/domain"
 	"bnpb/aggregator/internal/repository"
 	"bnpb/aggregator/internal/satellite"
+	"bnpb/aggregator/internal/telemetry"
 )
 
 var errFeedDrained = errors.New("feed drained")
@@ -297,4 +300,38 @@ func TestSatelliteWorkerStreamsOnlyOnLeaseHolderAndFailsOver(t *testing.T) {
 
 	stopB()
 	<-doneB
+}
+
+func TestSatelliteWorkerPublishesMetrics(t *testing.T) {
+	store := &fakeSatelliteStore{hazards: map[string]domain.HazardEvent{}}
+	reg := telemetry.NewRegistry()
+	w := NewSatelliteWorker(&blockingFeed{events: satelliteScript()}, store, satellite.Config{}, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil))).WithTelemetry(reg)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Start(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	scrape := func() string {
+		rec := httptest.NewRecorder()
+		reg.Handler()(rec, httptest.NewRequest("GET", "/metrics", nil))
+		return rec.Body.String()
+	}
+	want := []string{
+		`satellite_streaming{service="aggregator"} 1`,
+		`satellite_last_applied_offset{service="aggregator"} 8`,
+		`satellite_lag_events{service="aggregator"} 0`,
+		`satellite_active_fires{service="aggregator"} 1`,
+		`satellite_rejected_events{service="aggregator"} 1`,
+		`satellite_event_persist_duration_seconds_bucket{`,
+	}
+	waitFor(t, "satellite metrics", func() bool {
+		body := scrape()
+		for _, line := range want {
+			if !strings.Contains(body, line) {
+				return false
+			}
+		}
+		return true
+	})
 }
