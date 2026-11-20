@@ -1,0 +1,68 @@
+=== NetworkPolicy Storage Isolation Test ===
+Recorded at: 2026-11-20T15:01:16Z
+
+--- Policy Definition Summary ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"labels":{"app.kubernetes.io/name":"bnpb-platform","app.kubernetes.io/part-of":"bnpb-disaster-coordination","component":"security"},"name":"isolate-storage-strict","namespace":"sistem-informasi-kebencanaan-bnpb"},"spec":{"ingress":[{"from":[{"podSelector":{"matchLabels":{"role":"aggregator"}}},{"podSelector":{"matchLabels":{"role":"store"}}}],"ports":[{"port":5432,"protocol":"TCP"}]},{"from":[{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"tester-agent"}}}],"ports":[{"port":5432,"protocol":"TCP"}]}],"podSelector":{"matchLabels":{"role":"store"}},"policyTypes":["Ingress"]}}
+  creationTimestamp: "2026-11-11T09:01:37Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    app.kubernetes.io/part-of: bnpb-disaster-coordination
+    component: security
+  name: isolate-storage-strict
+  namespace: sistem-informasi-kebencanaan-bnpb
+  resourceVersion: "307799"
+  uid: f0a6e03e-0820-4882-a8e8-4129299e8ee5
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          role: aggregator
+    - podSelector:
+        matchLabels:
+          role: store
+    ports:
+    - port: 5432
+      protocol: TCP
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tester-agent
+    ports:
+    - port: 5432
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      role: store
+  policyTypes:
+  - Ingress
+
+--- Allowed Source: aggregator (aggregator-547cc65b86-lnwrg) -> stores:5432 ---
+aggregator-547cc65b86-lnwrg -> store-aqua:5432 : store-aqua (10.43.66.194:5432) open
+ [EXIT 0: ALLOWED]
+aggregator-547cc65b86-lnwrg -> store-ruby:5432 : store-ruby (10.43.199.67:5432) open
+ [EXIT 0: ALLOWED]
+aggregator-547cc65b86-lnwrg -> store-akane:5432 : store-akane (10.43.23.83:5432) open
+ [EXIT 0: ALLOWED]
+
+--- Blocked Source: client-api (client-api-5c76cd958-l9ff9) -> stores:5432 ---
+client-api-5c76cd958-l9ff9 -> store-aqua:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]
+client-api-5c76cd958-l9ff9 -> store-ruby:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]
+client-api-5c76cd958-l9ff9 -> store-akane:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]
+
+--- Blocked Source: dashboard-consumer (dashboard-consumer-555c7f744c-fhgrq) -> stores:5432 ---
+dashboard-consumer-555c7f744c-fhgrq -> store-aqua:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]
+dashboard-consumer-555c7f744c-fhgrq -> store-ruby:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]
+dashboard-consumer-555c7f744c-fhgrq -> store-akane:5432 : command terminated with exit code 1
+ [EXIT 1: BLOCKED BY NETWORKPOLICY]

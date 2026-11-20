@@ -1,0 +1,85 @@
+=== Per-Shard & Replica PostgreSQL Distribution (2026-11-20T15:13:03Z) ===
+
+--- store-aqua-0 (bnpb_shard_1 primary) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   639 |           639
+ PVMBG         |   629 |           629
+ SATELIT       | 10655 |         10655
+ SENSOR_PANTAI |  7910 |          7910
+(4 rows)
+
+--- store-ruby-0 (bnpb_shard_1_r1 replica) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   639 |           639
+ PVMBG         |   629 |           629
+ SATELIT       | 10658 |         10658
+ SENSOR_PANTAI |  7919 |          7919
+(4 rows)
+
+
+--- store-ruby-0 (bnpb_shard_2 primary) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   632 |           632
+ PVMBG         |   656 |           656
+ SATELIT       | 10744 |         10744
+ SENSOR_PANTAI |  7914 |          7914
+(4 rows)
+
+--- store-akane-0 (bnpb_shard_2_r1 replica) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   632 |           632
+ PVMBG         |   656 |           656
+ SATELIT       | 10744 |         10744
+ SENSOR_PANTAI |  7919 |          7919
+(4 rows)
+
+
+--- store-akane-0 (bnpb_shard_3 primary) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   750 |           750
+ PVMBG         |   735 |           735
+ SATELIT       | 12242 |         12242
+ SENSOR_PANTAI |  9367 |          9367
+(4 rows)
+
+--- store-aqua-0 (bnpb_shard_3_r1 replica) ---
+    source     | count | distinct_refs 
+---------------+-------+---------------
+ BMKG          |   750 |           750
+ PVMBG         |   735 |           735
+ SATELIT       | 12242 |         12242
+ SENSOR_PANTAI |  9390 |          9390
+(4 rows)
+
+
+--- coordinator leader_leases (bnpb_shard_1 on store-aqua-0) ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at           
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-547cc65b86-nf9ld |           345 | 2026-11-20 15:13:06.569981+00 | 2026-11-20 15:13:21.569981+00
+ source:PVMBG         | aggregator-547cc65b86-nf9ld |           342 | 2026-11-20 15:13:06.694348+00 | 2026-11-20 15:13:21.694349+00
+ source:SATELIT       | aggregator-547cc65b86-nf9ld |             7 | 2026-11-20 15:13:10.123541+00 | 2026-11-20 15:13:25.123541+00
+ source:SENSOR_PANTAI | aggregator-547cc65b86-nf9ld |            23 | 2026-11-20 15:13:06.751089+00 | 2026-11-20 15:13:21.751089+00
+ source:SYNC          | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:06.98783+00  | 2026-11-20 15:14:06.98783+00
+(5 rows)
+
+
+--- source_checkpoints (bnpb_shard_1 on store-aqua-0) ---
+    source     |       last_occurred_at        |          last_source_ref_id           | fencing_token |          holder_id          |          updated_at           
+---------------+-------------------------------+---------------------------------------+---------------+-----------------------------+-------------------------------
+ BMKG          | 2026-11-20 15:13:01.750835+00 | bmkg-seis-live-20261120-151301-002197 |           345 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:10.643704+00
+ PVMBG         | 2026-11-20 15:13:00.919199+00 | pvmbg-rpt-live-20261120-151300-002196 |           342 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:08.055254+00
+ SENSOR_PANTAI | 2026-11-16 08:15:30+00        | obs-025022                            |            23 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:12:54.363144+00
+(3 rows)
+
+
+--- satellite_checkpoints summary (bnpb_shard_1 on store-aqua-0) ---
+  stream   | last_offset | state_bytes | fencing_token |          holder_id          |          updated_at           
+-----------+-------------+-------------+---------------+-----------------------------+-------------------------------
+ satellite |     2133368 |     4626979 |             7 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:05.844046+00
+(1 row)
+

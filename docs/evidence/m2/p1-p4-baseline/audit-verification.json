@@ -1,0 +1,140 @@
+{
+  "passed": false,
+  "enumerated_count": 51792,
+  "pages": 52,
+  "checks": [
+    {
+      "name": "events_pagination_and_ordering",
+      "passed": true,
+      "count": 51792,
+      "pages": 52,
+      "partial": false,
+      "unavailable_units": []
+    },
+    {
+      "name": "checksum_ALL",
+      "passed": false,
+      "count": 51800,
+      "checksum": "84c69df8d611a7bb18c14dd175ce496555d98068e8dad827287b86cbbc5bf0a8"
+    },
+    {
+      "name": "checksum_BMKG",
+      "passed": true,
+      "count": 1959,
+      "checksum": "60c3db0e09426273e0cbc20906c1a4937990c57465e590af037d295460d9c462"
+    },
+    {
+      "name": "checksum_PVMBG",
+      "passed": true,
+      "count": 1959,
+      "checksum": "0b07c8e9289784ff7a17cef535992d4aef728d0aed19f072546c9692a0494c49"
+    },
+    {
+      "name": "checksum_SATELIT",
+      "passed": false,
+      "count": 33563,
+      "checksum": "f69b03142626497bc964f3e0a2e8c2315dbb78ba22da8f7e3898d5a6d7a05af7"
+    },
+    {
+      "name": "checksum_SENSOR_PANTAI",
+      "passed": false,
+      "count": 14357,
+      "checksum": "4f01cce74b40fff58e24211261698516f8d713b3d923027954cff198b7047a9b"
+    },
+    {
+      "name": "location_sharding_and_replication",
+      "passed": true,
+      "sampled_events": 30,
+      "distinct_nodes": [
+        "akane",
+        "aqua",
+        "ruby"
+      ],
+      "distinct_units": [
+        "shard-1",
+        "shard-1-r1",
+        "shard-2",
+        "shard-2-r1",
+        "shard-3",
+        "shard-3-r1"
+      ],
+      "distinct_primary_replica_nodes_count": 30,
+      "no_node_holds_all_records": true
+    },
+    {
+      "name": "unprocessed_dlq_endpoint",
+      "passed": true,
+      "count": 0
+    }
+  ],
+  "checksums": {
+    "ALL": {
+      "scope": "ALL",
+      "api_count": 51800,
+      "api_checksum": "84c69df8d611a7bb18c14dd175ce496555d98068e8dad827287b86cbbc5bf0a8",
+      "independent_count": 51792,
+      "independent_checksum": "ba8b7fa73a93dad253d7f43bc05ac9b1282aef80fb9ee0cc13b08020882c2bad",
+      "partial": false,
+      "passed": false
+    },
+    "BMKG": {
+      "scope": "BMKG",
+      "api_count": 1959,
+      "api_checksum": "60c3db0e09426273e0cbc20906c1a4937990c57465e590af037d295460d9c462",
+      "independent_count": 1959,
+      "independent_checksum": "60c3db0e09426273e0cbc20906c1a4937990c57465e590af037d295460d9c462",
+      "partial": false,
+      "passed": true
+    },
+    "PVMBG": {
+      "scope": "PVMBG",
+      "api_count": 1959,
+      "api_checksum": "0b07c8e9289784ff7a17cef535992d4aef728d0aed19f072546c9692a0494c49",
+      "independent_count": 1959,
+      "independent_checksum": "0b07c8e9289784ff7a17cef535992d4aef728d0aed19f072546c9692a0494c49",
+      "partial": false,
+      "passed": true
+    },
+    "SATELIT": {
+      "scope": "SATELIT",
+      "api_count": 33563,
+      "api_checksum": "f69b03142626497bc964f3e0a2e8c2315dbb78ba22da8f7e3898d5a6d7a05af7",
+      "independent_count": 33562,
+      "independent_checksum": "e4a923e1a1bbe7b35162066c977a88e9e997f0d4bae5d0aab4bb5a058c3fcf60",
+      "partial": false,
+      "passed": false
+    },
+    "SENSOR_PANTAI": {
+      "scope": "SENSOR_PANTAI",
+      "api_count": 14357,
+      "api_checksum": "4f01cce74b40fff58e24211261698516f8d713b3d923027954cff198b7047a9b",
+      "independent_count": 14312,
+      "independent_checksum": "ec4d8298612e3e90a01204cac02c071c0a670bdbef027b3ffee9e218b6a00def",
+      "partial": false,
+      "passed": false
+    }
+  },
+  "node_distribution": {
+    "akane": {
+      "primary_sampled": 7,
+      "replica_sampled": 11,
+      "unique_sampled": 18
+    },
+    "aqua": {
+      "primary_sampled": 12,
+      "replica_sampled": 7,
+      "unique_sampled": 19
+    },
+    "ruby": {
+      "primary_sampled": 11,
+      "replica_sampled": 12,
+      "unique_sampled": 23
+    }
+  },
+  "unprocessed_count": 0,
+  "errors": [
+    "Checksum mismatch for ALL: api=(51800, 84c69df8d611a7bb18c14dd175ce496555d98068e8dad827287b86cbbc5bf0a8, algo=sha256, partial=False) != independent=(51792, ba8b7fa73a93dad253d7f43bc05ac9b1282aef80fb9ee0cc13b08020882c2bad)",
+    "Checksum mismatch for SATELIT: api=(33563, f69b03142626497bc964f3e0a2e8c2315dbb78ba22da8f7e3898d5a6d7a05af7, algo=sha256, partial=False) != independent=(33562, e4a923e1a1bbe7b35162066c977a88e9e997f0d4bae5d0aab4bb5a058c3fcf60)",
+    "Checksum mismatch for SENSOR_PANTAI: api=(14357, 4f01cce74b40fff58e24211261698516f8d713b3d923027954cff198b7047a9b, algo=sha256, partial=False) != independent=(14312, ec4d8298612e3e90a01204cac02c071c0a670bdbef027b3ffee9e218b6a00def)"
+  ]
+}

@@ -1,0 +1,131 @@
+=== P2 HA Manual Scaling (3 -> 5 -> 2 -> 3) & Leader Fencing (2026-11-20T15:13:12Z) ===
+
+=== Phase 0: Pause hpa/aggregator & Baseline (replicas=3) ===
+horizontalpodautoscaler.autoscaling "aggregator" deleted from sistem-informasi-kebencanaan-bnpb namespace
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-547cc65b86-lnwrg   1/1     Running   0          32m   10.42.3.53   ruby    <none>           <none>
+aggregator-547cc65b86-nf9ld   1/1     Running   0          32m   10.42.2.63   aqua    <none>           <none>
+aggregator-547cc65b86-vgrrx   1/1     Running   0          32m   10.42.0.57   akane   <none>           <none>
+--- leader_leases (baseline replicas=3) ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at           
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-547cc65b86-nf9ld |           345 | 2026-11-20 15:13:10.225172+00 | 2026-11-20 15:13:25.225173+00
+ source:PVMBG         | aggregator-547cc65b86-nf9ld |           342 | 2026-11-20 15:13:11.177361+00 | 2026-11-20 15:13:26.177361+00
+ source:SATELIT       | aggregator-547cc65b86-nf9ld |             7 | 2026-11-20 15:13:10.123541+00 | 2026-11-20 15:13:25.123541+00
+ source:SENSOR_PANTAI | aggregator-547cc65b86-nf9ld |            23 | 2026-11-20 15:13:11.753434+00 | 2026-11-20 15:13:26.753434+00
+ source:SYNC          | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:06.98783+00  | 2026-11-20 15:14:06.98783+00
+(5 rows)
+
+--- source_fences (baseline replicas=3) ---
+    source     | max_fencing_token |          holder_id          |          updated_at           
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               345 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:10.643536+00
+ PVMBG         |               342 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:11.233002+00
+ SATELIT       |                 7 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:10.156797+00
+ SENSOR_PANTAI |                23 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:13.481435+00
+ SYNC          |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:07.049699+00
+(5 rows)
+
+
+=== Phase 1: Scale deployment/aggregator 3 -> 5 ===
+deployment.apps/aggregator scaled
+Waiting for deployment "aggregator" rollout to finish: 3 of 5 updated replicas are available...
+Waiting for deployment "aggregator" rollout to finish: 4 of 5 updated replicas are available...
+deployment "aggregator" successfully rolled out
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-547cc65b86-52hx2   1/1     Running   0          19s   10.42.0.58   akane   <none>           <none>
+aggregator-547cc65b86-cn4s4   1/1     Running   0          19s   10.42.2.64   aqua    <none>           <none>
+aggregator-547cc65b86-lnwrg   1/1     Running   0          32m   10.42.3.53   ruby    <none>           <none>
+aggregator-547cc65b86-nf9ld   1/1     Running   0          32m   10.42.2.63   aqua    <none>           <none>
+aggregator-547cc65b86-vgrrx   1/1     Running   0          32m   10.42.0.57   akane   <none>           <none>
+--- leader_leases (at replicas=5) ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at           
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-547cc65b86-nf9ld |           345 | 2026-11-20 15:13:29.994494+00 | 2026-11-20 15:13:44.994494+00
+ source:PVMBG         | aggregator-547cc65b86-nf9ld |           342 | 2026-11-20 15:13:29.667197+00 | 2026-11-20 15:13:44.667197+00
+ source:SATELIT       | aggregator-547cc65b86-nf9ld |             7 | 2026-11-20 15:13:30.140359+00 | 2026-11-20 15:13:45.140359+00
+ source:SENSOR_PANTAI | aggregator-547cc65b86-nf9ld |            23 | 2026-11-20 15:13:30.597461+00 | 2026-11-20 15:13:45.597461+00
+ source:SYNC          | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:32.194946+00 | 2026-11-20 15:14:32.194946+00
+(5 rows)
+
+--- source_fences (at replicas=5) ---
+    source     | max_fencing_token |          holder_id          |          updated_at           
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               345 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:30.602735+00
+ PVMBG         |               342 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:33.140978+00
+ SATELIT       |                 7 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:31.670399+00
+ SENSOR_PANTAI |                23 | aggregator-547cc65b86-nf9ld | 2026-11-20 15:13:33.526131+00
+ SYNC          |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:32.249185+00
+(5 rows)
+
+--- Upstream polling distribution across all 5 pods (since=15s) ---
+Pod aggregator-547cc65b86-52hx2: outbound_poll_calls=0; latest_sat={"time":"2026-11-20T15:13:27.694961215Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":0,"latest_offset":2133891,"lag_events":2133891,"p95_persist_ms":0,"active_fires":0,"singletons":0,"late_beyond_watermark":0,"rejected_events":0}
+Pod aggregator-547cc65b86-cn4s4: outbound_poll_calls=0; latest_sat={"time":"2026-11-20T15:13:27.349911593Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":0,"latest_offset":2133885,"lag_events":2133885,"p95_persist_ms":0,"active_fires":0,"singletons":0,"late_beyond_watermark":0,"rejected_events":0}
+Pod aggregator-547cc65b86-lnwrg: outbound_poll_calls=0; latest_sat={"time":"2026-11-20T15:13:30.090219783Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":0,"latest_offset":2133906,"lag_events":2133906,"p95_persist_ms":0,"active_fires":0,"singletons":0,"late_beyond_watermark":0,"rejected_events":0}
+Pod aggregator-547cc65b86-nf9ld: outbound_poll_calls=11; latest_sat={"time":"2026-11-20T15:13:33.721345823Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":2133917,"latest_offset":2133917,"lag_events":0,"p95_persist_ms":0.134636,"active_fires":386,"singletons":213282,"late_beyond_watermark":0,"rejected_events":0}
+Pod aggregator-547cc65b86-vgrrx: outbound_poll_calls=0; latest_sat={"time":"2026-11-20T15:13:35.602434912Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":0,"latest_offset":2133931,"lag_events":2133931,"p95_persist_ms":0,"active_fires":0,"singletons":0,"late_beyond_watermark":0,"rejected_events":0}
+
+=== Phase 2: Scale deployment/aggregator 5 -> 2 ===
+deployment.apps/aggregator scaled
+deployment "aggregator" successfully rolled out
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-547cc65b86-lnwrg   1/1     Running   0          32m   10.42.3.53   ruby    <none>           <none>
+aggregator-547cc65b86-vgrrx   1/1     Running   0          33m   10.42.0.57   akane   <none>           <none>
+--- leader_leases (at replicas=2 after 16s lease TTL window) ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at           
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-547cc65b86-lnwrg |           346 | 2026-11-20 15:13:56.47371+00  | 2026-11-20 15:14:11.47371+00
+ source:PVMBG         | aggregator-547cc65b86-lnwrg |           343 | 2026-11-20 15:13:55.118409+00 | 2026-11-20 15:14:10.118409+00
+ source:SATELIT       | aggregator-547cc65b86-vgrrx |             8 | 2026-11-20 15:13:54.042905+00 | 2026-11-20 15:14:09.042905+00
+ source:SENSOR_PANTAI | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:56.342489+00 | 2026-11-20 15:14:11.342489+00
+ source:SYNC          | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:56.453279+00 | 2026-11-20 15:14:56.453279+00
+(5 rows)
+
+--- source_fences (at replicas=2) ---
+    source     | max_fencing_token |          holder_id          |          updated_at           
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               346 | aggregator-547cc65b86-lnwrg | 2026-11-20 15:13:56.93898+00
+ PVMBG         |               343 | aggregator-547cc65b86-lnwrg | 2026-11-20 15:13:56.845843+00
+ SATELIT       |                 8 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:54.097226+00
+ SENSOR_PANTAI |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:57.488738+00
+ SYNC          |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:56.507697+00
+(5 rows)
+
+--- Upstream polling distribution across 2 remaining pods (since=15s) ---
+Pod aggregator-547cc65b86-lnwrg: outbound_poll_calls=11; latest_sat={"time":"2026-11-20T15:13:50.067265921Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":0,"latest_offset":2134006,"lag_events":2134006,"p95_persist_ms":0,"active_fires":0,"singletons":0,"late_beyond_watermark":0,"rejected_events":0}
+Pod aggregator-547cc65b86-vgrrx: outbound_poll_calls=3; latest_sat={"time":"2026-11-20T15:13:55.603883105Z","level":"INFO","msg":"satellite_progress","service":"aggregator","worker":"satellite","last_applied_offset":2134031,"latest_offset":2134031,"lag_events":0,"p95_persist_ms":0.479043,"active_fires":386,"singletons":213284,"late_beyond_watermark":0,"rejected_events":0}
+
+=== Phase 3: Restore deployment/aggregator 2 -> 3 & Re-apply HPA ===
+deployment.apps/aggregator scaled
+Waiting for deployment "aggregator" rollout to finish: 2 of 3 updated replicas are available...
+deployment "aggregator" successfully rolled out
+horizontalpodautoscaler.autoscaling/client-api configured
+horizontalpodautoscaler.autoscaling/aggregator created
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE    NOMINATED NODE   READINESS GATES
+aggregator-547cc65b86-lnwrg   1/1     Running   0          33m   10.42.3.53   ruby    <none>           <none>
+aggregator-547cc65b86-vgrrx   1/1     Running   0          33m   10.42.0.57   akane   <none>           <none>
+aggregator-547cc65b86-vslgs   1/1     Running   0          19s   10.42.2.65   aqua    <none>           <none>
+--- leader_leases (restored replicas=3) ---
+      lease_key       |          holder_id          | fencing_token |          renewed_at           |          expires_at           
+----------------------+-----------------------------+---------------+-------------------------------+-------------------------------
+ source:BMKG          | aggregator-547cc65b86-lnwrg |           346 | 2026-11-20 15:14:19.666209+00 | 2026-11-20 15:14:34.666209+00
+ source:PVMBG         | aggregator-547cc65b86-lnwrg |           343 | 2026-11-20 15:14:17.354194+00 | 2026-11-20 15:14:32.354194+00
+ source:SATELIT       | aggregator-547cc65b86-vgrrx |             8 | 2026-11-20 15:14:19.048282+00 | 2026-11-20 15:14:34.048282+00
+ source:SENSOR_PANTAI | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:14:20.321408+00 | 2026-11-20 15:14:35.321408+00
+ source:SYNC          | aggregator-547cc65b86-vgrrx |            24 | 2026-11-20 15:13:56.453279+00 | 2026-11-20 15:14:56.453279+00
+(5 rows)
+
+--- source_fences (restored replicas=3) ---
+    source     | max_fencing_token |          holder_id          |          updated_at           
+---------------+-------------------+-----------------------------+-------------------------------
+ BMKG          |               346 | aggregator-547cc65b86-lnwrg | 2026-11-20 15:14:20.078767+00
+ PVMBG         |               343 | aggregator-547cc65b86-lnwrg | 2026-11-20 15:14:19.178395+00
+ SATELIT       |                 8 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:14:21.466566+00
+ SENSOR_PANTAI |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:14:21.653424+00
+ SYNC          |                24 | aggregator-547cc65b86-vgrrx | 2026-11-20 15:13:56.507697+00
+(5 rows)
+
+--- HPA state restored ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 42%/70%   3         5         3          2s
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         2          6h20m

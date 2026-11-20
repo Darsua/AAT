@@ -1,0 +1,36 @@
+=== P5 Field-Report Ingestion, RBAC, Idempotency & O(1) Lookup (2026-11-20T15:21:54Z) ===
+
+--- 1. RBAC Check: Media JWT -> POST /api/v1/field-reports (expect 403) ---
+HTTP 403: {"error":"FORBIDDEN","message":"Scope 'hazards:read:all' required to submit field reports"}
+
+--- 2. First Valid Submission (Idempotency-Key: m2-cert-idem-201 -> expect 202) ---
+HTTP 202: {"report_id":"rep-idem-ce1d6666ada4d230","status":"accepted","received_at":"2026-11-20T15:21:56.910933268Z"}
+
+--- 3. Idempotent Replay (identical payload + m2-cert-idem-201 -> expect 202 & identical report_id) ---
+HTTP 202: {"report_id":"rep-idem-ce1d6666ada4d230","status":"accepted","received_at":"2026-11-20T15:21:56.331778097Z"}
+
+--- 4. Idempotency Conflict (mutated severity=AWAS + m2-cert-idem-201 -> expect 409) ---
+HTTP 409: {"error":"CONFLICT","message":"idempotency key reused with a different request payload"}
+
+--- 5. Alias Route Check: POST /field-reports (Idempotency-Key: m2-cert-idem-202 -> expect 202) ---
+HTTP 202: {"report_id":"rep-idem-da8ef065e757863f","status":"accepted","received_at":"2026-11-20T15:21:56.969102762Z"}
+
+--- 6. Canonical Persistence & O(1) Public Point Lookup after 5s ---
+Audit location haz-field-rep-idem-ce1d6666ada4d230:
+{"hazard_id":"haz-field-rep-idem-ce1d6666ada4d230","locations":[{"node":"ruby","unit":"shard-2","role":"primary"},{"node":"akane","unit":"shard-2-r1","role":"replica"}],"partial":false}
+
+Public API GET /api/v1/hazards/haz-field-rep-idem-ce1d6666ada4d230?fields=all:
+HTTP 200 (time verified):
+{"hazard_id":"haz-field-rep-idem-ce1d6666ada4d230","source":"BMKG","source_ref_id":"rep-idem-ce1d6666ada4d230","hazard_type":"SEISMIC","severity":"SIAGA","area_name":"Bandung Selatan Sector A","latitude":-6.985,"longitude":107.615,"attributes":{"description":"M2 certification field report","idempotency_key":"m2-cert-idem-201","payload_sha256":"576c113e0bc37ebefd2b1dbf6c13ef7cc7736bde2fcf0db205edc34b74eb08d3","received_at":"2026-11-20T15:21:56.910933268Z","report_id":"rep-idem-ce1d6666ada4d230","reporter_id":"field-cert-team","submission_channel":"FIELD_REPORT","submitted_by":"test-field-client"},"occurred_at":"2026-11-20T15:21:00Z","ingested_at":"2026-11-20T15:21:56.910933Z"}
+
+
+Public API GET /api/v1/hazards/haz-field-nonexistent (expect 404):
+HTTP 404: {"error":"NOT_FOUND","message":"Hazard event not found"}
+
+Audit location haz-field-rep-idem-da8ef065e757863f:
+{"hazard_id":"haz-field-rep-idem-da8ef065e757863f","locations":[{"node":"aqua","unit":"shard-1","role":"primary"},{"node":"ruby","unit":"shard-1-r1","role":"replica"}],"partial":false}
+
+Aggregator logs for m2-cert-fr-201 and m2-cert-fr-202:
+{"time":"2026-11-20T15:21:57.037897072Z","level":"INFO","msg":"persisted field report hazard","service":"aggregator","worker":"field-report-consumer","correlation_id":"m2-cert-fr-201","hazard_id":"haz-field-rep-idem-ce1d6666ada4d230","source":"BMKG","hazard_type":"SEISMIC","severity":"SIAGA"}
+{"time":"2026-11-20T15:21:57.217699224Z","level":"INFO","msg":"skipped duplicate field report","service":"aggregator","worker":"field-report-consumer","correlation_id":"m2-cert-fr-201-replay","hazard_id":"haz-field-rep-idem-ce1d6666ada4d230","source":"BMKG","report_id":"rep-idem-ce1d6666ada4d230"}
+{"time":"2026-11-20T15:21:57.881841289Z","level":"INFO","msg":"persisted field report hazard","service":"aggregator","worker":"field-report-consumer","correlation_id":"m2-cert-fr-202","hazard_id":"haz-field-rep-idem-da8ef065e757863f","source":"PVMBG","hazard_type":"VOLCANIC","severity":"WASPADA"}

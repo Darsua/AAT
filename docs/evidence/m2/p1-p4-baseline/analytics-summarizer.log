@@ -1,0 +1,608 @@
+=== Analytics Dashboard & GPU LLM Summarizer (2026-11-20T15:13:52Z) ===
+
+--- dashboard-consumer internal /health (http://dashboard-consumer:8085/health) ---
+{"service":"dashboard-consumer","status":"UP"}
+
+--- summarizer-consumer internal /health (http://summarizer-consumer:8087/health) ---
+{"circuit_state":"closed","service":"summarizer-consumer","status":"ok"}
+
+
+--- /dashboard/api/analytics?window=all (by_area top 10 + timeseries sample) ---
+{
+  "window": "all",
+  "generated_at": "2026-11-20T15:13:53.241745429Z",
+  "total_hazards": 63447,
+  "by_type": {
+    "COASTAL": 25743,
+    "SEISMIC": 2026,
+    "VOLCANIC": 2024,
+    "WILDFIRE": 33654
+  },
+  "correlated_tsunami_count": 289,
+  "by_severity": {
+    "AWAS": 33702,
+    "NORMAL": 24742,
+    "SIAGA": 717,
+    "WASPADA": 4286
+  },
+  "source_ref_checksum": "399cba104b82456711ac825ea39dc9dac1121337379a330d1aa0cd630c5ef680",
+  "filters": {},
+  "status": {
+    "partial_data": false,
+    "degraded": false,
+    "last_sync_at": "2026-11-20T15:13:49.997070333Z",
+    "last_kafka_event_at": "2026-11-20T15:13:53.037819655Z",
+    "freshness_lag_seconds": 3,
+    "consistency_model": "eventual_consistency",
+    "sync_interval_seconds": 5
+  },
+  "by_area_total": 33591,
+  "by_area_sample": [
+    {
+      "area_name": "Banda Aceh, Aceh",
+      "count": 6436,
+      "awas": 25,
+      "siaga": 0,
+      "waspada": 432,
+      "normal": 5979
+    },
+    {
+      "area_name": "Cilacap, Jawa Tengah",
+      "count": 6436,
+      "awas": 33,
+      "siaga": 0,
+      "waspada": 398,
+      "normal": 6005
+    },
+    {
+      "area_name": "Padang, Sumatera Barat",
+      "count": 6436,
+      "awas": 27,
+      "siaga": 0,
+      "waspada": 432,
+      "normal": 5977
+    },
+    {
+      "area_name": "Pelabuhan Ratu, Jawa Barat",
+      "count": 6435,
+      "awas": 33,
+      "siaga": 0,
+      "waspada": 408,
+      "normal": 5994
+    },
+    {
+      "area_name": "Mamuju-Sulawesi Barat",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Palangka Raya-Kalimantan Tengah",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Pesisir Makassar-Sulawesi Selatan",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 279,
+      "normal": 126
+    },
+    {
+      "area_name": "Pesisir Padang-Sumatera Barat",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 279,
+      "normal": 126
+    },
+    {
+      "area_name": "Selatan Bali",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Gunung Marapi",
+      "count": 338,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 338,
+      "normal": 0
+    }
+  ],
+  "timeseries_buckets": 193,
+  "timeseries_head_tail": [
+    {
+      "bucket": "2026-11-12",
+      "total": 5760,
+      "by_type": {
+        "COASTAL": 5760,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 0
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2026-11-13",
+      "total": 5760,
+      "by_type": {
+        "COASTAL": 5760,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 0
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2026-11-14",
+      "total": 5760,
+      "by_type": {
+        "COASTAL": 5760,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 0
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2027-05-30",
+      "total": 188,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 188
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2027-05-31",
+      "total": 201,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 201
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2027-06-01",
+      "total": 103,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 103
+      },
+      "tsunami": 0
+    }
+  ]
+}
+
+--- /dashboard/api/analytics?window=24h (by_area top 10 + timeseries sample) ---
+{
+  "window": "24h",
+  "since": "2026-11-19T15:13:52.472213866Z",
+  "generated_at": "2026-11-20T15:13:52.472213866Z",
+  "total_hazards": 37703,
+  "by_type": {
+    "COASTAL": 0,
+    "SEISMIC": 2025,
+    "VOLCANIC": 2024,
+    "WILDFIRE": 33654
+  },
+  "correlated_tsunami_count": 289,
+  "by_severity": {
+    "AWAS": 33623,
+    "NORMAL": 787,
+    "SIAGA": 707,
+    "WASPADA": 2586
+  },
+  "source_ref_checksum": "0ad4f5d626826ac0f134d7896e768443ff53d82234c8eac0e9f2741e975f8eb7",
+  "filters": {},
+  "status": {
+    "partial_data": false,
+    "degraded": false,
+    "last_sync_at": "2026-11-20T15:13:50.469748998Z",
+    "last_kafka_event_at": "2026-11-20T15:13:52.035670414Z",
+    "freshness_lag_seconds": 2,
+    "consistency_model": "eventual_consistency",
+    "sync_interval_seconds": 5
+  },
+  "by_area_total": 33587,
+  "by_area_sample": [
+    {
+      "area_name": "Mamuju-Sulawesi Barat",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Palangka Raya-Kalimantan Tengah",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Pesisir Makassar-Sulawesi Selatan",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 279,
+      "normal": 126
+    },
+    {
+      "area_name": "Selatan Bali",
+      "count": 405,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 127
+    },
+    {
+      "area_name": "Pesisir Padang-Sumatera Barat",
+      "count": 404,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 278,
+      "normal": 126
+    },
+    {
+      "area_name": "Gunung Marapi",
+      "count": 338,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 338,
+      "normal": 0
+    },
+    {
+      "area_name": "Gunung Semeru",
+      "count": 338,
+      "awas": 0,
+      "siaga": 338,
+      "waspada": 0,
+      "normal": 0
+    },
+    {
+      "area_name": "Gunung Anak Krakatau",
+      "count": 337,
+      "awas": 0,
+      "siaga": 0,
+      "waspada": 337,
+      "normal": 0
+    },
+    {
+      "area_name": "Gunung Merapi",
+      "count": 337,
+      "awas": 0,
+      "siaga": 337,
+      "waspada": 0,
+      "normal": 0
+    },
+    {
+      "area_name": "Gunung Ruang",
+      "count": 337,
+      "awas": 337,
+      "siaga": 0,
+      "waspada": 0,
+      "normal": 0
+    }
+  ],
+  "timeseries_buckets": 4445,
+  "timeseries_head_tail": [
+    {
+      "bucket": "2026-11-20T09:00Z",
+      "total": 282,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 141,
+        "VOLCANIC": 141,
+        "WILDFIRE": 0
+      },
+      "tsunami": 20
+    },
+    {
+      "bucket": "2026-11-20T10:00Z",
+      "total": 720,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 360,
+        "VOLCANIC": 360,
+        "WILDFIRE": 0
+      },
+      "tsunami": 51
+    },
+    {
+      "bucket": "2026-11-20T11:00Z",
+      "total": 720,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 360,
+        "VOLCANIC": 360,
+        "WILDFIRE": 0
+      },
+      "tsunami": 52
+    },
+    {
+      "bucket": "2027-06-01T13:00Z",
+      "total": 5,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 5
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2027-06-01T14:00Z",
+      "total": 2,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 2
+      },
+      "tsunami": 0
+    },
+    {
+      "bucket": "2027-06-01T15:00Z",
+      "total": 1,
+      "by_type": {
+        "COASTAL": 0,
+        "SEISMIC": 0,
+        "VOLCANIC": 0,
+        "WILDFIRE": 1
+      },
+      "tsunami": 0
+    }
+  ]
+}
+
+--- /summaries/latest ---
+{
+    "generated": true,
+    "advisory_disclaimer": "AI-generated situational summary for informational awareness only; never gates, mutates, or delays canonical BNPB early warnings.",
+    "model": "qwen3.5:9b",
+    "circuit_state": "closed",
+    "latest": {
+        "id": "sum-000084",
+        "generated": true,
+        "generator_mode": "llm",
+        "model": "qwen3.5:9b",
+        "degraded": false,
+        "text": "Coastal monitoring indicates a single-hazard alert status (WASPADA) at Pelabuhan Ratu, Jawa Barat, with recorded sea anomalies of 0.10m and waves of 1.58m. Meanwhile, stations in Cilacap (Jawa Tengah), Padang (Sumatera Barat), and Banda Aceh (Aceh) report NORMAL conditions with no significant anomalies. No multi-source or multi-hazard clusters are currently identified across the monitored regions.",
+        "event_count": 5,
+        "sources": [
+            "SENSOR_PANTAI"
+        ],
+        "hazard_ids": [
+            "haz-pantai-obs-025742",
+            "haz-pantai-obs-025740",
+            "haz-pantai-obs-025738",
+            "haz-pantai-obs-025739",
+            "haz-pantai-obs-025741"
+        ],
+        "correlation_id": "coastal-poll-1795187605483127852",
+        "latency_ms": 7344,
+        "generated_at": "2026-11-20T15:13:47Z"
+    },
+    "active_correlations": [
+        {
+            "region": "Titik api -3.8253, 118.7285",
+            "sources": [
+                "SATELIT"
+            ],
+            "hazard_types": [
+                "WILDFIRE"
+            ],
+            "highest_severity": "SIAGA",
+            "event_count": 1,
+            "hazard_ids": [
+                "haz-satelit-fire-36e2db36304e3abb"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Jawa Barat",
+            "sources": [
+                "SENSOR_PANTAI"
+            ],
+            "hazard_types": [
+                "COASTAL"
+            ],
+            "highest_severity": "WASPADA",
+            "event_count": 11,
+            "hazard_ids": [
+                "haz-pantai-obs-025739",
+                "haz-pantai-obs-025735",
+                "haz-pantai-obs-025731",
+                "haz-pantai-obs-025727",
+                "haz-pantai-obs-025723",
+                "haz-pantai-obs-025719",
+                "haz-pantai-obs-025715",
+                "haz-pantai-obs-025711",
+                "haz-pantai-obs-025707",
+                "haz-pantai-obs-025703",
+                "haz-pantai-obs-025699"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Makassar-Sulawesi Selatan",
+            "sources": [
+                "BMKG"
+            ],
+            "hazard_types": [
+                "SEISMIC"
+            ],
+            "highest_severity": "WASPADA",
+            "event_count": 1,
+            "hazard_ids": [
+                "haz-bmkg-bmkg-seis-live-20261120-151341-002201"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Marapi",
+            "sources": [
+                "PVMBG"
+            ],
+            "hazard_types": [
+                "VOLCANIC"
+            ],
+            "highest_severity": "WASPADA",
+            "event_count": 1,
+            "hazard_ids": [
+                "haz-pvmbg-pvmbg-rpt-live-20261120-151340-002200"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Padang-Sumatera Barat",
+            "sources": [
+                "BMKG"
+            ],
+            "hazard_types": [
+                "SEISMIC"
+            ],
+            "highest_severity": "WASPADA",
+            "event_count": 1,
+            "hazard_ids": [
+                "haz-bmkg-bmkg-seis-live-20261120-151351-002202"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Aceh",
+            "sources": [
+                "SENSOR_PANTAI"
+            ],
+            "hazard_types": [
+                "COASTAL"
+            ],
+            "highest_severity": "NORMAL",
+            "event_count": 12,
+            "hazard_ids": [
+                "haz-pantai-obs-025741",
+                "haz-pantai-obs-025737",
+                "haz-pantai-obs-025733",
+                "haz-pantai-obs-025729",
+                "haz-pantai-obs-025725",
+                "haz-pantai-obs-025721",
+                "haz-pantai-obs-025717",
+                "haz-pantai-obs-025713",
+                "haz-pantai-obs-025709",
+                "haz-pantai-obs-025705",
+                "haz-pantai-obs-025701",
+                "haz-pantai-obs-025697"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Jawa Tengah",
+            "sources": [
+                "SENSOR_PANTAI"
+            ],
+            "hazard_types": [
+                "COASTAL"
+            ],
+            "highest_severity": "NORMAL",
+            "event_count": 12,
+            "hazard_ids": [
+                "haz-pantai-obs-025742",
+                "haz-pantai-obs-025738",
+                "haz-pantai-obs-025734",
+                "haz-pantai-obs-025730",
+                "haz-pantai-obs-025726",
+                "haz-pantai-obs-025722",
+                "haz-pantai-obs-025718",
+                "haz-pantai-obs-025714",
+                "haz-pantai-obs-025710",
+                "haz-pantai-obs-025706",
+                "haz-pantai-obs-025702",
+                "haz-pantai-obs-025698"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        },
+        {
+            "region": "Sumatera Barat",
+            "sources": [
+                "SENSOR_PANTAI"
+            ],
+            "hazard_types": [
+                "COASTAL"
+            ],
+            "highest_severity": "NORMAL",
+            "event_count": 11,
+            "hazard_ids": [
+                "haz-pantai-obs-025740",
+                "haz-pantai-obs-025736",
+                "haz-pantai-obs-025732",
+                "haz-pantai-obs-025728",
+                "haz-pantai-obs-025724",
+                "haz-pantai-obs-025720",
+                "haz-pantai-obs-025716",
+                "haz-pantai-obs-025712",
+                "haz-pantai-obs-025708",
+                "haz-pantai-obs-025704",
+                "haz-pantai-obs-025700"
+            ],
+            "multi_source": false,
+            "multi_hazard": false
+        }
+    ],
+    "by_source": {
+        "BMKG": 199,
+        "LAPORAN_LAPANGAN": 1,
+        "PVMBG": 198,
+        "SATELIT": 613,
+        "SENSOR_PANTAI": 25667
+    },
+    "by_type": {
+        "COASTAL": 25667,
+        "SEISMIC": 200,
+        "VOLCANIC": 198,
+        "WILDFIRE": 613
+    },
+    "by_severity": {
+        "AWAS": 695,
+        "NORMAL": 23945,
+        "SIAGA": 130,
+        "WASPADA": 1908
+    },
+    "metrics": {
+        "events_consumed_total": 26939,
+        "duplicates_skipped_total": 4301,
+        "summaries_generated_total": 84,
+        "llm_success_total": 83,
+        "fallback_total": 1,
+        "coalesced_total": 26853,
+        "quota_exhausted_total": 0,
+        "validation_failures_total": 1,
+        "last_latency_ms": 7344,
+        "window_events": 200
+    }
+}

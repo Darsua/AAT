@@ -1,0 +1,171 @@
+=== Unified Observability & Trace Correlation (2026-11-20T15:06:53Z) ===
+
+=== 1. /metrics Scrape Across All 8 Application Services (+ external sensor-pantai /healthz) ===
+--- GET http://aggregator:8083/metrics ---
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.005"} 95
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.01"} 251
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.025"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.05"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.1"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.25"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="0.5"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="1"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="2.5"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="5"} 310
+http_request_duration_seconds_bucket{method="GET",route="/health",service="aggregator",le="+Inf"} 310
+http_request_duration_seconds_sum{method="GET",route="/health",service="aggregator"} 2.2485395750000006
+http_request_duration_seconds_count{method="GET",route="/health",service="aggregator"} 310
+http_request_duration_seconds_bucket{method="GET",route="/internal/audit/checksum",service="aggregator",le="0.005"} 0
+
+--- GET http://auth:8084/metrics ---
+# TYPE auth_tokens_issued_total counter
+auth_tokens_issued_total{grant_type="client_credentials",service="auth"} 7
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.005"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.01"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.025"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.05"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.1"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.25"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="0.5"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="1"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="2.5"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="5"} 1
+http_request_duration_seconds_bucket{method="GET",route="/auth/oauth/token",service="auth",le="+Inf"} 1
+http_request_duration_seconds_sum{method="GET",route="/auth/oauth/token",service="auth"} 1.2217e-05
+
+--- GET http://client-api:8080/metrics ---
+# TYPE auth_rejections_total counter
+auth_rejections_total{reason="missing_or_malformed",service="client-api"} 1
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.005"} 0
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.01"} 0
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.025"} 5
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.05"} 6
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.1"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.25"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="0.5"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="1"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="2.5"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="5"} 7
+http_request_duration_seconds_bucket{method="GET",route="/api/v1/hazards",service="client-api",le="+Inf"} 7
+http_request_duration_seconds_sum{method="GET",route="/api/v1/hazards",service="client-api"} 0.183217162
+
+--- GET http://dashboard-consumer:8085/metrics ---
+# TYPE kafka_consumer_dedup_skipped_total counter
+kafka_consumer_dedup_skipped_total{service="dashboard-consumer"} 1267
+# TYPE kafka_message_processing_duration_seconds histogram
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.005"} 7709
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.01"} 7714
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.025"} 7727
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.05"} 7731
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.1"} 7733
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.25"} 7735
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="0.5"} 7735
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="1"} 7735
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="2.5"} 7735
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="5"} 7735
+kafka_message_processing_duration_seconds_bucket{service="dashboard-consumer",topic="bnpb.hazard-events",le="+Inf"} 7735
+kafka_message_processing_duration_seconds_sum{service="dashboard-consumer",topic="bnpb.hazard-events"} 2.6104060679999943
+
+--- GET http://notifier-consumer:8086/metrics ---
+# TYPE kafka_consumer_dedup_skipped_total counter
+kafka_consumer_dedup_skipped_total{service="notifier-consumer"} 2817
+# TYPE kafka_message_processing_duration_seconds histogram
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.005"} 84848
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.01"} 84857
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.025"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.05"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.1"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.25"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="0.5"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="1"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="2.5"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="5"} 84858
+kafka_message_processing_duration_seconds_bucket{service="notifier-consumer",topic="bnpb.hazard-events",le="+Inf"} 84858
+kafka_message_processing_duration_seconds_sum{service="notifier-consumer",topic="bnpb.hazard-events"} 15.771017572000215
+
+--- GET http://summarizer-consumer:8087/metrics ---
+# HELP bnpb_summarizer_events_consumed_total Total canonical events processed by summarizer.
+# TYPE bnpb_summarizer_events_consumed_total counter
+bnpb_summarizer_events_consumed_total 19375
+# HELP bnpb_summarizer_summaries_generated_total Summaries generated partitioned by mode.
+# TYPE bnpb_summarizer_summaries_generated_total counter
+bnpb_summarizer_summaries_generated_total{mode="llm"} 65
+bnpb_summarizer_summaries_generated_total{mode="extractive-fallback"} 1
+# HELP bnpb_summarizer_coalesced_total Trigger signals coalesced under load.
+# TYPE bnpb_summarizer_coalesced_total counter
+bnpb_summarizer_coalesced_total 19292
+# HELP bnpb_summarizer_quota_exhausted_total Summaries fallen back due to quota exhaustion.
+# TYPE bnpb_summarizer_quota_exhausted_total counter
+bnpb_summarizer_quota_exhausted_total 0
+# HELP bnpb_summarizer_circuit_open Whether AI upstream circuit breaker is open (1=open).
+# TYPE bnpb_summarizer_circuit_open gauge
+
+--- GET http://mock-bmkg:8081/metrics ---
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.005"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.01"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.025"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.05"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.1"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.25"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="0.5"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="1"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="2.5"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="5"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-bmkg",le="+Inf"} 6481
+http_request_duration_seconds_sum{method="GET",route="/health",service="mock-bmkg"} 0.1423350720000001
+http_request_duration_seconds_count{method="GET",route="/health",service="mock-bmkg"} 6481
+http_request_duration_seconds_bucket{method="GET",route="/seismic-events",service="mock-bmkg",le="0.005"} 0
+
+--- GET http://mock-pvmbg:8082/metrics ---
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.005"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.01"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.025"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.05"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.1"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.25"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="0.5"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="1"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="2.5"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="5"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/health",service="mock-pvmbg",le="+Inf"} 6478
+http_request_duration_seconds_sum{method="GET",route="/health",service="mock-pvmbg"} 0.12019170600000005
+http_request_duration_seconds_count{method="GET",route="/health",service="mock-pvmbg"} 6478
+http_request_duration_seconds_bucket{method="GET",route="/volcanic-reports",service="mock-pvmbg",le="0.005"} 0
+
+--- External simulator health check: http://sensor-pantai:8080/healthz ---
+  HTTP/1.1 200 OK
+  Content-Length: 15
+  Content-Type: application/json
+  Date: Fri, 20 Nov 2026 15:06:58 GMT
+  Connection: close
+  
+{"status":"ok"}
+=== 2. Distributed Trace & Correlation Propagation ===
+--- Sync probe: X-Correlation-ID=m2-cert-sync-001 (GET /api/v1/hazards -> client-api -> aggregator) ---
+{"time":"2026-11-20T15:04:50.069040063Z","level":"INFO","msg":"http request","service":"client-api","correlation_id":"m2-cert-sync-001","trace_id":"8ad63ee8b8041e8c135e1d85dd42e9e2","span_id":"85d6e7fff46e0911","method":"GET","path":"/api/v1/hazards","status":401,"duration_ms":0}
+{"time":"2026-11-20T15:05:26.379846533Z","level":"INFO","msg":"outbound call completed","service":"client-api","correlation_id":"m2-cert-sync-001","trace_id":"3f2324413c0b6dbf0f7f503fcd4d301a","span_id":"3c51244226eeefa6","upstream":"aggregator","method":"GET","path":"/internal/hazards","status":200,"duration_ms":17}
+{"time":"2026-11-20T15:05:26.379931032Z","level":"INFO","msg":"http request","service":"client-api","correlation_id":"m2-cert-sync-001","trace_id":"3f2324413c0b6dbf0f7f503fcd4d301a","span_id":"60b8267f814c2851","method":"GET","path":"/api/v1/hazards","status":200,"duration_ms":18}
+{"time":"2026-11-20T15:05:25.751063383Z","level":"INFO","msg":"http request","service":"aggregator","correlation_id":"m2-cert-sync-001","trace_id":"3f2324413c0b6dbf0f7f503fcd4d301a","span_id":"4c4ee6ee5a39628c","method":"GET","path":"/internal/hazards","query":"limit=1&offset=0&type=SEISMIC","status":200,"duration_ms":13,"remote_addr":"10.42.0.42:41326"}
+
+--- Async probe: X-Correlation-ID=m2-cert-trace-001 (POST /api/v1/field-reports -> Redpanda -> aggregator -> Redpanda -> consumers) ---
+>>> app=client-api <<<
+2026/11/20 15:05:27 [client-api] field_report_accepted correlation_id="m2-cert-trace-001" report_id="rep-idem-c315be801d25171b" reporter_id="field-cert-01" hazard_type="SEISMIC" severity="WASPADA" duration_ms=10
+{"time":"2026-11-20T15:05:27.412837743Z","level":"INFO","msg":"http request","service":"client-api","correlation_id":"m2-cert-trace-001","trace_id":"9f91afe77471c159bd55a29d1fff5774","span_id":"890b38ee540e36bd","method":"POST","path":"/api/v1/field-reports","status":202,"duration_ms":10}
+{"time":"2026-11-20T15:04:49.395449956Z","level":"INFO","msg":"http request","service":"client-api","correlation_id":"m2-cert-trace-001","trace_id":"8da953371bcd206133369ac65f41ea24","span_id":"4f95f2ffd4ce23e0","method":"POST","path":"/api/v1/field-reports","status":401,"duration_ms":0}
+>>> app=aggregator <<<
+{"time":"2026-11-20T15:05:27.451124879Z","level":"INFO","msg":"persisted field report hazard","service":"aggregator","worker":"field-report-consumer","correlation_id":"m2-cert-trace-001","hazard_id":"haz-field-rep-idem-c315be801d25171b","source":"BMKG","hazard_type":"SEISMIC","severity":"WASPADA"}
+{"time":"2026-11-20T15:06:25.047318487Z","level":"INFO","msg":"http request","service":"aggregator","correlation_id":"corr-1795187185030-c6d527b83dc9d909","trace_id":"aeb42b3269213af15e6c3732bf5798d0","span_id":"d544d644725fea04","method":"GET","path":"/internal/audit/location","query":"hazard_id=haz-field-rep-idem-c315be801d25171b","status":200,"duration_ms":16,"remote_addr":"10.42.2.36:50626"}
+>>> app=dashboard-consumer <<<
+{"time":"2026-11-20T15:05:27.556323249Z","level":"INFO","msg":"processed hazard event","service":"dashboard-consumer","correlation_id":"m2-cert-trace-001","trace_id":"4c1288a9d4522d8bbd5c727c1bbd082d","span_id":"95030591dc1a898d","hazard_id":"haz-field-rep-idem-c315be801d25171b","hazard_type":"SEISMIC","severity":"WASPADA","type_count":1973,"severity_count":3605}
+>>> app=notifier-consumer <<<
+{"time":"2026-11-20T15:05:26.701998277Z","level":"INFO","msg":"processed hazard event without alert","service":"notifier-consumer","correlation_id":"m2-cert-trace-001","trace_id":"4c1288a9d4522d8bbd5c727c1bbd082d","span_id":"60345c64335b0625","hazard_id":"haz-field-rep-idem-c315be801d25171b"}
+>>> app=summarizer-consumer <<<
+
+--- Audit /internal/audit/location check for persisted field report hazard ---
+{"hazard_id":"haz-field-rep-idem-c315be801d25171b","locations":[{"node":"aqua","unit":"shard-1","role":"primary"},{"node":"ruby","unit":"shard-1-r1","role":"replica"}],"partial":false}
+

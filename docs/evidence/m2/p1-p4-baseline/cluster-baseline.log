@@ -1,0 +1,116 @@
+=== Recorded at 2026-11-20T15:00:22Z ===
+
+=== NODES ===
+NAME    STATUS   ROLES           AGE    VERSION        INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION                         CONTAINER-RUNTIME
+akane   Ready    <none>          4d6h   v1.37.2+k3s1   10.5.27.242   <none>        Debian GNU/Linux 13 (trixie)   6.12.115+deb13.1-cloud-amd64 (amd64)   containerd://2.3.7-k3s1
+aqua    Ready    control-plane   12d    v1.37.2+k3s1   10.5.27.240   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+ruby    Ready    <none>          12d    v1.37.2+k3s1   10.5.27.241   <none>        Debian GNU/Linux 13 (trixie)   6.12.117+deb13-cloud-amd64 (amd64)     containerd://2.3.7-k3s1
+
+=== TOP NODES ===
+NAME    CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+akane   489m         24%      1035Mi          30%         
+aqua    317m         15%      1702Mi          49%         
+ruby    262m         13%      1491Mi          43%         
+
+=== TOP PODS ===
+NAME                                   CPU(cores)   MEMORY(bytes)   
+aggregator-547cc65b86-lnwrg            19m          39Mi            
+aggregator-547cc65b86-nf9ld            80m          130Mi           
+aggregator-547cc65b86-vgrrx            238m         196Mi           
+auth-5f6bc66576-nqznn                  1m           7Mi             
+client-api-5c76cd958-l9ff9             1m           8Mi             
+client-api-5c76cd958-z4r4r             1m           7Mi             
+dashboard-consumer-555c7f744c-fhgrq    12m          56Mi            
+dashboard-consumer-555c7f744c-qt948    58m          67Mi            
+mock-bmkg-5d747774c6-69f46             1m           9Mi             
+mock-pvmbg-676dc795d9-6bvwr            1m           9Mi             
+notifier-consumer-776d6987d5-6mw7v     4m           14Mi            
+notifier-consumer-776d6987d5-m6wvs     8m           20Mi            
+redpanda-0                             43m          139Mi           
+sensor-pantai-57688665c7-dxd4p         1m           28Mi            
+store-akane-0                          99m          246Mi           
+store-aqua-0                           99m          276Mi           
+store-ruby-0                           104m         255Mi           
+summarizer-consumer-55f598478b-4nlms   10m          8Mi             
+
+=== NAMESPACE RESOURCES ===
+NAME                                       READY   STATUS      RESTARTS        AGE     IP           NODE    NOMINATED NODE   READINESS GATES
+pod/aggregator-547cc65b86-lnwrg            1/1     Running     0               19m     10.42.3.53   ruby    <none>           <none>
+pod/aggregator-547cc65b86-nf9ld            1/1     Running     0               19m     10.42.2.63   aqua    <none>           <none>
+pod/aggregator-547cc65b86-vgrrx            1/1     Running     0               19m     10.42.0.57   akane   <none>           <none>
+pod/auth-5f6bc66576-nqznn                  1/1     Running     0               5h55m   10.42.0.41   akane   <none>           <none>
+pod/client-api-5c76cd958-l9ff9             1/1     Running     0               5h53m   10.42.2.44   aqua    <none>           <none>
+pod/client-api-5c76cd958-z4r4r             1/1     Running     0               5h55m   10.42.0.42   akane   <none>           <none>
+pod/dashboard-consumer-555c7f744c-fhgrq    1/1     Running     0               19m     10.42.3.52   ruby    <none>           <none>
+pod/dashboard-consumer-555c7f744c-qt948    1/1     Running     0               19m     10.42.2.62   aqua    <none>           <none>
+pod/mock-bmkg-5d747774c6-69f46             1/1     Running     0               5h55m   10.42.0.39   akane   <none>           <none>
+pod/mock-pvmbg-676dc795d9-6bvwr            1/1     Running     0               5h55m   10.42.0.40   akane   <none>           <none>
+pod/notifier-consumer-776d6987d5-6mw7v     1/1     Running     0               5h23m   10.42.3.43   ruby    <none>           <none>
+pod/notifier-consumer-776d6987d5-m6wvs     1/1     Running     0               5h23m   10.42.0.51   akane   <none>           <none>
+pod/redpanda-0                             1/1     Running     0               5h55m   10.42.3.33   ruby    <none>           <none>
+pod/redpanda-topic-init-rgvds              0/1     Completed   0               5h55m   10.42.0.44   akane   <none>           <none>
+pod/sensor-pantai-57688665c7-dxd4p         1/1     Running     0               6h6m    10.42.0.34   akane   <none>           <none>
+pod/store-akane-0                          1/1     Running     0               2d9h    10.42.0.31   akane   <none>           <none>
+pod/store-aqua-0                           1/1     Running     1 (6h14m ago)   4d3h    10.42.2.33   aqua    <none>           <none>
+pod/store-ruby-0                           1/1     Running     0               3d9h    10.42.3.23   ruby    <none>           <none>
+pod/summarizer-consumer-55f598478b-4nlms   1/1     Running     0               19m     10.42.3.51   ruby    <none>           <none>
+
+NAME                           READY   AGE    CONTAINERS   IMAGES
+statefulset.apps/redpanda      1/1     4d3h   redpanda     docker.redpanda.com/redpandadata/redpanda:v24.1.1
+statefulset.apps/store-akane   1/1     4d3h   postgres     postgres:16-alpine
+statefulset.apps/store-aqua    1/1     4d3h   postgres     postgres:16-alpine
+statefulset.apps/store-ruby    1/1     4d3h   postgres     postgres:16-alpine
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS            IMAGES                                                                                          SELECTOR
+deployment.apps/aggregator            3/3     3            3           4d3h    aggregator            bnpb-aggregator:latest                                                                          app=aggregator,role=aggregator
+deployment.apps/auth                  1/1     1            1           4d3h    auth                  bnpb-auth:latest                                                                                app=auth,role=api
+deployment.apps/client-api            2/2     2            2           4d3h    client-api            bnpb-client-api:latest                                                                          app=client-api,role=api
+deployment.apps/dashboard-consumer    2/2     2            2           4d3h    dashboard-consumer    bnpb-dashboard-consumer:latest                                                                  app=dashboard-consumer,role=consumer
+deployment.apps/mock-bmkg             1/1     1            1           4d3h    mock-bmkg             bnpb-mock-bmkg:latest                                                                           app=mock-bmkg,role=mock
+deployment.apps/mock-pvmbg            1/1     1            1           4d3h    mock-pvmbg            bnpb-mock-pvmbg:latest                                                                          app=mock-pvmbg,role=mock
+deployment.apps/notifier-consumer     2/2     2            2           4d3h    notifier-consumer     bnpb-notifier-consumer:latest                                                                   app=notifier-consumer,role=consumer
+deployment.apps/sensor-pantai         1/1     1            1           6h6m    sensor-pantai         sustuna/sensor-pantai@sha256:51fbd90d3891ad6e9f5768ad330ffb65205644cb29e50da65c7538f2e0b4397d   app=sensor-pantai,role=mock
+deployment.apps/summarizer-consumer   1/1     1            1           3d21h   summarizer-consumer   bnpb-summarizer-consumer:latest                                                                 app=summarizer-consumer,role=consumer
+
+NAME                          TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE     SELECTOR
+service/aggregator            ClusterIP   10.43.179.109   <none>        8083/TCP            4d3h    app=aggregator,role=aggregator
+service/auth                  ClusterIP   10.43.101.236   <none>        8084/TCP            4d3h    app=auth,role=api
+service/client-api            ClusterIP   10.43.30.71     <none>        8080/TCP            4d3h    app=client-api,role=api
+service/dashboard-consumer    ClusterIP   10.43.22.35     <none>        8085/TCP            4d3h    app=dashboard-consumer,role=consumer
+service/mock-bmkg             ClusterIP   10.43.41.97     <none>        8081/TCP            4d3h    app=mock-bmkg,role=mock
+service/mock-pvmbg            ClusterIP   10.43.247.33    <none>        8082/TCP            4d3h    app=mock-pvmbg,role=mock
+service/notifier-consumer     ClusterIP   10.43.32.64     <none>        8086/TCP            4d3h    app=notifier-consumer,role=consumer
+service/redpanda              ClusterIP   10.43.66.131    <none>        9092/TCP,9644/TCP   4d3h    app=redpanda,role=broker
+service/sensor-pantai         ClusterIP   10.43.38.62     <none>        8080/TCP            6h6m    app=sensor-pantai,role=mock
+service/store-akane           ClusterIP   10.43.23.83     <none>        5432/TCP            4d3h    app=store-akane,role=store
+service/store-aqua            ClusterIP   10.43.66.194    <none>        5432/TCP            4d3h    app=store-aqua,role=store
+service/store-ruby            ClusterIP   10.43.199.67    <none>        5432/TCP            4d3h    app=store-ruby,role=store
+service/summarizer-consumer   ClusterIP   10.43.5.91      <none>        8087/TCP            3d21h   app=summarizer-consumer,role=consumer
+
+NAME                                     CLASS     HOSTS                               ADDRESS                               PORTS   AGE
+ingress.networking.k8s.io/bnpb-ingress   traefik   aat.darsu.dev,audit-aat.darsu.dev   10.5.27.240,10.5.27.241,10.5.27.242   80      4d3h
+
+NAME                                                        POD-SELECTOR                     AGE
+networkpolicy.networking.k8s.io/allow-ingress-controllers   role in (aggregator,api,other)   9d
+networkpolicy.networking.k8s.io/allow-mock-admin-policy     role=mock                        9d
+networkpolicy.networking.k8s.io/isolate-broker-policy       role=broker                      9d
+networkpolicy.networking.k8s.io/isolate-storage-strict      role=store                       9d
+
+NAME                                 CREATED AT
+limitrange/table-b-resource-limits   2026-11-11T09:01:37Z
+
+NAME                                             REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/aggregator   Deployment/aggregator   cpu: 44%/70%   3         5         3          6h6m
+horizontalpodautoscaler.autoscaling/client-api   Deployment/client-api   cpu: 1%/70%    2         6         2          6h6m
+
+=== TESTER AGENT PODS & LIST ===
+NAME                 READY   STATUS    RESTARTS        AGE    IP            NODE    NOMINATED NODE   READINESS GATES
+tester-agent-47f8n   1/1     Running   4 (6h14m ago)   12d    10.5.27.240   aqua    <none>           <none>
+tester-agent-8rv96   1/1     Running   3 (2d9h ago)    4d6h   10.5.27.242   akane   <none>           <none>
+tester-agent-rgrbm   1/1     Running   4 (3d9h ago)    12d    10.5.27.241   ruby    <none>           <none>
+clock-skew
+kill-leader
+kill-store
+partition
+schema
+wipe-node
