@@ -124,6 +124,8 @@ spec:
                 name: bnpb-credentials
           resources:
             requests:
+              # CPU request is the HPA utilization baseline (autoscaling.yaml); the CPU limit is the LimitRange default (500m).
+              cpu: "100m"
               memory: "128Mi"
             limits:
               memory: "256Mi"

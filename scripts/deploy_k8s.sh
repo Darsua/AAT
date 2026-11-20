@@ -167,5 +167,9 @@ for deploy in mock-bmkg mock-pvmbg aggregator auth client-api dashboard-consumer
   kubectl rollout status "deployment/${deploy}" -n "${NAMESPACE}" --timeout=180s
 done
 
+if ! kubectl get apiservice v1beta1.metrics.k8s.io >/dev/null 2>&1; then
+  echo "[k8s-deploy] WARNING: metrics API (metrics-server) not found; HorizontalPodAutoscalers in autoscaling.yaml will not scale." >&2
+fi
+
 echo "[k8s-deploy] Deployment complete in namespace ${NAMESPACE}."
 kubectl get pods -n "${NAMESPACE}" -o wide

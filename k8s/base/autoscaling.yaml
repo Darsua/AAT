@@ -1,0 +1,83 @@
+# Adaptive capacity (bonus, issue #37). Requires the Kubernetes metrics API
+# (k3s ships metrics-server by default). CPU utilization is measured against the
+# CPU requests declared on these Deployments (CPU limit: LimitRange default 500m);
+# memory requests/limits stay at the Appendix B values.
+#
+# Only stateless request paths scale automatically:
+# - client-api: public gateway; field reports are staged in Kafka and deduplicated
+#   by the Aggregator on (source, source_ref_id), so extra replicas are safe.
+# - aggregator: minimum 3 (P2). Source polling and the satellite stream stay
+#   exclusive through leases and fencing, so added replicas only add read/serve
+#   capacity. Pause this HPA for the manual P2 3 -> 5 -> 2 drill (k8s/README.md).
+# Auth (process-local refresh state) and Kafka consumers (3 partitions) are not scaled.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: client-api
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    app: client-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: client-api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+    scaleDown:
+      # Wait out short lulls, then remove one pod per minute so draining pods
+      # finish in-flight requests before the next one goes.
+      stabilizationWindowSeconds: 120
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aggregator
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    app: aggregator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aggregator
+  minReplicas: 3
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 180
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 90
