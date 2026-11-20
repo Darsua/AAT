@@ -346,18 +346,21 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 		return err
 	}
 	if !proceed {
+		if p.status != nil {
+			p.status.SetCoastalStatus(true)
+		}
 		return nil
 	}
 	defer stopRenew()
 
-	pollCtx, cancel := context.WithTimeout(cycleCtx, p.reqTimeout)
-	defer cancel()
 	corrID := fmt.Sprintf("coastal-poll-%d", time.Now().UnixNano())
-	pollCtx = logger.WithCorrelationID(pollCtx, corrID)
+	persistCtx := logger.WithCorrelationID(cycleCtx, corrID)
 
 	now := time.Now().UTC()
 	if len(p.stations) == 0 || now.Sub(p.stationsAt) > 5*time.Minute {
-		stations, err := p.client.FetchStations(pollCtx)
+		stationCtx, stationCancel := context.WithTimeout(persistCtx, p.reqTimeout)
+		stations, err := p.client.FetchStations(stationCtx)
+		stationCancel()
 		if err != nil {
 			p.breaker.RecordFailure()
 			if p.status != nil {
@@ -380,7 +383,9 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 			seenCursors[p.cursor] = struct{}{}
 		}
 
-		batch, err := p.client.FetchObservations(pollCtx, defaultCoastalPageLimit, p.cursor, p.stations, now)
+		obsCtx, obsCancel := context.WithTimeout(persistCtx, p.reqTimeout)
+		batch, err := p.client.FetchObservations(obsCtx, defaultCoastalPageLimit, p.cursor, p.stations, now)
+		obsCancel()
 		if err != nil {
 			p.breaker.RecordFailure()
 			if p.status != nil {
@@ -397,7 +402,7 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 				RawPayload:    rej.RawPayload,
 				QuarantinedAt: now,
 			})
-			p.recordDLQ(pollCtx, rej.RawPayload, rej.Reason, now)
+			p.recordDLQ(persistCtx, rej.RawPayload, rej.Reason, now)
 			p.log.Warn("quarantined invalid coastal observation",
 				slog.String("observation_id", rej.ObservationID),
 				slog.String("station_id", rej.StationID),
@@ -416,11 +421,11 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 					RawPayload:    raw,
 					QuarantinedAt: now,
 				})
-				p.recordDLQ(pollCtx, raw, err.Error(), now)
+				p.recordDLQ(persistCtx, raw, err.Error(), now)
 				continue
 			}
 			if p.repo != nil {
-				if err := p.lease.saveHazard(pollCtx, event, corrID, fence); err != nil {
+				if err := p.lease.saveHazard(persistCtx, event, corrID, fence); err != nil {
 					p.breaker.RecordFailure()
 					if p.status != nil {
 						p.status.SetCoastalStatus(false)
@@ -445,7 +450,7 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 	}
 	p.cache.Update(persistedEvents, now)
 	if fence != nil {
-		_ = p.lease.saveCheckpoint(pollCtx, fence)
+		_ = p.lease.saveCheckpoint(persistCtx, fence)
 	}
 	return nil
 }

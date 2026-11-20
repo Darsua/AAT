@@ -19,6 +19,10 @@ import (
 const (
 	satelliteStream             = "satellite"
 	defaultSatelliteCheckpoint  = 5 * time.Second
+	backfillSatelliteCheckpoint = 30 * time.Second
+	satelliteBackfillLag        = 1000
+	satelliteFlushEvery         = 250 * time.Millisecond
+	satelliteFlushMaxPending    = 200
 	defaultSatelliteReportEvery = 10 * time.Second
 	satelliteRetryWait          = 5 * time.Second
 	satelliteFatalWait          = 60 * time.Second
@@ -207,9 +211,31 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 	w.log.Info("satellite stream resuming", slog.Int64("from_offset", offset), slog.Int("active_fires", len(fires)))
 
 	lastCheckpoint := w.now()
+	lastFlush := w.now()
 	dirty := false
 	// consistent is false while an event is half applied; a checkpoint is never taken then.
 	consistent := true
+
+	// Hazard writes are coalesced per hazard ID (only the newest state of a fire is written)
+	// and always flushed before a checkpoint, so the checkpoint offset never passes a
+	// hazard that has not been persisted.
+	pending := make(map[string]domain.HazardEvent)
+	var order []string
+	var pendingOffset int64
+	flush := func(fctx context.Context) error {
+		for len(order) > 0 {
+			id := order[0]
+			h := pending[id]
+			if err := w.lease.saveHazard(fctx, &h, fmt.Sprintf("satelit-%d", pendingOffset), fence); err != nil {
+				return fmt.Errorf("persist %s by offset %d: %w", id, pendingOffset, err)
+			}
+			delete(pending, id)
+			order = order[1:]
+		}
+		lastFlush = w.now()
+		return nil
+	}
+	flushed := true
 
 	runErr := w.feed.Run(ctx, offset, func(ev satellite.Event) error {
 		consistent = false
@@ -225,16 +251,39 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 		}
 		for _, c := range changes {
 			h := satelliteHazard(c, w.locate)
-			if err := w.lease.saveHazard(ctx, &h, fmt.Sprintf("satelit-%d", ev.Offset), fence); err != nil {
-				return fmt.Errorf("persist %s at offset %d: %w", h.HazardID, ev.Offset, err)
+			if _, ok := pending[h.HazardID]; !ok {
+				order = append(order, h.HazardID)
 			}
+			pending[h.HazardID] = h
+			flushed = false
 		}
-		offset, dirty, consistent = ev.Offset, true, true
+		pendingOffset = ev.Offset
+		offset, dirty = ev.Offset, true
 		w.observe(engine, changes, offset, w.now().Sub(start))
 		if disp == satellite.DispositionLate {
 			w.log.Info("satellite_detection_late", slog.Int64("offset", ev.Offset), slog.Time("watermark", engine.Watermark()))
 		}
-		if w.now().Sub(lastCheckpoint) >= w.checkpointInterval {
+
+		w.mu.Lock()
+		lag := w.status.LagEvents
+		w.mu.Unlock()
+		if len(pending) > 0 && (len(pending) >= satelliteFlushMaxPending || w.now().Sub(lastFlush) >= satelliteFlushEvery || lag <= 1) {
+			if err := flush(ctx); err != nil {
+				return err
+			}
+			flushed = true
+		}
+		consistent = true
+
+		interval := w.checkpointInterval
+		if lag > satelliteBackfillLag && interval < backfillSatelliteCheckpoint {
+			interval = backfillSatelliteCheckpoint
+		}
+		if w.now().Sub(lastCheckpoint) >= interval {
+			if err := flush(ctx); err != nil {
+				return err
+			}
+			flushed = true
 			if err := w.checkpoint(ctx, engine, offset, fence); err != nil {
 				return err
 			}
@@ -245,6 +294,13 @@ func (w *SatelliteWorker) runOnce(ctx context.Context, fence *domain.WriteFence)
 
 	if dirty && consistent {
 		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if !flushed {
+			if err := flush(saveCtx); err != nil {
+				w.log.Error("final satellite flush failed; skipping checkpoint", "error", err)
+				cancel()
+				return runErr
+			}
+		}
 		if err := w.checkpoint(saveCtx, engine, offset, fence); err != nil {
 			w.log.Error("final satellite checkpoint failed", "error", err)
 		}

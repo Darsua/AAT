@@ -91,6 +91,8 @@ func (t *Tracker) GetDegradedStatus(hazardType *domain.HazardType) (bool, *time.
 			return !t.pvmbgHealthy, t.pvmbgStaleSince
 		case domain.HazardTypeCoastal:
 			return !t.coastalHealthy, t.coastalStaleSince
+		case domain.HazardTypeWildfire:
+			return false, nil
 		}
 	}
 

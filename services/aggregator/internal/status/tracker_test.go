@@ -57,3 +57,24 @@ func TestTracker_PVMBGOutageAndIsolation(t *testing.T) {
 		t.Errorf("expected volcanic healthy after recovery, got degraded=%v, staleSince=%v", degraded, staleSince)
 	}
 }
+
+func TestTracker_WildfireIsolatedFromUpstreamOutages(t *testing.T) {
+	tracker := NewTracker()
+	tracker.SetCoastalStatus(false)
+
+	wildfireType := domain.HazardTypeWildfire
+	degraded, staleSince := tracker.GetDegradedStatus(&wildfireType)
+	if degraded || staleSince != nil {
+		t.Fatalf("expected wildfire healthy during coastal outage, got degraded=%v staleSince=%v", degraded, staleSince)
+	}
+
+	coastalType := domain.HazardTypeCoastal
+	coastalDegraded, _ := tracker.GetDegradedStatus(&coastalType)
+	if !coastalDegraded {
+		t.Fatal("expected coastal degraded=true")
+	}
+	globalDegraded, _ := tracker.GetDegradedStatus(nil)
+	if !globalDegraded {
+		t.Fatal("expected unfiltered query degraded=true")
+	}
+}

@@ -38,9 +38,17 @@ func (s *stubCoastalClient) FetchObservations(context.Context, int, string, map[
 type recordingHazardSaver struct {
 	saved       []*domain.HazardEvent
 	unprocessed []domain.UnprocessedMessage
+	saveDelay   time.Duration
 }
 
-func (r *recordingHazardSaver) SaveHazardWithOutbox(_ context.Context, h *domain.HazardEvent, _ string) error {
+func (r *recordingHazardSaver) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, _ string) error {
+	if r.saveDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(r.saveDelay):
+		}
+	}
 	r.saved = append(r.saved, h)
 	return nil
 }
@@ -161,5 +169,43 @@ func TestCoastalPoller_PersistsCriticalQuarantinesInvalidAndCachesFallback(t *te
 	bmkgDegraded, _ := tracker.GetDegradedStatus(&bmkgType)
 	if bmkgDegraded {
 		t.Fatal("BMKG must remain healthy while coastal is unhealthy")
+	}
+}
+
+func TestCoastalPoller_PersistNotCanceledByHTTPTimeout(t *testing.T) {
+	client := &stubCoastalClient{
+		stations: map[string]adapter.CoastalStation{
+			"stn-padang-01": {StationID: "stn-padang-01", Name: "Padang", Province: "Sumatera Barat", Latitude: -0.95, Longitude: 100.35},
+		},
+		batch: &adapter.CoastalObservationBatch{
+			GeneratedAt: time.Now().UTC(),
+			Valid: []adapter.CoastalObservation{
+				{
+					ObservationID:    "obs-slow-db-1",
+					StationID:        "stn-padang-01",
+					ObservedAt:       "2026-11-20T14:00:00Z",
+					SeaLevelAnomalyM: 0.4,
+					WaveHeightM:      1.2,
+					Quality:          "ok",
+				},
+			},
+		},
+	}
+
+	repo := &recordingHazardSaver{saveDelay: 60 * time.Millisecond}
+	tracker := status.NewTracker()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	poller := NewCoastalPoller(client, repo, tracker, time.Second, 40*time.Millisecond, 30*time.Second, log)
+
+	if err := poller.pollOnce(context.Background()); err != nil {
+		t.Fatalf("expected persistence exceeding HTTP reqTimeout to succeed, got: %v", err)
+	}
+	if len(repo.saved) != 1 {
+		t.Fatalf("expected 1 saved hazard, got %d", len(repo.saved))
+	}
+	coastalType := domain.HazardTypeCoastal
+	degraded, _ := tracker.GetDegradedStatus(&coastalType)
+	if degraded {
+		t.Fatal("expected coastal status to remain healthy")
 	}
 }

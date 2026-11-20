@@ -335,3 +335,26 @@ func TestSatelliteWorkerPublishesMetrics(t *testing.T) {
 		return true
 	})
 }
+
+func TestSatelliteWorkerCoalescesHazardWritesBeforeCheckpoint(t *testing.T) {
+	store := &fakeSatelliteStore{hazards: map[string]domain.HazardEvent{}}
+	var events []satellite.Event
+	for i := range 40 {
+		events = append(events, satEvent(int64(i+1), satellite.EventDetection,
+			fmt.Sprintf("-2.%03d", i), fmt.Sprintf("%02d%02d", i/60, i%60), "h", 10))
+	}
+	w := NewSatelliteWorker(&fakeSatelliteFeed{events: events}, store, satellite.Config{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w.status.LatestOffset = 10000 // simulate a backlog so writes are coalesced
+	if err := w.runOnce(context.Background(), nil); !errors.Is(err, errFeedDrained) {
+		t.Fatalf("runOnce = %v", err)
+	}
+	if store.cp == nil || store.cp.LastOffset != 40 {
+		t.Fatalf("checkpoint = %+v, want offset 40", store.cp)
+	}
+	if len(store.hazards) == 0 {
+		t.Fatal("expected the coalesced fire to be persisted before the final checkpoint")
+	}
+	if store.saves > len(store.hazards)*3 {
+		t.Fatalf("expected coalesced writes, got %d saves for %d hazards", store.saves, len(store.hazards))
+	}
+}

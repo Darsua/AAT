@@ -353,6 +353,9 @@ func (p *BMKGPoller) poll(ctx context.Context) error {
 		return err
 	}
 	if !proceed {
+		if p.status != nil {
+			p.status.SetBMKGStatus(true)
+		}
 		return nil
 	}
 	defer stopRenew()
@@ -524,6 +527,9 @@ func (p *PVMBGPoller) poll(ctx context.Context) error {
 		return err
 	}
 	if !proceed {
+		if p.status != nil {
+			p.status.SetPVMBGStatus(true)
+		}
 		return nil
 	}
 	defer stopRenew()
