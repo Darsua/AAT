@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -260,7 +261,7 @@ func (e *SummarizerEngine) RunWorker(ctx context.Context) {
 
 // GenerateOnce snapshots up to the latest events and runs the LLM or extractive fallback.
 func (e *SummarizerEngine) GenerateOnce(ctx context.Context, correlationID string) SituationSummary {
-	events := e.snapshotRecentEvents(8)
+	events := e.snapshotRecentEvents(5)
 	if len(events) == 0 {
 		return SituationSummary{}
 	}
@@ -501,8 +502,8 @@ func formatEventFact(ev HazardEvent) string {
 	if len(details) > 0 {
 		suffix = " (" + strings.Join(details, ", ") + ")"
 	}
-	return fmt.Sprintf("[%s | %s | %s | %s | %s] %s%s at %s",
-		ev.HazardID, ev.Source, ev.HazardType, ev.Severity, ev.AreaName, ev.AreaName, suffix, ts)
+	return fmt.Sprintf("[%s | %s | %s | %s] %s%s at %s",
+		ev.HazardID, ev.Source, ev.HazardType, ev.Severity, ev.AreaName, suffix, ts)
 }
 
 func normalizeRegionKey(areaName string) string {
@@ -513,7 +514,9 @@ func normalizeRegionKey(areaName string) string {
 	if idx := strings.Index(clean, ","); idx >= 0 {
 		right := strings.TrimSpace(clean[idx+1:])
 		if right != "" {
-			return right
+			if _, err := strconv.ParseFloat(right, 64); err != nil {
+				return right
+			}
 		}
 	}
 	if idx := strings.Index(clean, " - "); idx >= 0 {
@@ -605,8 +608,8 @@ func buildSummaryPrompts(events []HazardEvent, clusters []CorrelatedCluster) (st
 	if len(clusters) > 0 {
 		b.WriteString("\nRegional correlation summary:\n")
 		limit := len(clusters)
-		if limit > 5 {
-			limit = 5
+		if limit > 3 {
+			limit = 3
 		}
 		for _, c := range clusters[:limit] {
 			tag := "single-hazard"

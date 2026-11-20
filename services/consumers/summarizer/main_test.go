@@ -428,3 +428,12 @@ func TestDisabledFallbackWhenAIAPIURLEmpty(t *testing.T) {
 		t.Fatalf("expected CircuitState=disabled when AI_API_URL is empty, got %q", snap.CircuitState)
 	}
 }
+
+func TestNormalizeRegionKeyPreservesCoordinates(t *testing.T) {
+	if got := normalizeRegionKey("Titik api -7.6289, 112.4536"); got != "Titik api -7.6289, 112.4536" {
+		t.Fatalf("normalizeRegionKey collapsed coordinate suffix: got %q", got)
+	}
+	if got := normalizeRegionKey("Selat Sunda, Banten"); got != "Banten" {
+		t.Fatalf("normalizeRegionKey province suffix = %q, want Banten", got)
+	}
+}
