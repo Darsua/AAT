@@ -33,4 +33,24 @@ Both phases hit `https://aat.darsu.dev` via persistent TLS keep-alive workers wh
 - **HPA scale-up:**
   - `hpa/client-api` rose from `1%/70%` (`2` replicas) -> `83%/70%`, scaling **`2 -> 4` pods** (`rrtrg`, `v58k8`, `hr9nr`, `n7sv6`).
   - `hpa/aggregator` rose from `67%/70%` (`3` replicas) -> `90%/70%`, scaling **`3 -> 4` pods** (`fs8z4`, `vlbnp`, `jrzrd`, `9rmrp`).
-  - Both HPAs stabilized at `4` pods during the `120 s`/`180 s` scale-down stabilization windows (`1%/70%` and `50%/70%` CPU at `15:24:41Z`); HPA **scale-down** back to `minReplicas` was not captured during this run.
+  - Both HPAs stabilized at `4` pods during the `120 s`/`180 s` scale-down stabilization windows (`1%/70%` and `50%/70%` CPU at `15:24:41Z`).
+
+### Phase 3: Post-Hardening QoS Shedding & Full HPA Scale-Up -> Scale-Down Cooldown ([`hpa-scale-lifecycle.log`](hpa-scale-lifecycle.log))
+
+Recorded on **2026-11-21 (11:47–11:50 UTC)** after rolling out the Wave 1 `client-api` QoS fix (releasing `inFlight` before writing `HTTP 429` / `503` responses):
+
+- **Saturation & QoS Shedding (`120` Field + `80` Media workers, `45 s`):**
+  - Across `14,417` Media requests, `client-api` immediately shed **`13,881` Media requests with `HTTP 429 Too Many Requests`** (`6,939` on `client-api-5bc9fb97d5-k5xxh` + `6,942` on `client-api-5bc9fb97d5-xz8j7`), while admitting all `1,084` Field requests through the gateway (`496 - 1 + 122 + 469 - 2 = 1,084` `field_accepted` delta, `0` Field `429` rejections).
+  - Immediately after the burst, all 3 `client-api` pods reported `"in_flight": 0` on `GET /health`.
+- **Full HPA Scale-Up & Cooldown Scale-Down Lifecycle:**
+  - `hpa/client-api` spiked from `1%/70%` (`2` replicas) -> `115%/70%`, scaling **`2 -> 3` replicas** (`k5xxh`, `xz8j7`, `sbl9r`).
+  - After the `120 s` scale-down stabilization window elapsed (`t+147 s`, `2026-11-21T11:50:55Z`), `hpa/client-api` cleanly scaled back down **`3 -> 2` replicas** (`Deployment pods: 2 current / 2 desired`, `ReadyForNewScale`, `1%/70%` CPU) while `hpa/aggregator` remained steady at its `minReplicas: 3` baseline (`34%/70%` CPU).
+
+### Phase 4: 10,000 Concurrent Virtual Users (`9,500` Media + `500` Field VUs, `30.01 s`, [`qos-10k-vu-load.log`](qos-10k-vu-load.log))
+
+Recorded on **2026-11-21 (11:57–11:58 UTC)** using [`scripts/load_test_10k_qos.go`](../../../../scripts/load_test_10k_qos.go) (`make load-test-10k`) from external gateway host `mainframe` (`ulimit -n 65536`, `peak_concurrent_vus=10,000`: `9,500` `media` VUs + `500` `field` VUs hitting Traefik ingress across `aqua`/`ruby`/`akane`):
+
+- **Gateway Priority QoS Protection (`media_shed_threshold=70`, `max_concurrent=100` per pod):**
+  - Across the 2 `client-api` pods (`k5xxh` on `ruby`, `xz8j7` on `akane`), cumulative `media_shed` increased by **`27,426`** (`k5xxh`: `6,939 -> 20,646` [`+13,707`], `xz8j7`: `6,942 -> 20,661` [`+13,719`]), while `field_accepted` increased by **`1,039`** (`k5xxh`: `496 -> 1,023` [`+527`], `xz8j7`: `469 -> 981` [`+512`]) and `media_accepted` increased by **`803`** (`k5xxh`: `216 -> 594` [`+378`], `xz8j7`: `241 -> 666` [`+425`]).
+  - Despite `9,500` concurrent `media` VUs generating `365,574` request attempts (`12,183.44` attempts/s, with `20,512` completed `HTTP 429` responses, `437` `HTTP 200`, and `344,625` client-timeout/socket rejections at the 10k-socket ingress layer), the `500` critical `field` VUs received **`0` `HTTP 429` rejections** and completed **`551` `HTTP 200 OK` responses** (more than `200`s than all `9,500` `media` VUs combined, alongside `212` `HTTP 503` at `max_concurrent=100` and `18,498` transport timeouts).
+  - Immediately after the 10,000-VU storm ended, both `client-api` pods reported `"in_flight": 0, "status": "UP"` with `0` pod restarts across the cluster.

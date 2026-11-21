@@ -1,0 +1,61 @@
+=== M2 In-Cluster Observability Verification (2026-11-21T11:46:09Z) ===
+
+=== 1. Observability Pods & Services (role=other, 128Mi/256Mi) ===
+NAME                           READY   STATUS    RESTARTS      AGE   IP            NODE   NOMINATED NODE   READINESS GATES
+pod/grafana-6cc969fc57-7l998   1/1     Running   1 (13m ago)   14m   10.42.3.205   ruby   <none>           <none>
+pod/prometheus-7989754-j7jqd   1/1     Running   0             45m   10.42.3.197   ruby   <none>           <none>
+pod/tempo-6c86659fcb-5vq8l     1/1     Running   0             64s   10.42.3.206   ruby   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)             AGE   SELECTOR
+service/grafana      ClusterIP   10.43.22.12     <none>        3000/TCP            45m   app=grafana,role=other
+service/prometheus   ClusterIP   10.43.246.122   <none>        9090/TCP            45m   app=prometheus,role=other
+service/tempo        ClusterIP   10.43.202.65    <none>        3200/TCP,4318/TCP   45m   app=tempo,role=other
+
+=== 1b. Observability Pod Resource Footprint (kubectl top pods -l role=other) ===
+NAME                       CPU(cores)   MEMORY(bytes)   
+grafana-6cc969fc57-7l998   2m           67Mi            
+prometheus-7989754-j7jqd   5m           39Mi            
+tempo-6c86659fcb-5vq8l     28m          70Mi            
+
+=== 2. Headless Scrape Discovery Services ===
+NAME                          TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+aggregator-headless           ClusterIP   None         <none>        8083/TCP   45m
+client-api-headless           ClusterIP   None         <none>        8080/TCP   45m
+dashboard-consumer-headless   ClusterIP   None         <none>        8085/TCP   45m
+notifier-consumer-headless    ClusterIP   None         <none>        8086/TCP   45m
+
+=== 3. Prometheus Active Scrape Targets (GET http://localhost:9090/api/v1/targets) ===
+aggregator             | http://10.42.0.81:8083/metrics             | health=up | err=
+aggregator             | http://10.42.0.85:8083/metrics             | health=up | err=
+aggregator             | http://10.42.2.84:8083/metrics             | health=up | err=
+auth                   | http://auth:8084/metrics                   | health=up | err=
+client-api             | http://10.42.0.82:8080/metrics             | health=up | err=
+client-api             | http://10.42.3.202:8080/metrics            | health=up | err=
+dashboard-consumer     | http://10.42.0.84:8085/metrics             | health=up | err=
+dashboard-consumer     | http://10.42.3.200:8085/metrics            | health=up | err=
+mock-bmkg              | http://mock-bmkg:8081/metrics              | health=up | err=
+mock-pvmbg             | http://mock-pvmbg:8082/metrics             | health=up | err=
+notifier-consumer      | http://10.42.2.85:8086/metrics             | health=up | err=
+notifier-consumer      | http://10.42.3.201:8086/metrics            | health=up | err=
+redpanda               | http://redpanda:9644/public_metrics        | health=up | err=
+summarizer-consumer    | http://summarizer-consumer:8087/metrics    | health=up | err=
+Total targets: 14, UP: 14
+
+=== 4. Grafana Ingress Authentication & Provisioned Dashboards (https://aat.darsu.dev/grafana) ===
+Anonymous /grafana/api/dashboards/uid/bnpb-unified-obs -> HTTP 401 Unauthorized
+/grafana/api/health -> HTTP 200 | {'database': 'ok', 'version': '11.2.2', 'commit': 'dbf571744d7dd2276e3198b54330e5a561b83953'}
+/grafana/api/datasources -> HTTP 200 | datasources=['Prometheus:prometheus(http://prometheus:9090)', 'Tempo:tempo(http://tempo:3200)']
+/grafana/api/dashboards/uid/bnpb-unified-obs          -> HTTP 200 | title=Platform Overview & API Gateway | panels=11
+/grafana/api/dashboards/uid/bnpb-event-pipeline       -> HTTP 200 | title=Event Pipeline, Redpanda & Consumers | panels=14
+/grafana/api/dashboards/uid/bnpb-satellite-ingestion  -> HTTP 200 | title=Satellite Wildfire & Upstream Ingestion | panels=10
+
+=== 5. End-to-End OTLP Trace Verification in Grafana Tempo (tempo:3200) ===
+GET /api/v1/hazards?fields=all&limit=10 -> HTTP 200 | X-Correlation-ID=m2-obs-tempo-1795261572 | count=10
+Synchronous HTTP trace_id=e9b3b4c17b260a903e86eff0c963d321 (correlation_id=m2-obs-tempo-1795261572):
+  span service=client-api           name=GET /internal/hazards            spanId=BcOf2K5vhxk= parentSpanId=q7UlhXBGKro=
+  span service=client-api           name=GET /api/v1/hazards              spanId=q7UlhXBGKro= parentSpanId=
+  span service=aggregator           name=GET /internal/hazards            spanId=p/MO+Cc0kM0= parentSpanId=BcOf2K5vhxk=
+Asynchronous Kafka Outbox trace_id=9ce46036bdf9cb95bce96ac8f2bccdcb:
+  span service=notifier-consumer    name=kafka.consume bnpb.hazard-events spanId=YWodFRWX/Qk= parentSpanId=rLy+nGrbJBA=
+  span service=dashboard-consumer   name=kafka.consume bnpb.hazard-events spanId=BdqTlM5tQ8k= parentSpanId=rLy+nGrbJBA=
+  span service=aggregator           name=kafka.publish outbox             spanId=rLy+nGrbJBA= parentSpanId=

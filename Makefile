@@ -6,7 +6,7 @@ SHELL := /bin/bash
 DOCKER_COMPOSE ?= $(shell docker info >/dev/null 2>&1 && echo "docker compose" || echo "sudo docker compose")
 DOCKER ?= $(shell docker info >/dev/null 2>&1 && echo "docker" || echo "sudo docker")
 
-.PHONY: help up up-sharded down down-sharded restart logs build test k8s-validate k8s-deploy catalog-bench audit-verify demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test report
+.PHONY: help up up-sharded down down-sharded restart logs build test k8s-validate k8s-deploy catalog-bench audit-verify demo-p1 demo-p2 demo-p3 demo-p4 demo-p5 test-observability load-test load-test-10k report
 
 ## Display available make targets
 help:
@@ -35,6 +35,7 @@ help:
 	@echo "  demo-p5            Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
 	@echo "  test-observability Audit HTTP correlation, tracing logs, and Kafka lag metrics"
 	@echo "  load-test          Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
+	@echo "  load-test-10k      Run M2 Problem 5 10,000-VU priority QoS stress test (9,500 media + 500 field)"
 	@echo "  report        Compile modular LaTeX report to PDF via tectonic"
 	@echo "========================================================================"
 
@@ -134,6 +135,21 @@ load-test:
 		echo "[load-test] k6 binary not found locally. Running via Docker grafana/k6..."; \
 		$(DOCKER) run --rm -i --network host -e TARGET_URL="$${TARGET_URL:-http://localhost:8080}" -e AUTH_URL="$${AUTH_URL:-http://localhost:8084}" -e PVMBG_URL="$${PVMBG_URL:-http://localhost:8082}" -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" -e PVMBG_TOKEN="$$PVMBG_TOKEN" -e LOAD_DURATION="$${LOAD_DURATION:-60s}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi
+
+## Problem 5 (M2): 10,000-VU Priority QoS concurrency stress test
+load-test-10k:
+	@if [ -z "$$AUTH_MEDIA_CLIENT_SECRET" ] || [ -z "$$AUTH_FIELD_CLIENT_SECRET" ]; then \
+		echo "[load-test-10k] ERROR: AUTH_MEDIA_CLIENT_SECRET and AUTH_FIELD_CLIENT_SECRET environment variables are required" >&2; \
+		exit 1; \
+	fi
+	ulimit -n 65536 2>/dev/null || true; \
+	go run ./scripts/load_test_10k_qos.go \
+		-targets "$${TARGETS:-$${TARGET_URL:-http://localhost:8080}}" \
+		-auth-url "$${AUTH_URL:-}" \
+		-host "$${TARGET_HOST:-aat.darsu.dev}" \
+		-media-vus "$${MEDIA_VUS:-9500}" \
+		-field-vus "$${FIELD_VUS:-500}" \
+		-duration "$${LOAD_DURATION_SECS:-30}"
 
 ## Build the M1 LaTeX report using tectonic
 report:

@@ -102,7 +102,7 @@ docker compose down
 
 ## Project status
 
-All eight Go services implement the M1 baseline plus the M2 feature set, with unit tests, repository checks, and 2026-11-20 live 3-node Kubernetes evidence recorded in [`docs/evidence/m2/`](docs/evidence/m2/). Remaining pending items (HPA scale-down capture, sustained 10k VU load verification under `#31`, and M2 report authoring `#32`) are tracked in [GitHub issues](https://github.com/Darsua/AAT/issues).
+All eight Go services implement the M1 baseline plus the M2 feature set, with unit tests, repository checks, and 2026-11-20 / 2026-11-21 live 3-node Kubernetes evidence recorded in [`docs/evidence/m2/`](docs/evidence/m2/). Remaining M2 report authoring (`#32`) is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues).
 
 | Area | Current repository status |
 | :--- | :--- |
@@ -110,14 +110,14 @@ All eight Go services implement the M1 baseline plus the M2 feature set, with un
 | Sharded canonical storage (`consistent_hash_64_vnodes`, `RF=2`, anti-entropy) and Audit API (`#23`, `#30`) | Implemented in `services/aggregator` with `make catalog-bench` and `make audit-verify`; live 3-node distribution recorded in [baseline evidence](docs/evidence/m2/p1-p4-baseline/README.md); see [ADR 006](docs/adr/006-sharded-storage-consistent-hashing-and-audit-api.md) |
 | Aggregator HA (`replicas: 3`), storage-clock leases, monotonic fencing, and `/readyz` draining (`#25`) | Implemented and verified (`3 -> 5 -> 2` HA scaling, `kill-leader`, `kill-store`, `partition`, `wipe-node`); see [ADR 007](docs/adr/007-aggregator-ha-leader-leasing-and-fencing.md) |
 | PVMBG schema-evolution policy, DLQ parking, and automated replay (`#26`) | Implemented in `mock-pvmbg` and `aggregator`; local rehearsal and live `schema` evidence recorded |
-| Field-report writes, Satellite SSE, Coastal poller, Priority QoS, Analytics UI, AI Summarizer, Observability (`#24`, `#27`–`#29`, `#35`–`#37`) | Implemented across `client-api`, `aggregator`, `dashboard`, `notifier`, and `summarizer`; HPA scale-up and e2e traces recorded ([ADR 008](docs/adr/008-non-blocking-ai-situation-summarizer.md)); HPA scale-down and 10k VU load remain pending (`#31`) |
+| Field-report writes, Satellite SSE, Coastal poller, Priority QoS, Analytics UI, AI Summarizer, Observability (`#24`, `#27`–`#29`, `#35`–`#37`) | Implemented across `client-api`, `aggregator`, `dashboard`, `notifier`, and `summarizer`; 10,000-VU QoS saturation, HPA scale-up/scale-down, and in-cluster Prometheus/Tempo/Grafana traces recorded ([ADR 008](docs/adr/008-non-blocking-ai-situation-summarizer.md)) |
 | Kubernetes deployment (`k8s/base/`, `scripts/deploy_k8s.sh`) | Deployed on the 3-node cluster (`aqua`, `ruby`, `akane`) with NetworkPolicies, least-privilege `secretKeyRef`, `LimitRange`, and in-cluster Prometheus/Tempo/Grafana (`observability.yaml`) |
 
 ### Prototype limitations
 
 - Auth refresh sessions (`services/auth`) remain process-local and single-replica; in-memory `client-api` idempotency and `notifier` receipt logs are node-local unless backed by shared/persistent storage.
 - Default `docker compose up` runs single-node `canonical-db` and single-broker Redpanda; use [docker-compose.sharded.yml](docker-compose.sharded.yml) (`make up-sharded`) or [k8s/base/](k8s/base/) for the 3-node sharded and 3-replica HA Aggregator topology. Redpanda remains single-replica (`replicas: 1`) on K8s (`ruby`), and in-cluster Prometheus/Tempo/Grafana use ephemeral `emptyDir` storage.
-- Post-audit code/config fixes on `aggregator`, `client-api`, consumers, and `k8s/base/` still require cluster image rebuild/rollout and fresh chaos/load re-verification alongside HPA scale-down and 10k VU load tests (`#31`).
+- Final M2 report authoring (`#32`) remains tracked in GitHub issues.
 
 ## Explore the repository
 

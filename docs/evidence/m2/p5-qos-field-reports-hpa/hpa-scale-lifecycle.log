@@ -1,0 +1,133 @@
+=== M2 Post-Hardening QoS Load Shedding & Full HPA Scale-Up -> Scale-Down Lifecycle (2026-11-21T11:47:37Z) ===
+
+=== 1. Baseline HPA & Replica State ===
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 50%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         2          26h
+NAME                          READY   STATUS    RESTARTS   AGE   IP            NODE    NOMINATED NODE   READINESS GATES
+aggregator-657d955c6f-9wxxk   1/1     Running   0          45m   10.42.2.84    aqua    <none>           <none>
+aggregator-657d955c6f-gdmbd   1/1     Running   0          45m   10.42.0.81    akane   <none>           <none>
+aggregator-657d955c6f-mvq7f   1/1     Running   0          45m   10.42.0.85    akane   <none>           <none>
+client-api-5bc9fb97d5-k5xxh   1/1     Running   0          45m   10.42.3.202   ruby    <none>           <none>
+client-api-5bc9fb97d5-xz8j7   1/1     Running   0          45m   10.42.0.82    akane   <none>           <none>
+
+=== 2. Baseline client-api /health QoS Counters ===
+client-api-5bc9fb97d5-k5xxh /health: {"qos":{"field_accepted":1,"in_flight":0,"max_concurrent":100,"media_accepted":0,"media_shed":0,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+client-api-5bc9fb97d5-xz8j7 /health: {"qos":{"field_accepted":2,"in_flight":0,"max_concurrent":100,"media_accepted":0,"media_shed":0,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+
+=== 3. Running 45s Concurrent Burst (120 Field + 80 Media workers, limit=200) to Trigger QoS 429 & HPA Scale-Up ===
+Burst summary (45s):
+  [field] total=1084 statuses={'500': 1075, '200': 9}
+  [media] total=14417 statuses={'429': 13881, '500': 533, '200': 3}
+
+=== 4. Post-Burst client-api /health QoS Counters (Verify in_flight == 0 after Wave 1 fix) ===
+client-api-5bc9fb97d5-k5xxh /health: {"qos":{"field_accepted":496,"in_flight":0,"max_concurrent":100,"media_accepted":216,"media_shed":6939,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+client-api-5bc9fb97d5-sbl9r /health: {"qos":{"field_accepted":122,"in_flight":0,"max_concurrent":100,"media_accepted":79,"media_shed":0,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+client-api-5bc9fb97d5-xz8j7 /health: {"qos":{"field_accepted":469,"in_flight":0,"max_concurrent":100,"media_accepted":241,"media_shed":6942,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+
+=== 5. HPA Scale-Up & Cooldown Scale-Down Polling (Every 20s until both return to minReplicas: client-api=2, aggregator=3) ===
+--- Snapshot t+0s (2026-11-21T11:48:28Z) ---
+NAME         REFERENCE               TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 58%/70%    3         5         3          20h
+client-api   Deployment/client-api   cpu: 115%/70%   2         6         3          26h
+--- Snapshot t+21s (2026-11-21T11:48:49Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 42%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 10%/70%   2         6         3          26h
+--- Snapshot t+42s (2026-11-21T11:49:10Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 62%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         3          26h
+--- Snapshot t+63s (2026-11-21T11:49:31Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 58%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         3          26h
+--- Snapshot t+84s (2026-11-21T11:49:52Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 60%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         3          26h
+--- Snapshot t+105s (2026-11-21T11:50:13Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 64%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         3          26h
+--- Snapshot t+126s (2026-11-21T11:50:34Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 57%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         3          26h
+--- Snapshot t+147s (2026-11-21T11:50:55Z) ---
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 34%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         2          26h
+>>> Both HPAs scaled back down to minReplicas (client-api=2, aggregator=3) at t+147s!
+
+=== 6. Final HPA Describe & Active Pods After Cooldown ===
+Name:                                                  client-api
+Namespace:                                             sistem-informasi-kebencanaan-bnpb
+Labels:                                                app=client-api
+                                                       app.kubernetes.io/name=bnpb-platform
+                                                       app.kubernetes.io/part-of=bnpb-disaster-coordination
+Annotations:                                           <none>
+CreationTimestamp:                                     Fri, 20 Nov 2026 15:54:07 +0700
+Reference:                                             Deployment/client-api
+Metrics:                                               ( current / target )
+  resource cpu on pods  (as a percentage of request):  1% (1m) / 70%
+Min replicas:                                          2
+Max replicas:                                          6
+Behavior:
+  Scale Up:
+    Stabilization Window: 0 seconds
+    Select Policy: Max
+    Policies:
+      - Type: Pods  Value: 2  Period: 30 seconds
+  Scale Down:
+    Stabilization Window: 120 seconds
+    Select Policy: Max
+    Policies:
+      - Type: Pods  Value: 1  Period: 60 seconds
+Deployment pods:    2 current / 2 desired
+Conditions:
+  Type            Status  Reason            Message
+  ----            ------  ------            -------
+  AbleToScale     True    ReadyForNewScale  recommended size matches current size
+  ScalingActive   True    ValidMetricFound  the HPA was able to successfully calculate a replica count from cpu resource utilization (percentage of request)
+  ScalingLimited  True    TooFewReplicas    the desired replica count is less than the minimum replica count
+  ScaledToZero    False   NotScaledToZero   the HPA controller did not scale the workload to zero
+
+
+Name:                                                  aggregator
+Namespace:                                             sistem-informasi-kebencanaan-bnpb
+Labels:                                                app=aggregator
+                                                       app.kubernetes.io/name=bnpb-platform
+                                                       app.kubernetes.io/part-of=bnpb-disaster-coordination
+Annotations:                                           <none>
+CreationTimestamp:                                     Fri, 20 Nov 2026 22:14:20 +0700
+Reference:                                             Deployment/aggregator
+Metrics:                                               ( current / target )
+  resource cpu on pods  (as a percentage of request):  34% (85m) / 70%
+Min replicas:                                          3
+Max replicas:                                          5
+Behavior:
+  Scale Up:
+    Stabilization Window: 0 seconds
+    Select Policy: Max
+    Policies:
+      - Type: Pods  Value: 1  Period: 30 seconds
+  Scale Down:
+    Stabilization Window: 180 seconds
+    Select Policy: Max
+    Policies:
+      - Type: Pods  Value: 1  Period: 90 seconds
+Deployment pods:    3 current / 3 desired
+Conditions:
+  Type            Status  Reason               Message
+  ----            ------  ------               -------
+  AbleToScale     True    ScaleDownStabilized  recent recommendations were higher than current one, applying the highest recent recommendation
+  ScalingActive   True    ValidMetricFound     the HPA was able to successfully calculate a replica count from cpu resource utilization (percentage of request)
+  ScalingLimited  False   DesiredWithinRange   the desired count is within the acceptable range
+  ScaledToZero    False   NotScaledToZero      the HPA controller did not scale the workload to zero
+NAME                          READY   STATUS    RESTARTS   AGE   IP            NODE    NOMINATED NODE   READINESS GATES
+aggregator-657d955c6f-9wxxk   1/1     Running   0          48m   10.42.2.84    aqua    <none>           <none>
+aggregator-657d955c6f-gdmbd   1/1     Running   0          48m   10.42.0.81    akane   <none>           <none>
+aggregator-657d955c6f-mvq7f   1/1     Running   0          48m   10.42.0.85    akane   <none>           <none>
+client-api-5bc9fb97d5-k5xxh   1/1     Running   0          48m   10.42.3.202   ruby    <none>           <none>
+client-api-5bc9fb97d5-xz8j7   1/1     Running   0          48m   10.42.0.82    akane   <none>           <none>

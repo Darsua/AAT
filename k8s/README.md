@@ -1,8 +1,8 @@
 # Kubernetes operations
 
-**Status:** `base/` defines the M2 NetworkPolicies, LimitRange, ConfigMap/Secret templates, 3-node sharded storage StatefulSets (`store-aqua`, `store-ruby`, `store-akane`), Redpanda broker + topic init job, 3-replica HA Aggregator Deployment, API/consumer/mock/sensor workloads, in-cluster Prometheus/Tempo/Grafana observability (`observability.yaml`), HPAs, and Traefik Ingress. `./scripts/deploy_k8s.sh` (`make k8s-deploy`) provisions `bnpb-credentials` and applies `k8s/base/`. Live 3-node baseline, NetworkPolicy isolation, Audit/sharding, HA failover, P5 QoS/HPA scale-up, and 6 chaos drills were recorded on 2026-11-20 (`docs/evidence/m2/`); HPA scale-down capture and sustained 10k VU load verification (`#31`) remain pending. Use [Compose for the runnable local stack](../docs/development.md).
+**Status:** `base/` defines the M2 NetworkPolicies, LimitRange, ConfigMap/Secret templates, 3-node sharded storage StatefulSets (`store-aqua`, `store-ruby`, `store-akane`), Redpanda broker + topic init job, 3-replica HA Aggregator Deployment, API/consumer/mock/sensor workloads, in-cluster Prometheus/Tempo/Grafana observability (`observability.yaml`), HPAs, and Traefik Ingress. `./scripts/deploy_k8s.sh` (`make k8s-deploy`) provisions `bnpb-credentials` and applies `k8s/base/`. Live 3-node baseline, NetworkPolicy isolation, Audit/sharding, HA failover, P5 10,000-VU QoS/HPA scale-up and cooldown scale-down, in-cluster Prometheus/Tempo/Grafana verification, and 6 chaos drills are recorded in `docs/evidence/m2/`. Use [Compose for the runnable local stack](../docs/development.md).
 
-Infrastructure and application work is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues), including [foundation #22](https://github.com/Darsua/AAT/issues/22), [storage #23](https://github.com/Darsua/AAT/issues/23), and [HA #25](https://github.com/Darsua/AAT/issues/25). Manifest changes after the 2026-11-20 capture (such as `/readyz` readiness, `sensor-pantai` role `sensor`, and scoped `secretKeyRef` mounts) must be rolled out and re-verified on the cluster before final submission.
+Infrastructure and application work is tracked in [GitHub issues](https://github.com/Darsua/AAT/issues), including [foundation #22](https://github.com/Darsua/AAT/issues/22), [storage #23](https://github.com/Darsua/AAT/issues/23), and [HA #25](https://github.com/Darsua/AAT/issues/25).
 
 ## Documented environment
 
@@ -89,7 +89,7 @@ Only Aggregator application pods may access canonical PostgreSQL (`isolate-stora
 - The P2 drill scales the Aggregator by hand (3 -> 5 -> 2), which the HPA would undo. Pause it first with `kubectl delete hpa aggregator -n sistem-informasi-kebencanaan-bnpb` and restore it afterwards with `kubectl apply -k k8s/base`.
 - Re-applying the kustomization resets `spec.replicas` to the manifest value until the HPA's next decision.
 
-HPA scale-up under load (`client-api` `2 -> 4`, `aggregator` `3 -> 4`) is recorded in [p5-qos-field-reports-hpa](../docs/evidence/m2/p5-qos-field-reports-hpa/README.md); HPA **scale-down** back to `minReplicas` was not captured there and remains pending.
+HPA scale-up under load (`client-api` `2 -> 4`, `aggregator` `3 -> 4`) and full cooldown scale-down back to `minReplicas` (`3 -> 2` after the `120 s` stabilization window) are recorded in [p5-qos-field-reports-hpa](../docs/evidence/m2/p5-qos-field-reports-hpa/README.md).
 
 ## Tester Agent and destructive testing
 
@@ -122,4 +122,4 @@ VM isolation reduces risk but is not a guarantee of host safety: review disk pas
 
 ## Verification boundary
 
-The 3-node cluster baseline, NetworkPolicy isolation, Audit verification, P5 QoS/HPA scale-up, and 6 chaos scenarios were recorded on 2026-11-20 in [`docs/evidence/m2/`](../docs/evidence/m2/). Remaining items—HPA scale-down capture, sustained 10k VU load verification (`#31`), and post-hardening chaos/load re-verification of the updated `/readyz`, `sensor` selector, NetworkPolicy, and `observability.yaml` manifests—remain tracked before final M2 certification.
+The 3-node cluster baseline, NetworkPolicy isolation, Audit verification, P5 10,000-VU QoS/HPA scale-up and scale-down, in-cluster Prometheus/Tempo/Grafana telemetry, and 6 chaos scenarios are recorded in [`docs/evidence/m2/`](../docs/evidence/m2/). Final M2 report authoring (`#32`) remains tracked in GitHub issues.

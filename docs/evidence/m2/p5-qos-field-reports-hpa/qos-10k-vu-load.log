@@ -1,0 +1,39 @@
+=== Problem 5: 10,000 Concurrent Virtual Users (9,500 Media + 500 Field) Stress Verification (2026-11-21T11:57:44Z) ===
+
+=== 1. Pre-Test HPA & Pod Baseline ===
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 36%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 1%/70%    2         6         2          27h
+NAME                          READY   STATUS    RESTARTS   AGE   IP            NODE    NOMINATED NODE   READINESS GATES
+aggregator-657d955c6f-9wxxk   1/1     Running   0          55m   10.42.2.84    aqua    <none>           <none>
+aggregator-657d955c6f-gdmbd   1/1     Running   0          55m   10.42.0.81    akane   <none>           <none>
+aggregator-657d955c6f-mvq7f   1/1     Running   0          55m   10.42.0.85    akane   <none>           <none>
+client-api-5bc9fb97d5-k5xxh   1/1     Running   0          55m   10.42.3.202   ruby    <none>           <none>
+client-api-5bc9fb97d5-xz8j7   1/1     Running   0          55m   10.42.0.82    akane   <none>           <none>
+
+=== 2. Pre-Test client-api /health QoS Counters ===
+client-api-5bc9fb97d5-k5xxh /health: {"qos":{"field_accepted":496,"in_flight":0,"max_concurrent":100,"media_accepted":216,"media_shed":6939,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+client-api-5bc9fb97d5-xz8j7 /health: {"qos":{"field_accepted":469,"in_flight":0,"max_concurrent":100,"media_accepted":241,"media_shed":6942,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+
+=== 3. Executing 10,000 Concurrent VUs from Gateway Host mainframe (ulimit -n 65536, 9,500 Media + 500 Field, 30s) ===
+=== All 10000 Virtual Users Spawned & Active (peak_concurrent_vus=10000: 9500 media + 500 field) ===
+=== 10,000-VU Concurrency Test Completed (duration=30.01s, peak_concurrent_vus=10000) ===
+  [field (critical)] configured_vus=500 peak_active_vus=500 total_requests=19261 rps=641.91 statuses=map[200:551 503:212 err:Transport:18498]
+  [field (critical)] latency_ms: min=0.14 p50=2.75 p95=4217.63 p99=5095.40 max=6000.65
+  [media (public)] configured_vus=9500 peak_active_vus=9500 total_requests=365574 rps=12183.44 statuses=map[200:437 429:20512 err:Transport:344625]
+  [media (public)] latency_ms: min=0.13 p50=2.77 p95=3913.38 p99=5134.97 max=6000.53
+
+=== 4. Post-Test client-api /health QoS Counters ===
+client-api-5bc9fb97d5-k5xxh /health: {"qos":{"field_accepted":1023,"in_flight":0,"max_concurrent":100,"media_accepted":594,"media_shed":20646,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+client-api-5bc9fb97d5-xz8j7 /health: {"qos":{"field_accepted":981,"in_flight":0,"max_concurrent":100,"media_accepted":666,"media_shed":20661,"media_shed_threshold":70},"service":"client-api","status":"UP"}
+
+=== 5. Post-Test HPA & Pod State ===
+NAME         REFERENCE               TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+aggregator   Deployment/aggregator   cpu: 74%/70%   3         5         3          20h
+client-api   Deployment/client-api   cpu: 12%/70%   2         6         2          27h
+NAME                          READY   STATUS    RESTARTS   AGE   IP            NODE    NOMINATED NODE   READINESS GATES
+aggregator-657d955c6f-9wxxk   1/1     Running   0          56m   10.42.2.84    aqua    <none>           <none>
+aggregator-657d955c6f-gdmbd   1/1     Running   0          56m   10.42.0.81    akane   <none>           <none>
+aggregator-657d955c6f-mvq7f   1/1     Running   0          56m   10.42.0.85    akane   <none>           <none>
+client-api-5bc9fb97d5-k5xxh   1/1     Running   0          56m   10.42.3.202   ruby    <none>           <none>
+client-api-5bc9fb97d5-xz8j7   1/1     Running   0          56m   10.42.0.82    akane   <none>           <none>
