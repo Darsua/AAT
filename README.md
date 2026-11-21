@@ -18,22 +18,22 @@ The application has eight independent Go modules. Services communicate through H
 
 ```mermaid
 flowchart TD
-    CLIENT["API clients (Media / Field / Internal)"] -->|"Request tokens"| AUTH["auth :8084"]
-    AUTH -->|"HS256 JWT"| CLIENT
-    CLIENT -->|"GET hazards / POST field-reports"| API["client-api :8080 (QoS + JWT)"]
-    API -->|"HTTP reads + O(1) lookup"| AGG["aggregator :8083 (3 HA replicas)"]
-    API -->|"Stage field reports"| BUS[["Redpanda (hazard-events + field-reports)"]]
-    AGG -->|"Consume staged reports"| BUS
-    AGG -->|"Poll"| BMKG["mock-bmkg :8081"]
-    AGG -->|"Poll + DLQ/replay"| PVMBG["mock-pvmbg :8082"]
-    AGG -->|"Poll + breaker"| COASTAL["sensor-pantai :8080"]
-    AGG -->|"SSE stream"| SAT["Satellite wildfire feed"]
-    AGG -->|"Sharded RF=2 + leases + outbox"| DB[("3-node sharded PostgreSQL")]
-    AGG -->|"Relay outbox"| BUS
-    BUS --> DASH["dashboard-consumer :8085 (Web UI)"]
-    DASH -->|"Audit delta sync"| AGG
-    BUS --> NOTIFY["notifier-consumer :8086 (Receipts/Webhooks)"]
-    BUS --> SUM["summarizer-consumer :8087 (Async LLM/Fallback)"]
+    CLIENT["API clients (Media / Field / Internal)"] <-->|"1. Request token / HS256 JWT"| AUTH["auth :8084"]
+    CLIENT -->|"2. GET hazards / POST field-reports"| API["client-api :8080 (QoS + JWT)"]
+
+    BMKG["mock-bmkg :8081"] -->|"Seismic / tsunami poll"| AGG["aggregator :8083 (3 HA replicas)"]
+    PVMBG["mock-pvmbg :8082"] -->|"Volcanic poll + DLQ/replay"| AGG
+    COASTAL["sensor-pantai :8080"] -->|"Coastal poll + breaker"| AGG
+    SAT["Satellite wildfire feed"] -->|"SSE stream"| AGG
+
+    API -->|"HTTP reads + O(1) lookup"| AGG
+    API -->|"Stage bnpb.field-reports"| BUS[["Redpanda (hazard-events + field-reports)"]]
+    AGG <-->|"Sharded RF=2 + leases + outbox"| DB[("3-node sharded PostgreSQL")]
+    AGG <-->|"Consume field-reports / Relay hazard-events"| BUS
+
+    BUS -->|"Consume hazard-events"| DASH["dashboard-consumer :8085 (Web UI + Audit sync)"]
+    BUS -->|"Consume hazard-events"| NOTIFY["notifier-consumer :8086 (Receipts/Webhooks)"]
+    BUS -->|"Consume hazards + field-reports"| SUM["summarizer-consumer :8087 (Async LLM/Fallback)"]
 ```
 
 | Component | Responsibility |
