@@ -1,0 +1,258 @@
+{
+  "uid": "bnpb-event-pipeline",
+  "title": "Event Pipeline, Redpanda & Consumers",
+  "tags": ["bnpb", "m2", "observability"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "links": [
+    {
+      "title": "BNPB Dashboards",
+      "type": "dashboards",
+      "tags": ["bnpb"],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Redpanda Online Brokers",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(redpanda_cluster_brokers)",
+          "legendFormat": "Brokers"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Unavailable Partitions",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(redpanda_cluster_unavailable_partitions)",
+          "legendFormat": "Unavailable"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LLM Summaries Generated",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(bnpb_summarizer_summaries_generated_total{mode=\"llm\"})",
+          "legendFormat": "LLM"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Extractive Fallback Summaries",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(bnpb_summarizer_summaries_generated_total{mode=\"extractive-fallback\"})",
+          "legendFormat": "Fallback"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Transactional Outbox Relay & Kafka Consumer Throughput",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(outbox_published_total[1m]))",
+          "legendFormat": "outbox published/s"
+        },
+        {
+          "expr": "sum by (service, status) (rate(kafka_messages_consumed_total[1m]))",
+          "legendFormat": "{{service}} ({{status}})"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Kafka Consumer Processing Latency (p95) & Deduplication Skips",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(kafka_message_processing_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 {{service}}"
+        },
+        {
+          "expr": "sum by (service) (rate(kafka_consumer_dedup_skipped_total[1m]))",
+          "legendFormat": "dedup skipped/s ({{service}})"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Redpanda Event Broker & Consumer Group Lag",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Consumer Group Lag by Group & Topic (Messages Behind High-Water Mark)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (redpanda_group, redpanda_topic) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\"} - on (redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset)",
+          "legendFormat": "{{redpanda_group}} ({{redpanda_topic}})"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Redpanda Topic Throughput (Records Produced vs Fetched / s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (redpanda_topic) (rate(redpanda_kafka_records_produced_total[1m]))",
+          "legendFormat": "produced {{redpanda_topic}}"
+        },
+        {
+          "expr": "sum by (redpanda_topic) (rate(redpanda_kafka_records_fetched_total[1m]))",
+          "legendFormat": "fetched {{redpanda_topic}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Redpanda Broker Memory & Free Disk Storage",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "max(redpanda_memory_allocated_memory)",
+          "legendFormat": "allocated memory"
+        },
+        {
+          "expr": "max(redpanda_memory_free_memory)",
+          "legendFormat": "free memory"
+        },
+        {
+          "expr": "max(redpanda_storage_disk_free_bytes)",
+          "legendFormat": "disk free bytes"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Active Consumer Group Members Attached to Broker",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max by (redpanda_group) (redpanda_kafka_consumer_group_consumers)",
+          "legendFormat": "{{redpanda_group}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Non-Blocking AI Situation Summarizer",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "AI Situation Summarizer — Events Consumed, Coalesced & Summaries by Mode",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(bnpb_summarizer_events_consumed_total)",
+          "legendFormat": "events consumed"
+        },
+        {
+          "expr": "max(bnpb_summarizer_coalesced_total)",
+          "legendFormat": "triggers coalesced"
+        },
+        {
+          "expr": "max by (mode) (bnpb_summarizer_summaries_generated_total)",
+          "legendFormat": "generated ({{mode}})"
+        },
+        {
+          "expr": "max(bnpb_summarizer_quota_exhausted_total)",
+          "legendFormat": "quota exhausted"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "AI Situation Summarizer — Generation Latency (ms) & Active Window Size",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "max(bnpb_summarizer_last_latency_ms)",
+          "legendFormat": "last generation latency (ms)"
+        },
+        {
+          "expr": "max(bnpb_summarizer_window_events)",
+          "legendFormat": "bounded window events"
+        }
+      ]
+    }
+  ]
+}

@@ -45,11 +45,29 @@ spec:
           env:
             - name: PORT
               value: "8084"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: JWT_SECRET
+            - name: AUTH_MEDIA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AUTH_MEDIA_CLIENT_SECRET
+            - name: AUTH_FIELD_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AUTH_FIELD_CLIENT_SECRET
+            - name: AUTH_INTERNAL_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AUTH_INTERNAL_CLIENT_SECRET
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               memory: "128Mi"
@@ -107,6 +125,16 @@ spec:
         app: client-api
         role: api
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: client-api
+                    role: api
       containers:
         - name: client-api
           image: bnpb-client-api:latest
@@ -117,11 +145,14 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: JWT_SECRET
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               # CPU request is the HPA utilization baseline (autoscaling.yaml); the CPU limit is the LimitRange default (500m).
@@ -181,6 +212,16 @@ spec:
         app: dashboard-consumer
         role: consumer
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: dashboard-consumer
+                    role: consumer
       containers:
         - name: dashboard-consumer
           image: bnpb-dashboard-consumer:latest
@@ -198,11 +239,14 @@ spec:
                 configMapKeyRef:
                   name: bnpb-config
                   key: CONSUMER_GROUP_DASHBOARD
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AUDIT_TOKEN
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               memory: "128Mi"
@@ -260,6 +304,16 @@ spec:
         app: notifier-consumer
         role: consumer
     spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: notifier-consumer
+                    role: consumer
       containers:
         - name: notifier-consumer
           image: bnpb-notifier-consumer:latest
@@ -270,6 +324,8 @@ spec:
           env:
             - name: PORT
               value: "8086"
+            - name: GOMEMLIMIT
+              value: "200MiB"
             - name: CONSUMER_GROUP
               valueFrom:
                 configMapKeyRef:
@@ -278,8 +334,6 @@ spec:
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               memory: "128Mi"
@@ -347,6 +401,8 @@ spec:
           env:
             - name: PORT
               value: "8087"
+            - name: GOMEMLIMIT
+              value: "200MiB"
             - name: CONSUMER_GROUP
               valueFrom:
                 configMapKeyRef:
@@ -357,11 +413,15 @@ spec:
                 configMapKeyRef:
                   name: bnpb-config
                   key: REDPANDA_TOPIC_FIELD_REPORTS
+            - name: AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AI_API_KEY
+                  optional: true
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               memory: "128Mi"

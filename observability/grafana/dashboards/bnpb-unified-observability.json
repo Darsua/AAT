@@ -1,18 +1,167 @@
 {
   "uid": "bnpb-unified-obs",
-  "title": "BNPB Disaster Platform — Unified Observability",
+  "title": "Platform Overview & API Gateway",
   "tags": ["bnpb", "m2", "observability"],
   "timezone": "utc",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
+  "links": [
+    {
+      "title": "BNPB Dashboards",
+      "type": "dashboards",
+      "tags": ["bnpb"],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
   "panels": [
+    {
+      "id": 100,
+      "type": "stat",
+      "title": "Healthy Scrape Targets",
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "green", "value": 14 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(up)",
+          "legendFormat": "UP"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Active Aggregator Replicas",
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 2 },
+              { "color": "green", "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(up{job=\"aggregator\"})",
+          "legendFormat": "Replicas"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Active Gateway Replicas",
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "green", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(up{job=\"client-api\"})",
+          "legendFormat": "Replicas"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Satellite Stream Leader",
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 },
+              { "color": "orange", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(satellite_streaming)",
+          "legendFormat": "Leader"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "AI Summarizer Circuit",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "CLOSED", "color": "green" },
+                "1": { "text": "OPEN", "color": "red" }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(bnpb_summarizer_circuit_open)",
+          "legendFormat": "Circuit"
+        }
+      ]
+    },
     {
       "id": 1,
       "type": "timeseries",
       "title": "HTTP Throughput (RPS) by Service",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         {
           "expr": "sum by (service) (rate(http_requests_total[1m]))",
@@ -23,9 +172,10 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "HTTP Latency (p50 / p95 / p99)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "title": "HTTP Request Latency (p50 / p95 / p99)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
@@ -44,188 +194,64 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "HTTP Errors (4xx / 5xx) by Service",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "title": "HTTP Error Rates (4xx / 5xx) by Service",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         {
           "expr": "sum by (service, status) (rate(http_requests_total{status=~\"[45]..\"}[1m]))",
-          "legendFormat": "{{service}} {{status}}"
+          "legendFormat": "{{service}} HTTP {{status}}"
         }
       ]
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Upstream Requests & Auth Outcomes",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "title": "OAuth2 Token Issuance & Authentication Failures",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "targets": [
         {
-          "expr": "sum by (upstream, status) (rate(upstream_requests_total[1m]))",
-          "legendFormat": "upstream {{upstream}} ({{status}})"
+          "expr": "sum by (grant_type) (rate(auth_tokens_issued_total[1m]))",
+          "legendFormat": "issued ({{grant_type}})"
+        },
+        {
+          "expr": "sum by (reason) (rate(auth_token_failures_total[1m]))",
+          "legendFormat": "auth failure ({{reason}})"
         },
         {
           "expr": "sum by (reason) (rate(auth_rejections_total[1m]))",
-          "legendFormat": "gateway auth reject ({{reason}})"
-        },
-        {
-          "expr": "sum by (grant_type) (rate(auth_tokens_issued_total[1m]))",
-          "legendFormat": "auth issued ({{grant_type}})"
+          "legendFormat": "gateway rejection ({{reason}})"
         }
       ]
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Outbox & Kafka Consumer Throughput",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "title": "Gateway Priority QoS Shedding (HTTP 429) vs Admitted Traffic",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         {
-          "expr": "sum(rate(outbox_published_total[1m]))",
-          "legendFormat": "outbox published/s"
-        },
-        {
-          "expr": "sum(rate(outbox_errors_total[1m]))",
-          "legendFormat": "outbox errors/s"
-        },
-        {
-          "expr": "sum by (service, status) (rate(kafka_messages_consumed_total[1m]))",
-          "legendFormat": "{{service}} ({{status}})"
+          "expr": "sum by (status) (rate(http_requests_total{service=\"client-api\"}[1m]))",
+          "legendFormat": "client-api HTTP {{status}}"
         }
       ]
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Kafka Consumer Processing Latency (p95)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "title": "Per-Replica HTTP Request Distribution (HA Load Balancing)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(kafka_message_processing_duration_seconds_bucket[1m])))",
-          "legendFormat": "p95 {{service}}"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "row",
-      "title": "Satellite wildfire stream (P4)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "Satellite Processing Lag (events behind feed)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "targets": [
-        {
-          "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "lag (events)"
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Satellite Offsets (applied vs feed latest)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "targets": [
-        {
-          "expr": "max(satellite_last_applied_offset and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "last applied"
-        },
-        {
-          "expr": "max(satellite_latest_offset and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "feed latest"
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Satellite Ingress-to-Persist Latency (p95)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(satellite_event_persist_duration_seconds_bucket[1m])))",
-          "legendFormat": "p95 (1m histogram)"
-        },
-        {
-          "expr": "max(satellite_p95_persist_seconds and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "p95 (last 1000 events)"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Satellite Fires and Dispositions",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "targets": [
-        {
-          "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "open fires"
-        },
-        {
-          "expr": "max(satellite_closed_fires and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "closed fires"
-        },
-        {
-          "expr": "max(satellite_singletons and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "singletons"
-        },
-        {
-          "expr": "max(satellite_late_detections and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "late beyond watermark"
-        },
-        {
-          "expr": "max(satellite_unknown_references and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "updates/retracts for unknown keys"
-        },
-        {
-          "expr": "max(satellite_rejected_events and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "rejected events"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "Satellite Throughput and Streaming Instances",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "targets": [
-        {
-          "expr": "max(rate(satellite_last_applied_offset[1m]) and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "events/s applied"
-        },
-        {
-          "expr": "sum(satellite_streaming)",
-          "legendFormat": "streaming instances (should be 1)"
-        }
-      ]
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Satellite Checkpoint Size",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
-      "targets": [
-        {
-          "expr": "max(satellite_checkpoint_bytes and on (instance) (satellite_streaming == 1))",
-          "legendFormat": "checkpoint bytes"
+          "expr": "sum by (service, instance) (rate(http_requests_total{service=~\"aggregator|client-api\"}[1m]))",
+          "legendFormat": "{{service}} @ {{instance}}"
         }
       ]
     }

@@ -77,17 +77,52 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # Cluster-specific egress proxy defaults for ITB environment
             - name: HTTP_PROXY
               value: "http://10.5.24.112:8888"
             - name: HTTPS_PROXY
               value: "http://10.5.24.112:8888"
             - name: NO_PROXY
-              value: "localhost,127.0.0.1,.svc,.cluster.local,10.5.24.0/22,10.42.0.0/16,10.43.0.0/16,store-aqua,store-ruby,store-akane,redpanda,mock-bmkg,mock-pvmbg,sensor-pantai,aggregator,auth,client-api"
+              value: "localhost,127.0.0.1,.svc,.cluster.local,10.5.24.0/22,10.42.0.0/16,10.43.0.0/16,store-aqua,store-ruby,store-akane,redpanda,mock-bmkg,mock-pvmbg,sensor-pantai,aggregator,auth,client-api,tempo,prometheus,grafana"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: POSTGRES_PASSWORD
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: AUDIT_TOKEN
+            - name: BMKG_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: BMKG_KEY
+            - name: PVMBG_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: PVMBG_TOKEN
+            - name: PANTAI_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: PANTAI_AUTH_TOKEN
+            - name: SATELLITE_GROUP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: SATELLITE_GROUP_TOKEN
+                  optional: true
           envFrom:
             - configMapRef:
                 name: bnpb-config
-            - secretRef:
-                name: bnpb-credentials
           resources:
             requests:
               # CPU request is the HPA utilization baseline (autoscaling.yaml); the CPU limit is the LimitRange default (500m).
@@ -97,7 +132,7 @@ spec:
               memory: "512Mi"
           readinessProbe:
             httpGet:
-              path: /health
+              path: /readyz
               port: 8083
             initialDelaySeconds: 3
             periodSeconds: 5

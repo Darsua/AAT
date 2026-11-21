@@ -50,7 +50,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Broker accepts event ingestion from aggregator, field-report staging from api, and subscriptions from consumers
+    # Broker Kafka port accepts aggregator, api, consumer, and peer broker traffic
     - from:
         - podSelector:
             matchLabels:
@@ -67,6 +67,15 @@ spec:
       ports:
         - protocol: TCP
           port: 9092
+    # Broker admin/metrics port (9644) is restricted to broker peers and observability scrapers
+    - from:
+        - podSelector:
+            matchLabels:
+              role: broker
+        - podSelector:
+            matchLabels:
+              role: other
+      ports:
         - protocol: TCP
           port: 9644
     - from:
@@ -84,8 +93,10 @@ metadata:
     component: security
 spec:
   podSelector:
-    matchLabels:
-      role: mock
+    matchExpressions:
+      - key: role
+        operator: In
+        values: ["mock", "sensor"]
   policyTypes:
     - Ingress
   ingress:
@@ -113,16 +124,16 @@ spec:
           port: 8082
         - protocol: TCP
           port: 8080
-    # Allow intra-namespace diagnostic curls
+    # Metrics scraping from observability workloads (Prometheus)
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchLabels:
+              role: other
       ports:
         - protocol: TCP
           port: 8081
         - protocol: TCP
           port: 8082
-        - protocol: TCP
-          port: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -137,11 +148,11 @@ spec:
     matchExpressions:
       - key: role
         operator: In
-        values: ["api", "aggregator", "other"]
+        values: ["api", "consumer", "other"]
   policyTypes:
     - Ingress
   ingress:
-    # Permit HTTP ingress from Traefik / kube-system ingress controllers, tester-agent, and cluster peers
+    # Permit HTTP ingress from Traefik / kube-system ingress controllers, tester-agent, and application peers
     - from:
         - namespaceSelector:
             matchLabels:
@@ -149,13 +160,59 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: tester-agent
-        - podSelector: {}
+        - podSelector:
+            matchExpressions:
+              - key: role
+                operator: In
+                values: ["api", "aggregator", "consumer", "other"]
       ports:
         - protocol: TCP
           port: 8080
         - protocol: TCP
-          port: 8083
-        - protocol: TCP
           port: 8084
         - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
           port: 3000
+        - protocol: TCP
+          port: 3200
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 4318
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: isolate-aggregator-policy
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+    component: security
+spec:
+  podSelector:
+    matchLabels:
+      role: aggregator
+  policyTypes:
+    - Ingress
+  ingress:
+    # Restrict Aggregator HTTP/Audit port (8083) to ingress controllers, tester-agent, and trusted service roles
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tester-agent
+        - podSelector:
+            matchExpressions:
+              - key: role
+                operator: In
+                values: ["api", "aggregator", "consumer", "other"]
+      ports:
+        - protocol: TCP
+          port: 8083

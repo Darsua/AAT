@@ -153,11 +153,11 @@ metadata:
   namespace: sistem-informasi-kebencanaan-bnpb
   labels:
     app: sensor-pantai
-    role: mock
+    role: sensor
 spec:
   selector:
     app: sensor-pantai
-    role: mock
+    role: sensor
   ports:
     - name: http
       port: 8080
@@ -170,18 +170,18 @@ metadata:
   namespace: sistem-informasi-kebencanaan-bnpb
   labels:
     app: sensor-pantai
-    role: mock
+    role: sensor
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: sensor-pantai
-      role: mock
+      role: sensor
   template:
     metadata:
       labels:
         app: sensor-pantai
-        role: mock
+        role: sensor
     spec:
       containers:
         - name: sensor-pantai
@@ -198,9 +198,9 @@ spec:
                   key: PANTAI_AUTH_TOKEN
           resources:
             requests:
-              memory: "64Mi"
-            limits:
               memory: "128Mi"
+            limits:
+              memory: "256Mi"
           readinessProbe:
             httpGet:
               path: /healthz

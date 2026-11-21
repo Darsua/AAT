@@ -13,6 +13,7 @@ resources:
   - mocks.yaml
   - aggregator.yaml
   - apis-and-consumers.yaml
+  - observability.yaml
   - autoscaling.yaml
   - ingress.yaml
 

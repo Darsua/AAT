@@ -53,12 +53,30 @@ fi
 
 # Optionally source local .env without overriding already-exported shell variables.
 if [ -f "${REPO_ROOT}/.env" ]; then
-  while IFS= read -r line || [ -n "${line}" ]; do
+  while IFS= read -r raw_line || [ -n "${raw_line}" ]; do
+    line="${raw_line%$'\r'}"
+    line="${line#"${line%%[![:space:]]*}"}"
     case "${line}" in
       ''|\#*) continue ;;
     esac
+    if [[ "${line}" == export[[:space:]]* ]]; then
+      line="${line#export}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+    [[ "${line}" == *=* ]] || continue
     key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"
+    if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      echo "[k8s-deploy] ERROR: invalid variable name '${key}' in .env" >&2
+      exit 1
+    fi
     val="${line#*=}"
+    val="${val%"${val##*[![:space:]]}"}"
+    if [ "${#val}" -ge 2 ]; then
+      if [[ "${val:0:1}" == '"' && "${val: -1}" == '"' ]] || [[ "${val:0:1}" == "'" && "${val: -1}" == "'" ]]; then
+        val="${val:1:${#val}-2}"
+      fi
+    fi
     if [ -z "${!key+x}" ]; then
       export "${key}=${val}"
     fi
@@ -77,9 +95,11 @@ if ! kubectl get secret bnpb-credentials -n "${NAMESPACE}" >/dev/null 2>&1; then
     POSTGRES_DB
     BMKG_API_KEY
     PVMBG_TOKEN
+    PANTAI_AUTH_TOKEN
     AUTH_MEDIA_CLIENT_SECRET
     AUTH_FIELD_CLIENT_SECRET
     AUTH_INTERNAL_CLIENT_SECRET
+    GF_SECURITY_ADMIN_PASSWORD
   )
   for var in "${required_vars[@]}"; do
     if [ -z "${!var:-}" ]; then
@@ -88,24 +108,28 @@ if ! kubectl get secret bnpb-credentials -n "${NAMESPACE}" >/dev/null 2>&1; then
     fi
   done
 
+  if [ -z "${SATELLITE_GROUP_TOKEN:-}" ]; then
+    echo "[k8s-deploy] WARNING: SATELLITE_GROUP_TOKEN is empty; P4 satellite ingestion will remain inactive unless configured." >&2
+  fi
+
   echo "[k8s-deploy] Provisioning bnpb-credentials Secret from environment..."
   kubectl create secret generic bnpb-credentials \
     -n "${NAMESPACE}" \
     --from-literal=JWT_SECRET="${JWT_SECRET}" \
     --from-literal=SATELLITE_GROUP_TOKEN="${SATELLITE_GROUP_TOKEN:-}" \
-    --from-literal=PANTAI_AUTH_TOKEN="${PANTAI_AUTH_TOKEN:-}" \
+    --from-literal=PANTAI_AUTH_TOKEN="${PANTAI_AUTH_TOKEN}" \
     --from-literal=AUDIT_TOKEN="${AUDIT_TOKEN}" \
     --from-literal=POSTGRES_USER="${POSTGRES_USER}" \
     --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
     --from-literal=POSTGRES_DB="${POSTGRES_DB}" \
     --from-literal=BMKG_API_KEY="${BMKG_API_KEY}" \
     --from-literal=BMKG_KEY="${BMKG_KEY:-${BMKG_API_KEY}}" \
-    --from-literal=PVMBG_BEARER_TOKEN="${PVMBG_BEARER_TOKEN:-${PVMBG_TOKEN}}" \
     --from-literal=PVMBG_TOKEN="${PVMBG_TOKEN}" \
     --from-literal=AUTH_MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET}" \
     --from-literal=AUTH_FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET}" \
     --from-literal=AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET}" \
     --from-literal=AI_API_KEY="${AI_API_KEY:-}" \
+    --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GF_SECURITY_ADMIN_PASSWORD}" \
     --dry-run=client -o yaml | kubectl apply -f -
 else
   echo "[k8s-deploy] Preserving existing bnpb-credentials Secret in ${NAMESPACE}."
@@ -123,12 +147,10 @@ if [ "${IMPORT_IMAGES}" = "1" ] || [ "${IMPORT_IMAGES}" = "true" ]; then
     "bnpb-client-api:latest|services/client-api"
     "bnpb-dashboard-consumer:latest|services/consumers/dashboard"
     "bnpb-notifier-consumer:latest|services/consumers/notifier"
+    "bnpb-summarizer-consumer:latest|services/consumers/summarizer"
     "bnpb-mock-bmkg:latest|services/mock-bmkg"
     "bnpb-mock-pvmbg:latest|services/mock-pvmbg"
   )
-  if [ -f "${REPO_ROOT}/services/consumers/summarizer/Dockerfile" ]; then
-    image_specs+=("bnpb-summarizer-consumer:latest|services/consumers/summarizer")
-  fi
 
   image_tags=()
   for spec in "${image_specs[@]}"; do
@@ -139,15 +161,29 @@ if [ "${IMPORT_IMAGES}" = "1" ] || [ "${IMPORT_IMAGES}" = "true" ]; then
     image_tags+=("${tag}")
   done
 
-  local_host="$(hostname -s 2>/dev/null || hostname)"
+  for obs_image in "prom/prometheus:v2.54.1" "grafana/tempo:2.6.0" "grafana/grafana:11.2.2"; do
+    if docker image inspect "${obs_image}" >/dev/null 2>&1; then
+      image_tags+=("${obs_image}")
+    fi
+  done
+
+  images_tar="$(mktemp /tmp/bnpb-images.XXXXXX.tar)"
+  trap 'rm -f "${images_tar}"' EXIT
+  echo "[k8s-deploy] Saving ${#image_tags[@]} images once to ${images_tar}..."
+  docker save -o "${images_tar}" "${image_tags[@]}"
+
+  local_host="$(hostname -s 2>/dev/null || uname -n 2>/dev/null || echo "")"
+  local_host="${local_host%%.*}"
   for node in ${KUBE_NODES:-aqua ruby akane}; do
     echo "[k8s-deploy] Importing local images into k3s containerd on ${node}..."
     if [ "${node}" = "${local_host}" ]; then
-      docker save "${image_tags[@]}" | sudo k3s ctr images import -
+      sudo k3s ctr images import - < "${images_tar}"
     else
-      docker save "${image_tags[@]}" | ssh "${node}" "sudo k3s ctr images import -"
+      ssh "${node}" "sudo k3s ctr images import -" < "${images_tar}"
     fi
   done
+  rm -f "${images_tar}"
+  trap - EXIT
 fi
 
 kubectl delete job redpanda-topic-init -n "${NAMESPACE}" --ignore-not-found >/dev/null
@@ -162,8 +198,8 @@ kubectl rollout status statefulset/store-akane -n "${NAMESPACE}" --timeout=180s
 kubectl rollout status statefulset/redpanda -n "${NAMESPACE}" --timeout=180s
 kubectl wait --for=condition=complete job/redpanda-topic-init -n "${NAMESPACE}" --timeout=180s
 
-echo "[k8s-deploy] Waiting for application Deployments..."
-for deploy in mock-bmkg mock-pvmbg sensor-pantai aggregator auth client-api dashboard-consumer notifier-consumer summarizer-consumer; do
+echo "[k8s-deploy] Waiting for application and observability Deployments..."
+for deploy in mock-bmkg mock-pvmbg sensor-pantai tempo prometheus grafana aggregator auth client-api dashboard-consumer notifier-consumer summarizer-consumer; do
   kubectl rollout status "deployment/${deploy}" -n "${NAMESPACE}" --timeout=180s
 done
 

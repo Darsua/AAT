@@ -107,6 +107,7 @@ metadata:
     role: broker
 spec:
   backoffLimit: 10
+  ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
@@ -124,7 +125,7 @@ spec:
                 echo "Waiting for Redpanda broker..."
                 sleep 2
               done
-              for topic in "${REDPANDA_TOPIC_HAZARDS}" "${REDPANDA_TOPIC_FIELD_REPORTS}" "${REDPANDA_TOPIC_DLQ}"; do
+              for topic in "${REDPANDA_TOPIC_HAZARDS}" "${REDPANDA_TOPIC_FIELD_REPORTS}"; do
                 if rpk topic describe "${topic}" -X brokers=redpanda:9092 >/dev/null 2>&1; then
                   echo "Topic '${topic}' already exists"
                 else
@@ -142,11 +143,6 @@ spec:
                 configMapKeyRef:
                   name: bnpb-config
                   key: REDPANDA_TOPIC_FIELD_REPORTS
-            - name: REDPANDA_TOPIC_DLQ
-              valueFrom:
-                configMapKeyRef:
-                  name: bnpb-config
-                  key: REDPANDA_TOPIC_DLQ
           resources:
             requests:
               memory: "512Mi"

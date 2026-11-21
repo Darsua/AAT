@@ -1,0 +1,1195 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregator-headless
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: aggregator
+    role: aggregator
+spec:
+  clusterIP: None
+  selector:
+    app: aggregator
+    role: aggregator
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-api-headless
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: client-api
+    role: api
+spec:
+  clusterIP: None
+  selector:
+    app: client-api
+    role: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-consumer-headless
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: dashboard-consumer
+    role: consumer
+spec:
+  clusterIP: None
+  selector:
+    app: dashboard-consumer
+    role: consumer
+  ports:
+    - name: http
+      port: 8085
+      targetPort: 8085
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifier-consumer-headless
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: notifier-consumer
+    role: consumer
+spec:
+  clusterIP: None
+  selector:
+    app: notifier-consumer
+    role: consumer
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bnpb-observability-config
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 5s
+
+    scrape_configs:
+      - job_name: "client-api"
+        dns_sd_configs:
+          - names: ["client-api-headless.sistem-informasi-kebencanaan-bnpb.svc.cluster.local"]
+            type: A
+            port: 8080
+
+      - job_name: "auth"
+        static_configs:
+          - targets: ["auth:8084"]
+
+      - job_name: "aggregator"
+        dns_sd_configs:
+          - names: ["aggregator-headless.sistem-informasi-kebencanaan-bnpb.svc.cluster.local"]
+            type: A
+            port: 8083
+
+      - job_name: "dashboard-consumer"
+        dns_sd_configs:
+          - names: ["dashboard-consumer-headless.sistem-informasi-kebencanaan-bnpb.svc.cluster.local"]
+            type: A
+            port: 8085
+
+      - job_name: "notifier-consumer"
+        dns_sd_configs:
+          - names: ["notifier-consumer-headless.sistem-informasi-kebencanaan-bnpb.svc.cluster.local"]
+            type: A
+            port: 8086
+
+      - job_name: "summarizer-consumer"
+        static_configs:
+          - targets: ["summarizer-consumer:8087"]
+
+      - job_name: "mock-bmkg"
+        static_configs:
+          - targets: ["mock-bmkg:8081"]
+
+      - job_name: "mock-pvmbg"
+        static_configs:
+          - targets: ["mock-pvmbg:8082"]
+
+      - job_name: "redpanda"
+        metrics_path: /public_metrics
+        static_configs:
+          - targets: ["redpanda:9644"]
+
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            http:
+              endpoint: "0.0.0.0:4318"
+            grpc:
+              endpoint: "0.0.0.0:4317"
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/blocks
+        wal:
+          path: /tmp/tempo/wal
+
+  datasources.yml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        uid: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+
+      - name: Tempo
+        uid: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: false
+
+  dashboards.yml: |
+    apiVersion: 1
+
+    providers:
+      - name: "BNPB Observability"
+        orgId: 1
+        folder: "BNPB"
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bnpb-grafana-dashboards
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app.kubernetes.io/name: bnpb-platform
+data:
+  bnpb-unified-observability.json: |
+    {
+      "uid": "bnpb-unified-obs",
+      "title": "Platform Overview & API Gateway",
+      "tags": ["bnpb", "m2", "observability"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "5s",
+      "links": [
+        {
+          "title": "BNPB Dashboards",
+          "type": "dashboards",
+          "tags": ["bnpb"],
+          "asDropdown": false,
+          "includeVars": true,
+          "keepTime": true
+        }
+      ],
+      "panels": [
+        {
+          "id": 100,
+          "type": "stat",
+          "title": "Healthy Scrape Targets",
+          "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 10 },
+                  { "color": "green", "value": 14 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum(up)",
+              "legendFormat": "UP"
+            }
+          ]
+        },
+        {
+          "id": 101,
+          "type": "stat",
+          "title": "Active Aggregator Replicas",
+          "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 2 },
+                  { "color": "green", "value": 3 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum(up{job=\"aggregator\"})",
+              "legendFormat": "Replicas"
+            }
+          ]
+        },
+        {
+          "id": 102,
+          "type": "stat",
+          "title": "Active Gateway Replicas",
+          "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 1 },
+                  { "color": "green", "value": 2 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum(up{job=\"client-api\"})",
+              "legendFormat": "Replicas"
+            }
+          ]
+        },
+        {
+          "id": 103,
+          "type": "stat",
+          "title": "Satellite Stream Leader",
+          "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 },
+                  { "color": "orange", "value": 2 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum(satellite_streaming)",
+              "legendFormat": "Leader"
+            }
+          ]
+        },
+        {
+          "id": 104,
+          "type": "stat",
+          "title": "AI Summarizer Circuit",
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": { "text": "CLOSED", "color": "green" },
+                    "1": { "text": "OPEN", "color": "red" }
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max(bnpb_summarizer_circuit_open)",
+              "legendFormat": "Circuit"
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "HTTP Throughput (RPS) by Service",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (service) (rate(http_requests_total[1m]))",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "HTTP Request Latency (p50 / p95 / p99)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p50 {{service}}"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p95 {{service}}"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le, service) (rate(http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "p99 {{service}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "HTTP Error Rates (4xx / 5xx) by Service",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (service, status) (rate(http_requests_total{status=~\"[45]..\"}[1m]))",
+              "legendFormat": "{{service}} HTTP {{status}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "OAuth2 Token Issuance & Authentication Failures",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (grant_type) (rate(auth_tokens_issued_total[1m]))",
+              "legendFormat": "issued ({{grant_type}})"
+            },
+            {
+              "expr": "sum by (reason) (rate(auth_token_failures_total[1m]))",
+              "legendFormat": "auth failure ({{reason}})"
+            },
+            {
+              "expr": "sum by (reason) (rate(auth_rejections_total[1m]))",
+              "legendFormat": "gateway rejection ({{reason}})"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Gateway Priority QoS Shedding (HTTP 429) vs Admitted Traffic",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(http_requests_total{service=\"client-api\"}[1m]))",
+              "legendFormat": "client-api HTTP {{status}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Per-Replica HTTP Request Distribution (HA Load Balancing)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (service, instance) (rate(http_requests_total{service=~\"aggregator|client-api\"}[1m]))",
+              "legendFormat": "{{service}} @ {{instance}}"
+            }
+          ]
+        }
+      ]
+    }
+  bnpb-event-pipeline.json: |
+    {
+      "uid": "bnpb-event-pipeline",
+      "title": "Event Pipeline, Redpanda & Consumers",
+      "tags": ["bnpb", "m2", "observability"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "5s",
+      "links": [
+        {
+          "title": "BNPB Dashboards",
+          "type": "dashboards",
+          "tags": ["bnpb"],
+          "asDropdown": false,
+          "includeVars": true,
+          "keepTime": true
+        }
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Redpanda Online Brokers",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max(redpanda_cluster_brokers)",
+              "legendFormat": "Brokers"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Unavailable Partitions",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max(redpanda_cluster_unavailable_partitions)",
+              "legendFormat": "Unavailable"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "LLM Summaries Generated",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(bnpb_summarizer_summaries_generated_total{mode=\"llm\"})",
+              "legendFormat": "LLM"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Extractive Fallback Summaries",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(bnpb_summarizer_summaries_generated_total{mode=\"extractive-fallback\"})",
+              "legendFormat": "Fallback"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Transactional Outbox Relay & Kafka Consumer Throughput",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum(rate(outbox_published_total[1m]))",
+              "legendFormat": "outbox published/s"
+            },
+            {
+              "expr": "sum by (service, status) (rate(kafka_messages_consumed_total[1m]))",
+              "legendFormat": "{{service}} ({{status}})"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Kafka Consumer Processing Latency (p95) & Deduplication Skips",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, service) (rate(kafka_message_processing_duration_seconds_bucket[1m])))",
+              "legendFormat": "p95 {{service}}"
+            },
+            {
+              "expr": "sum by (service) (rate(kafka_consumer_dedup_skipped_total[1m]))",
+              "legendFormat": "dedup skipped/s ({{service}})"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "row",
+          "title": "Redpanda Event Broker & Consumer Group Lag",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 12 },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Consumer Group Lag by Group & Topic (Messages Behind High-Water Mark)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "sum by (redpanda_group, redpanda_topic) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\"} - on (redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset)",
+              "legendFormat": "{{redpanda_group}} ({{redpanda_topic}})"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Redpanda Topic Throughput (Records Produced vs Fetched / s)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "sum by (redpanda_topic) (rate(redpanda_kafka_records_produced_total[1m]))",
+              "legendFormat": "produced {{redpanda_topic}}"
+            },
+            {
+              "expr": "sum by (redpanda_topic) (rate(redpanda_kafka_records_fetched_total[1m]))",
+              "legendFormat": "fetched {{redpanda_topic}}"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Redpanda Broker Memory & Free Disk Storage",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "max(redpanda_memory_allocated_memory)",
+              "legendFormat": "allocated memory"
+            },
+            {
+              "expr": "max(redpanda_memory_free_memory)",
+              "legendFormat": "free memory"
+            },
+            {
+              "expr": "max(redpanda_storage_disk_free_bytes)",
+              "legendFormat": "disk free bytes"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Active Consumer Group Members Attached to Broker",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max by (redpanda_group) (redpanda_kafka_consumer_group_consumers)",
+              "legendFormat": "{{redpanda_group}}"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "row",
+          "title": "Non-Blocking AI Situation Summarizer",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "AI Situation Summarizer — Events Consumed, Coalesced & Summaries by Mode",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(bnpb_summarizer_events_consumed_total)",
+              "legendFormat": "events consumed"
+            },
+            {
+              "expr": "max(bnpb_summarizer_coalesced_total)",
+              "legendFormat": "triggers coalesced"
+            },
+            {
+              "expr": "max by (mode) (bnpb_summarizer_summaries_generated_total)",
+              "legendFormat": "generated ({{mode}})"
+            },
+            {
+              "expr": "max(bnpb_summarizer_quota_exhausted_total)",
+              "legendFormat": "quota exhausted"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "AI Situation Summarizer — Generation Latency (ms) & Active Window Size",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "max(bnpb_summarizer_last_latency_ms)",
+              "legendFormat": "last generation latency (ms)"
+            },
+            {
+              "expr": "max(bnpb_summarizer_window_events)",
+              "legendFormat": "bounded window events"
+            }
+          ]
+        }
+      ]
+    }
+  bnpb-satellite-ingestion.json: |
+    {
+      "uid": "bnpb-satellite-ingestion",
+      "title": "Satellite Wildfire & Upstream Ingestion",
+      "tags": ["bnpb", "m2", "observability"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "5s",
+      "links": [
+        {
+          "title": "BNPB Dashboards",
+          "type": "dashboards",
+          "tags": ["bnpb"],
+          "asDropdown": false,
+          "includeVars": true,
+          "keepTime": true
+        }
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Active Streaming Instances",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 },
+                  { "color": "orange", "value": 2 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "sum(satellite_streaming)",
+              "legendFormat": "Active Leader"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Current Satellite Feed Lag",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 50 },
+                  { "color": "red", "value": 500 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "Lag (events)"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Active Open Wildfire Clusters",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "Open Fires"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Fenced Checkpoint Payload Size",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "max(satellite_checkpoint_bytes and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "Bytes"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Satellite Processing Lag (Events Behind Live Feed)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "lag (events)"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Satellite Stream Offsets (Last Applied vs Feed Latest)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(satellite_last_applied_offset and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "last applied offset"
+            },
+            {
+              "expr": "max(satellite_latest_offset and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "feed latest offset"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Satellite Ingress-to-Persist Latency (p95)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(satellite_event_persist_duration_seconds_bucket[1m])))",
+              "legendFormat": "p95 (1m histogram)"
+            },
+            {
+              "expr": "max(satellite_p95_persist_seconds and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "p95 (rolling 1000 events)"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Wildfire Cluster Lifecycle & Detection Dispositions",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "open fires"
+            },
+            {
+              "expr": "max(satellite_closed_fires and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "closed fires"
+            },
+            {
+              "expr": "max(satellite_singletons and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "singletons"
+            },
+            {
+              "expr": "max(satellite_late_detections and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "late beyond watermark"
+            },
+            {
+              "expr": "max(satellite_unknown_references and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "updates/retracts for unknown keys"
+            },
+            {
+              "expr": "max(satellite_rejected_events and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "rejected events"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Satellite Ingestion Rate & Leader Election Across Aggregator Pods",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "max(rate(satellite_last_applied_offset[1m]) and on (instance) (satellite_streaming == 1))",
+              "legendFormat": "events/s applied"
+            },
+            {
+              "expr": "satellite_streaming",
+              "legendFormat": "streaming flag ({{instance}})"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Upstream Mock Provider Polling Throughput & Latency (BMKG / PVMBG)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "targets": [
+            {
+              "expr": "sum by (service, status) (rate(http_requests_total{service=~\"mock-bmkg|mock-pvmbg\"}[1m]))",
+              "legendFormat": "{{service}} HTTP {{status}} / s"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"mock-bmkg|mock-pvmbg\"}[1m])))",
+              "legendFormat": "p95 latency {{service}} (s)"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: tempo
+    role: other
+spec:
+  selector:
+    app: tempo
+    role: other
+  ports:
+    - name: http
+      port: 3200
+      targetPort: 3200
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: tempo
+    role: other
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+      role: other
+  template:
+    metadata:
+      labels:
+        app: tempo
+        role: other
+    spec:
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-config.file=/etc/tempo.yaml"
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: otlp-http
+              containerPort: 4318
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3200
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 3200
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo.yaml
+              subPath: tempo.yaml
+              readOnly: true
+            - name: tempo-data
+              mountPath: /tmp/tempo
+      volumes:
+        - name: tempo-config
+          configMap:
+            name: bnpb-observability-config
+        - name: tempo-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: prometheus
+    role: other
+spec:
+  selector:
+    app: prometheus
+    role: other
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: prometheus
+    role: other
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      role: other
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        role: other
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.54.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=6h"
+          ports:
+            - name: http
+              containerPort: 9090
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+              readOnly: true
+            - name: prometheus-data
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: bnpb-observability-config
+        - name: prometheus-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: grafana
+    role: other
+spec:
+  selector:
+    app: grafana
+    role: other
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: sistem-informasi-kebencanaan-bnpb
+  labels:
+    app: grafana
+    role: other
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      role: other
+  template:
+    metadata:
+      labels:
+        app: grafana
+        role: other
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bnpb-credentials
+                  key: GF_SECURITY_ADMIN_PASSWORD
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+          resources:
+            requests:
+              memory: "128Mi"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: grafana-provisioning
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yml
+              subPath: datasources.yml
+              readOnly: true
+            - name: grafana-provisioning
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yml
+              subPath: dashboards.yml
+              readOnly: true
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-provisioning
+          configMap:
+            name: bnpb-observability-config
+        - name: grafana-dashboards
+          configMap:
+            name: bnpb-grafana-dashboards
+        - name: grafana-data
+          emptyDir: {}

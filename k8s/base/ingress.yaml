@@ -32,6 +32,13 @@ spec:
                 name: summarizer-consumer
                 port:
                   number: 8087
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
           - path: /
             pathType: Prefix
             backend:

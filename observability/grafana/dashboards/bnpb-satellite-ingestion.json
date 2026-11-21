@@ -1,0 +1,215 @@
+{
+  "uid": "bnpb-satellite-ingestion",
+  "title": "Satellite Wildfire & Upstream Ingestion",
+  "tags": ["bnpb", "m2", "observability"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "links": [
+    {
+      "title": "BNPB Dashboards",
+      "type": "dashboards",
+      "tags": ["bnpb"],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active Streaming Instances",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 },
+              { "color": "orange", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(satellite_streaming)",
+          "legendFormat": "Active Leader"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Current Satellite Feed Lag",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "Lag (events)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Active Open Wildfire Clusters",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "Open Fires"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Fenced Checkpoint Payload Size",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "max(satellite_checkpoint_bytes and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "Bytes"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Satellite Processing Lag (Events Behind Live Feed)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_lag_events and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "lag (events)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Satellite Stream Offsets (Last Applied vs Feed Latest)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_last_applied_offset and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "last applied offset"
+        },
+        {
+          "expr": "max(satellite_latest_offset and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "feed latest offset"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Satellite Ingress-to-Persist Latency (p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(satellite_event_persist_duration_seconds_bucket[1m])))",
+          "legendFormat": "p95 (1m histogram)"
+        },
+        {
+          "expr": "max(satellite_p95_persist_seconds and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "p95 (rolling 1000 events)"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Wildfire Cluster Lifecycle & Detection Dispositions",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(satellite_active_fires and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "open fires"
+        },
+        {
+          "expr": "max(satellite_closed_fires and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "closed fires"
+        },
+        {
+          "expr": "max(satellite_singletons and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "singletons"
+        },
+        {
+          "expr": "max(satellite_late_detections and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "late beyond watermark"
+        },
+        {
+          "expr": "max(satellite_unknown_references and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "updates/retracts for unknown keys"
+        },
+        {
+          "expr": "max(satellite_rejected_events and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "rejected events"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Satellite Ingestion Rate & Leader Election Across Aggregator Pods",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "max(rate(satellite_last_applied_offset[1m]) and on (instance) (satellite_streaming == 1))",
+          "legendFormat": "events/s applied"
+        },
+        {
+          "expr": "satellite_streaming",
+          "legendFormat": "streaming flag ({{instance}})"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Upstream Mock Provider Polling Throughput & Latency (BMKG / PVMBG)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (service, status) (rate(http_requests_total{service=~\"mock-bmkg|mock-pvmbg\"}[1m]))",
+          "legendFormat": "{{service}} HTTP {{status}} / s"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"mock-bmkg|mock-pvmbg\"}[1m])))",
+          "legendFormat": "p95 latency {{service}} (s)"
+        }
+      ]
+    }
+  ]
+}

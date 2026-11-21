@@ -6,15 +6,12 @@ metadata:
   labels:
     app.kubernetes.io/name: bnpb-platform
 data:
-  APP_ENV: "production"
   LOG_LEVEL: "INFO"
 
   # Internal microservice addresses
   AGGREGATOR_URL: "http://aggregator:8083"
-  CLIENT_API_URL: "http://client-api:8080"
-  AUTH_SERVICE_URL: "http://auth:8084"
-  AUTH_URL: "http://auth:8084"
   REDPANDA_BROKERS: "redpanda:9092"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo:4318"
 
   # Upstream simulation & feed addresses
   BMKG_URL: "http://mock-bmkg:8081"
@@ -26,9 +23,14 @@ data:
   SATELLITE_STATE_RETENTION_HOURS: "48"
   SATELLITE_PROVINCE_CENTROIDS_FILE: ""
 
-  # Poller, JWT, and client identity settings
+  # Poller, JWT, QoS, and client identity settings
   POLL_INTERVAL_SECS: "3"
+  COASTAL_POLL_INTERVAL_SECS: "2"
+  COASTAL_TIMEOUT_MS: "2000"
+  COASTAL_FRESHNESS_TTL_SECS: "30"
   JWT_TTL_SECONDS: "60"
+  QOS_MAX_CONCURRENT: "100"
+  QOS_MEDIA_SHED_THRESHOLD: "70"
   AUTH_MEDIA_CLIENT_ID: "test-media-client"
   AUTH_FIELD_CLIENT_ID: "test-field-client"
   AUTH_INTERNAL_CLIENT_ID: "test-internal-client"
@@ -50,15 +52,20 @@ data:
   TOPIC: "bnpb.hazard-events"
   REDPANDA_TOPIC_HAZARDS: "bnpb.hazard-events"
   REDPANDA_TOPIC_FIELD_REPORTS: "bnpb.field-reports"
-  REDPANDA_TOPIC_DLQ: "bnpb.dlq"
   CONSUMER_GROUP_DASHBOARD: "bnpb-dashboard-group"
   CONSUMER_GROUP_NOTIFIER: "bnpb-notifier-group"
   CONSUMER_GROUP_SUMMARIZER: "bnpb-summarizer-group"
   CONSUMER_GROUP_FIELD_REPORTS: "bnpb-aggregator-field-reports"
+  DASHBOARD_SYNC_INTERVAL_SECS: "5"
+  DASHBOARD_FULL_SYNC_INTERVAL_SECS: "300"
+  NOTIFIER_RECEIPT_LOG: "/tmp/notifier-receipts.jsonl"
+  FIELD_TEAM_RECEIVER_URL: ""
 
   # Non-blocking AI situation summarizer configuration (#36)
+  # ITB lab Ollama endpoint
   AI_API_URL: "http://10.5.24.125:11434/v1/chat/completions"
   AI_MODEL: "qwen3.5:9b"
+  AI_DISABLE_THINKING: "true"
   AI_TIMEOUT_MS: "30000"
   AI_MAX_TOKENS: "120"
   AI_MAX_CALLS_PER_MIN: "12"

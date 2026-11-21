@@ -17,6 +17,8 @@ APPENDIX_B_MEMORY = {
     "consumer": ("128Mi", "256Mi"),
     "api": ("128Mi", "256Mi"),
     "mock": ("64Mi", "128Mi"),
+    "sensor": ("128Mi", "256Mi"),
+    "other": ("128Mi", "256Mi"),
 }
 
 
@@ -89,7 +91,7 @@ class KubernetesManifestsTest(unittest.TestCase):
         self.assertEqual(agg["spec"]["replicas"], 3)
         pod_spec = agg["spec"]["template"]["spec"]
         container = pod_spec["containers"][0]
-        self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/health")
+        self.assertEqual(container["readinessProbe"]["httpGet"]["path"], "/readyz")
         self.assertEqual(container["livenessProbe"]["httpGet"]["path"], "/livez")
         env_map = {e["name"]: e for e in container.get("env", [])}
         self.assertEqual(env_map["INSTANCE_ID"]["valueFrom"]["fieldRef"]["fieldPath"], "metadata.name")
@@ -133,6 +135,48 @@ class KubernetesManifestsTest(unittest.TestCase):
             text=True,
         )
         self.assertIn("Dry-run OK", res.stdout)
+
+    def test_least_privilege_secrets_and_network_policies(self):
+        for doc in self._workloads():
+            name = doc["metadata"]["name"]
+            pod_spec = doc["spec"]["template"]["spec"]
+            for container in pod_spec.get("containers", []):
+                for entry in container.get("envFrom", []):
+                    self.assertNotIn(
+                        "secretRef",
+                        entry,
+                        f"{name}/{container['name']} must not mount whole secrets via envFrom",
+                    )
+                if name == "notifier-consumer":
+                    for env in container.get("env", []):
+                        self.assertNotIn(
+                            "secretKeyRef",
+                            env.get("valueFrom", {}),
+                            "notifier-consumer must not mount secretKeyRef entries",
+                        )
+
+        policies = {d["metadata"]["name"]: d for d in self.docs if d.get("kind") == "NetworkPolicy"}
+        self.assertIn("isolate-aggregator-policy", policies)
+
+        mock_policy = policies["allow-mock-admin-policy"]
+        mock_roles = next(
+            expr["values"]
+            for expr in mock_policy["spec"]["podSelector"].get("matchExpressions", [])
+            if expr.get("key") == "role"
+        )
+        self.assertEqual(set(mock_roles), {"mock", "sensor"})
+        for rule in mock_policy["spec"].get("ingress", []):
+            for peer in rule.get("from", []):
+                self.assertNotEqual(peer, {"podSelector": {}}, "allow-mock-admin-policy must not allow arbitrary pods")
+
+        ingress_policy = policies["allow-ingress-controllers"]
+        exposed_ports = {
+            port["port"]
+            for rule in ingress_policy["spec"].get("ingress", [])
+            for port in rule.get("ports", [])
+        }
+        for consumer_port in (8085, 8086, 8087):
+            self.assertIn(consumer_port, exposed_ports)
 
 
 if __name__ == "__main__":
