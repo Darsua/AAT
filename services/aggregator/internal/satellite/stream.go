@@ -59,12 +59,14 @@ type Client struct {
 	OnReconnect func(err error, lastApplied int64, wait time.Duration)
 }
 
-// NewClient returns a client with streaming-safe defaults (no overall request timeout).
+// NewClient returns a client with streaming-safe defaults (bounded header wait, no overall stream timeout).
 func NewClient(baseURL, token string) *Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
 	return &Client{
 		BaseURL:    strings.TrimRight(baseURL, "/"),
 		Token:      token,
-		HTTP:       &http.Client{},
+		HTTP:       &http.Client{Transport: transport},
 		MinBackoff: 500 * time.Millisecond,
 		MaxBackoff: 30 * time.Second,
 	}

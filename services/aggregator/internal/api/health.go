@@ -96,6 +96,44 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// ReadyzHandler reports pod readiness based strictly on draining state and canonical storage availability,
+// isolating read-serving readiness from transient single-broker outages.
+func (h *HealthHandler) ReadyzHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.draining.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(HealthStatus{
+			Status:   "DOWN",
+			Service:  "aggregator",
+			Database: "DOWN",
+			Broker:   "UNKNOWN",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	dbStatus := "UP"
+	overallStatus := "UP"
+	httpStatusCode := http.StatusOK
+	if h.db != nil {
+		if err := h.db.Ping(ctx); err != nil {
+			dbStatus = "DOWN"
+			overallStatus = "DOWN"
+			httpStatusCode = http.StatusServiceUnavailable
+		}
+	}
+
+	w.WriteHeader(httpStatusCode)
+	_ = json.NewEncoder(w).Encode(HealthStatus{
+		Status:   overallStatus,
+		Service:  "aggregator",
+		Database: dbStatus,
+		Broker:   "IGNORED",
+	})
+}
+
 // LivezHandler reports basic process liveness without querying downstream dependencies.
 func LivezHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

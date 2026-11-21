@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -191,6 +192,11 @@ func DecodeVolcanicReport(raw []byte, policy PVMBGSchemaPolicy) (VolcanicReportD
 			return VolcanicReportDTO{}, err
 		}
 	}
+	switch strings.ToLower(strings.TrimSpace(unquote(fields["alert_level"]))) {
+	case "normal", "waspada", "siaga", "awas":
+	default:
+		return VolcanicReportDTO{}, fmt.Errorf("%s: invalid alert_level %q", ReasonSchemaIncompatible, unquote(fields["alert_level"]))
+	}
 	if _, err := time.Parse(time.RFC3339, unquote(fields["reported_at"])); err != nil {
 		return VolcanicReportDTO{}, fmt.Errorf("%s: field 'reported_at' is not an RFC3339 timestamp", ReasonSchemaIncompatible)
 	}
@@ -208,6 +214,9 @@ func DecodeVolcanicReport(raw []byte, policy PVMBGSchemaPolicy) (VolcanicReportD
 	var report VolcanicReportDTO
 	if err := json.Unmarshal(normalized, &report); err != nil {
 		return VolcanicReportDTO{}, fmt.Errorf("%s: %v", ReasonSchemaIncompatible, err)
+	}
+	if report.EruptionCount24h < 0 || report.AshColumnHeightM < 0 {
+		return VolcanicReportDTO{}, fmt.Errorf("%s: negative volcano measurement not permitted", ReasonSchemaIncompatible)
 	}
 	return report, nil
 }
@@ -263,7 +272,7 @@ func requireNumber(fields map[string]json.RawMessage, name string, integer, coer
 	kind := jsonKind(v)
 	if kind == "string" && coerce {
 		s := strings.TrimSpace(unquote(v))
-		if _, err := strconv.ParseFloat(s, 64); err == nil {
+		if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
 			v, kind = json.RawMessage(s), "number"
 			fields[name] = v
 		}

@@ -118,7 +118,7 @@ func (p *postgresUnitBackend) SaveSatelliteCheckpoint(ctx context.Context, cp Sa
 	if err != nil {
 		return err
 	}
-	_, err = pool.Exec(ctx, `
+	tag, err := pool.Exec(ctx, `
 		INSERT INTO satellite_checkpoints (stream, last_offset, state, fencing_token, holder_id, updated_at)
 		VALUES ($1, $2, $3, $4, $5, clock_timestamp())
 		ON CONFLICT (stream) DO UPDATE SET
@@ -132,6 +132,9 @@ func (p *postgresUnitBackend) SaveSatelliteCheckpoint(ctx context.Context, cp Sa
 	`, cp.Stream, cp.LastOffset, cp.State, cp.FencingToken, cp.HolderID)
 	if err != nil {
 		return fmt.Errorf("save satellite checkpoint: %w", err)
+	}
+	if tag.RowsAffected() == 0 && cp.FencingToken > 0 {
+		return ErrStaleFencingToken
 	}
 	return nil
 }

@@ -334,12 +334,6 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 	if p.client == nil {
 		return nil
 	}
-	if !p.breaker.Allow() {
-		if p.status != nil {
-			p.status.SetCoastalStatus(false)
-		}
-		return errCircuitOpen
-	}
 
 	fence, cycleCtx, stopRenew, proceed, err := p.lease.acquireCycle(ctx)
 	if err != nil {
@@ -352,6 +346,13 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 		return nil
 	}
 	defer stopRenew()
+
+	if !p.breaker.Allow() {
+		if p.status != nil {
+			p.status.SetCoastalStatus(false)
+		}
+		return errCircuitOpen
+	}
 
 	corrID := fmt.Sprintf("coastal-poll-%d", time.Now().UnixNano())
 	persistCtx := logger.WithCorrelationID(cycleCtx, corrID)
@@ -426,7 +427,6 @@ func (p *CoastalPoller) pollOnce(ctx context.Context) error {
 			}
 			if p.repo != nil {
 				if err := p.lease.saveHazard(persistCtx, event, corrID, fence); err != nil {
-					p.breaker.RecordFailure()
 					if p.status != nil {
 						p.status.SetCoastalStatus(false)
 					}

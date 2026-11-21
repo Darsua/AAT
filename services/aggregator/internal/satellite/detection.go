@@ -87,7 +87,7 @@ func plainDecimal(num string) (string, error) {
 		return num, nil
 	}
 	exp, err := strconv.Atoi(expText)
-	if err != nil {
+	if err != nil || exp > 100 || exp < -100 {
 		return "", fmt.Errorf("invalid exponent in %q", num)
 	}
 	sign := ""
@@ -152,10 +152,10 @@ func NewDetection(satellite, acqDate, acqTime, latitude, longitude, confidence s
 		return Detection{}, fmt.Errorf("satellite is required")
 	}
 	var err error
-	if d.lat, err = strconv.ParseFloat(d.Latitude, 64); err != nil || d.lat < -90 || d.lat > 90 {
+	if d.lat, err = strconv.ParseFloat(d.Latitude, 64); err != nil || math.IsNaN(d.lat) || math.IsInf(d.lat, 0) || d.lat < -90 || d.lat > 90 {
 		return Detection{}, fmt.Errorf("invalid latitude %q", latitude)
 	}
-	if d.lon, err = strconv.ParseFloat(d.Longitude, 64); err != nil || d.lon < -180 || d.lon > 180 {
+	if d.lon, err = strconv.ParseFloat(d.Longitude, 64); err != nil || math.IsNaN(d.lon) || math.IsInf(d.lon, 0) || d.lon < -180 || d.lon > 180 {
 		return Detection{}, fmt.Errorf("invalid longitude %q", longitude)
 	}
 	if math.IsNaN(frp) || math.IsInf(frp, 0) || frp < 0 {

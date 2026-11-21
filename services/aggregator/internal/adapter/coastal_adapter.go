@@ -232,8 +232,9 @@ func parseAndValidateObservation(raw []byte, stations map[string]CoastalStation,
 		"quality",
 		"critical",
 	} {
-		if _, ok := rawMap[reqField]; !ok {
-			return CoastalObservation{}, fmt.Sprintf("missing required field %q", reqField)
+		val, ok := rawMap[reqField]
+		if !ok || val == nil {
+			return CoastalObservation{}, fmt.Sprintf("missing or null required field %q", reqField)
 		}
 	}
 
@@ -249,6 +250,9 @@ func parseAndValidateObservation(raw []byte, stations map[string]CoastalStation,
 
 	if obs.ObservationID == "" {
 		return CoastalObservation{}, "observation_id is empty"
+	}
+	if len("haz-pantai-"+obs.ObservationID) > 128 {
+		return CoastalObservation{}, "observation_id exceeds maximum canonical length (117)"
 	}
 	if obs.StationID == "" {
 		return CoastalObservation{}, "station_id is empty"

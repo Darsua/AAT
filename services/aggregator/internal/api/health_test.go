@@ -112,3 +112,20 @@ func TestLivezHandler(t *testing.T) {
 		t.Fatalf("unexpected livez payload: %+v", resp)
 	}
 }
+
+func TestReadyzHandler_BrokerDownRemainsReady(t *testing.T) {
+	handler := NewHealthHandler(&mockPinger{err: nil}, &mockBrokerPinger{err: errors.New("broker down")})
+
+	rec := httptest.NewRecorder()
+	handler.ReadyzHandler(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /readyz when only broker is down, got %d", rec.Code)
+	}
+
+	handler.SetDraining(true)
+	recDrain := httptest.NewRecorder()
+	handler.ReadyzHandler(recDrain, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if recDrain.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on /readyz while draining, got %d", recDrain.Code)
+	}
+}

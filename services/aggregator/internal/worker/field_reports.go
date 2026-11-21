@@ -116,6 +116,9 @@ func NormalizeFieldReport(raw []byte, fallbackKey string) (*domain.HazardEvent, 
 	if err != nil {
 		return nil, report, fmt.Errorf("invalid occurred_at: %w", err)
 	}
+	if occurredAt.After(time.Now().UTC().Add(5 * time.Minute)) {
+		return nil, report, errors.New("occurred_at cannot be more than 5 minutes in the future")
+	}
 
 	if report.Latitude != nil {
 		if math.IsNaN(*report.Latitude) || math.IsInf(*report.Latitude, 0) || *report.Latitude < -90 || *report.Latitude > 90 {

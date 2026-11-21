@@ -143,17 +143,17 @@ func (p *PVMBGPoller) replayParked(ctx context.Context, fence *domain.WriteFence
 	if !ok || p.dlq.now().Sub(p.dlq.lastReplay) < replayInterval {
 		return nil
 	}
-	p.dlq.lastReplay = p.dlq.now()
 	active, err := p.activeDLQ(ctx, store)
 	if err != nil {
 		return fmt.Errorf("load PVMBG DLQ for replay: %w", err)
 	}
-	if len(active) > replayBatchLimit {
-		active = active[:replayBatchLimit]
-	}
+	p.dlq.lastReplay = p.dlq.now()
 
 	recovered := 0
 	for _, msg := range active {
+		if recovered >= replayBatchLimit {
+			break
+		}
 		reports, ok := p.decodeStored(msg.RawPayload)
 		if !ok {
 			continue

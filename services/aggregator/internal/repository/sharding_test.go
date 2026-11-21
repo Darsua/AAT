@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -853,5 +854,163 @@ func TestSyncShardReplicas_ReconcilesSatelliteCheckpoint(t *testing.T) {
 	}
 	if restored.LastOffset != wantCP.LastOffset || string(restored.State) != string(wantCP.State) {
 		t.Fatalf("restored checkpoint mismatch: got %+v want %+v", restored, wantCP)
+	}
+}
+
+func TestParseShardTopology_RedactsCredentialsInError(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  string
+	}{
+		{
+			name: "malformed_entry",
+			cfg:  "postgres://user:supersecret@db:5432/x",
+		},
+		{
+			name: "malformed_unit",
+			cfg:  "shard-1=shard-1|aqua|postgres://user:supersecret@db:5432/x",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseShardTopology("", tc.cfg, "", "", "")
+			if err == nil {
+				t.Fatal("expected ParseShardTopology error")
+			}
+			if strings.Contains(err.Error(), "supersecret") {
+				t.Fatalf("expected error to redact DSN credentials, got %q", err.Error())
+			}
+			if !strings.Contains(err.Error(), "***") {
+				t.Fatalf("expected masked credentials marker '***' in error, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestSyncShardReplicas_DoesNotResurrectRecoveredDLQWhenPrimaryMissedRecovery(t *testing.T) {
+	ctx := context.Background()
+	primary := NewMemoryUnitBackend()
+	replica := NewMemoryUnitBackend()
+	groups := []ShardGroup{
+		{
+			ShardID: "shard-1",
+			Units: []StorageUnit{
+				{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: primary},
+				{Unit: "shard-1-r1", Node: "ruby", Role: domain.StorageRoleReplica, Backend: replica},
+			},
+		},
+	}
+	repo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository failed: %v", err)
+	}
+
+	msg := domain.UnprocessedMessage{
+		MessageID:  "pvmbg-recover-primary-miss",
+		Source:     domain.SourcePVMBG,
+		RawPayload: []byte(`{"report_id":"r-miss"}`),
+		ReceivedAt: time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC),
+		Reason:     "schema_incompatible: missing volcano_id",
+		Attempts:   3,
+		Status:     domain.UnprocessedStatusParked,
+	}
+	if err := repo.SaveUnprocessedMessage(ctx, msg); err != nil {
+		t.Fatalf("park failed: %v", err)
+	}
+
+	// Primary misses the recovery write; only the replica records Status=recovered.
+	primary.SetHealthy(false)
+	msg.Status = domain.UnprocessedStatusRecovered
+	if err := repo.SaveUnprocessedMessage(ctx, msg); err != nil {
+		t.Fatalf("recover on surviving replica failed: %v", err)
+	}
+	primary.SetHealthy(true)
+
+	freshRepo, err := NewShardedHazardRepository(groups)
+	if err != nil {
+		t.Fatalf("fresh NewShardedHazardRepository failed: %v", err)
+	}
+	if err := freshRepo.SyncShardReplicas(ctx); err != nil {
+		t.Fatalf("SyncShardReplicas failed: %v", err)
+	}
+
+	for name, unit := range map[string]*MemoryUnitBackend{"primary": primary, "replica": replica} {
+		active, err := unit.QueryUnprocessed(ctx, nil)
+		if err != nil {
+			t.Fatalf("%s QueryUnprocessed failed: %v", name, err)
+		}
+		if len(active) != 0 {
+			t.Fatalf("expected %s to keep recovered DLQ message closed, got %+v", name, active)
+		}
+	}
+}
+
+type stalledOutboxBackend struct {
+	*MemoryUnitBackend
+}
+
+func (s *stalledOutboxBackend) RelayOutboxBatch(
+	ctx context.Context,
+	_ int,
+	_ func(records []domain.OutboxEvent) (published []domain.OutboxEvent, quarantined []domain.OutboxEvent, err error),
+) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestHazardRepo_StalledOutboxUnitDoesNotBlockHealthy(t *testing.T) {
+	stalled := &stalledOutboxBackend{MemoryUnitBackend: NewMemoryUnitBackend()}
+	healthy := NewMemoryUnitBackend()
+
+	repo, err := NewShardedHazardRepository([]ShardGroup{
+		{
+			ShardID: "shard-1",
+			Units: []StorageUnit{
+				{Unit: "shard-1", Node: "aqua", Role: domain.StorageRolePrimary, Backend: stalled},
+			},
+		},
+		{
+			ShardID: "shard-2",
+			Units: []StorageUnit{
+				{Unit: "shard-2", Node: "ruby", Role: domain.StorageRolePrimary, Backend: healthy},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewShardedHazardRepository failed: %v", err)
+	}
+
+	now := time.Date(2026, 11, 21, 9, 30, 0, 0, time.UTC)
+	ev := makeSampleHazard("haz-outbox-healthy", "ref-outbox-healthy", "Yogyakarta", now, now)
+	if err := healthy.SaveHazardWithOutbox(context.Background(), &ev, "corr-outbox-healthy"); err != nil {
+		t.Fatalf("SaveHazardWithOutbox failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	started := time.Now()
+	var relayed []domain.OutboxEvent
+	err = repo.RelayOutboxBatch(ctx, 10, func(records []domain.OutboxEvent) ([]domain.OutboxEvent, []domain.OutboxEvent, error) {
+		relayed = append(relayed, records...)
+		return records, nil, nil
+	})
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("expected RelayOutboxBatch to succeed via healthy shard, got %v", err)
+	}
+	if elapsed >= 6*time.Second {
+		t.Fatalf("expected stalled unit timeout (~3s) not to stall relay past 6s, took %v", elapsed)
+	}
+	if len(relayed) != 1 {
+		t.Fatalf("expected 1 relayed outbox record from healthy shard, got %d", len(relayed))
+	}
+	remaining, err := healthy.FetchUnprocessedOutbox(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("FetchUnprocessedOutbox failed: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected healthy shard outbox to be drained, remaining=%d", len(remaining))
 	}
 }

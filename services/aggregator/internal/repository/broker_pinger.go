@@ -2,34 +2,43 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"time"
 )
 
-// TCPBrokerPinger probes message broker TCP reachability.
+// TCPBrokerPinger probes message broker TCP reachability across configured broker addresses.
 type TCPBrokerPinger struct {
-	addr string
+	addrs []string
 }
 
 // NewTCPBrokerPinger creates a new TCPBrokerPinger from a comma-separated broker list.
 func NewTCPBrokerPinger(brokers string) *TCPBrokerPinger {
-	parts := strings.Split(brokers, ",")
-	addr := strings.TrimSpace(parts[0])
-	return &TCPBrokerPinger{addr: addr}
+	var addrs []string
+	for _, part := range strings.Split(brokers, ",") {
+		if addr := strings.TrimSpace(part); addr != "" {
+			addrs = append(addrs, addr)
+		}
+	}
+	return &TCPBrokerPinger{addrs: addrs}
 }
 
-// PingBroker attempts a fast TCP connection to verify broker reachability.
+// PingBroker verifies TCP reachability against at least one configured broker address.
 func (p *TCPBrokerPinger) PingBroker(ctx context.Context) error {
-	if p.addr == "" {
-		return nil
+	if len(p.addrs) == 0 {
+		return errors.New("no broker addresses configured")
 	}
 
 	d := net.Dialer{Timeout: 2 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", p.addr)
-	if err != nil {
-		return err
+	var lastErr error
+	for _, addr := range p.addrs {
+		conn, err := d.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		lastErr = err
 	}
-	_ = conn.Close()
-	return nil
+	return lastErr
 }

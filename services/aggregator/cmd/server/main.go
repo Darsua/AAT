@@ -228,6 +228,7 @@ func main() {
 	auditHandler := api.NewAuditHandler(hazardRepo, cfg.AuditToken, cfg.AuditAllSourcesLabel)
 
 	mux.HandleFunc("GET /livez", api.LivezHandler)
+	mux.HandleFunc("GET /readyz", healthHandler.ReadyzHandler)
 	mux.Handle("GET /health", healthHandler)
 	mux.HandleFunc("GET /metrics", reg.Handler())
 	mux.Handle("GET /internal/hazards", hazardHandler)

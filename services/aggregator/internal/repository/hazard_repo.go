@@ -19,6 +19,7 @@ import (
 	"bnpb/aggregator/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -813,12 +814,12 @@ func (r *HazardRepository) resolveConsistentIngestedAt(ctx context.Context, grou
 		}
 	}
 
-	if !h.IngestedAt.IsZero() {
-		h.IngestedAt = h.IngestedAt.UTC()
-	} else if !earliestIngested.IsZero() {
-		h.IngestedAt = earliestIngested
+	if !earliestIngested.IsZero() {
+		h.IngestedAt = earliestIngested.UTC().Truncate(time.Microsecond)
+	} else if !h.IngestedAt.IsZero() {
+		h.IngestedAt = h.IngestedAt.UTC().Truncate(time.Microsecond)
 	} else {
-		h.IngestedAt = time.Now().UTC()
+		h.IngestedAt = time.Now().UTC().Truncate(time.Microsecond)
 	}
 
 	if h.RowVersion <= maxRowVersion {
@@ -982,10 +983,15 @@ func (r *HazardRepository) RelayOutboxBatch(
 	reachable := 0
 	var firstUnitErr error
 	for _, u := range units {
-		err := u.Backend.RelayOutboxBatch(ctx, limit, relayFn)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		unitCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+		err := u.Backend.RelayOutboxBatch(unitCtx, limit, relayFn)
+		cancel()
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
 			if firstUnitErr == nil {
 				firstUnitErr = err
@@ -1570,6 +1576,22 @@ func (r *HazardRepository) SyncShardReplicas(ctx context.Context) error {
 	return errors.Join(syncErrs...)
 }
 
+type dlqSyncSource interface {
+	QueryAllDLQMessages(ctx context.Context) ([]domain.UnprocessedMessage, error)
+}
+
+func shouldReplaceDLQCandidate(prevStale bool, prevMsg domain.UnprocessedMessage, candStale bool, candMsg domain.UnprocessedMessage) bool {
+	prevRec := prevMsg.Status == domain.UnprocessedStatusRecovered
+	candRec := candMsg.Status == domain.UnprocessedStatusRecovered
+	if prevRec != candRec {
+		return candRec
+	}
+	if prevStale != candStale {
+		return !candStale
+	}
+	return candMsg.Attempts > prevMsg.Attempts
+}
+
 func (r *HazardRepository) reconcileShardGroup(ctx context.Context, g ShardGroup) []error {
 	var syncErrs []error
 	var dumps []syncUnitSnapshot
@@ -1592,7 +1614,15 @@ func (r *HazardRepository) reconcileShardGroup(ctx context.Context, g ShardGroup
 			cancel()
 			continue
 		}
-		dlqMsgs, dlqErr := u.Backend.QueryUnprocessed(readCtx, nil)
+		var (
+			dlqMsgs []domain.UnprocessedMessage
+			dlqErr  error
+		)
+		if allSrc, ok := u.Backend.(dlqSyncSource); ok {
+			dlqMsgs, dlqErr = allSrc.QueryAllDLQMessages(readCtx)
+		} else {
+			dlqMsgs, dlqErr = u.Backend.QueryUnprocessed(readCtx, nil)
+		}
 		cancel()
 
 		stale := r.isUnitStale(u.Unit)
@@ -1618,7 +1648,7 @@ func (r *HazardRepository) reconcileShardGroup(ctx context.Context, g ShardGroup
 				dlqMap[msg.MessageID] = msg
 				cand := dlqCandidate{msg: msg, stale: stale}
 				prev, ok := dlqUnion[msg.MessageID]
-				if !ok || (prev.stale != cand.stale && !cand.stale) || (prev.stale == cand.stale && cand.msg.Attempts > prev.msg.Attempts) {
+				if !ok || shouldReplaceDLQCandidate(prev.stale, prev.msg, cand.stale, cand.msg) {
 					dlqUnion[msg.MessageID] = cand
 				}
 			}
@@ -1889,12 +1919,15 @@ func (r *HazardRepository) RebalanceCluster(ctx context.Context, newGroups []Sha
 // ==============================================================================
 
 type postgresUnitBackend struct {
-	mu       sync.Mutex
-	pool     *pgxpool.Pool
-	dsn      string
-	maxConns int
-	minConns int
-	log      *slog.Logger
+	mu          sync.Mutex
+	migrateMu   sync.Mutex
+	pool        *pgxpool.Pool
+	dialing     bool
+	dialDone    chan struct{}
+	dsn         string
+	maxConns    int
+	minConns    int
+	log         *slog.Logger
 }
 
 // NewPostgresUnitBackend wraps an already connected pgxpool.Pool as a UnitBackend.
@@ -1912,30 +1945,93 @@ func NewLazyPostgresUnitBackend(dsn string, maxConns, minConns int, log *slog.Lo
 	}
 }
 
-func (p *postgresUnitBackend) ensurePool(ctx context.Context) (*pgxpool.Pool, error) {
+func isUndefinedTableErr(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
+}
+
+func (p *postgresUnitBackend) recoverMissingSchema(ctx context.Context, opErr error) bool {
+	if !isUndefinedTableErr(opErr) {
+		return false
+	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.pool != nil {
-		return p.pool, nil
-	}
-	if p.dsn == "" {
-		return nil, errors.New("postgres unit has no connection pool or DSN")
+	pool := p.pool
+	p.mu.Unlock()
+	if pool == nil {
+		return false
 	}
 
-	pool, err := NewPostgresPool(ctx, p.dsn, p.maxConns, p.minConns)
-	if err != nil {
-		return nil, err
+	p.migrateMu.Lock()
+	defer p.migrateMu.Unlock()
+
+	migCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := RunMigrations(migCtx, pool); err != nil {
+		if p.log != nil {
+			p.log.Warn("failed auto-migrating missing postgres schema", slog.String("error", err.Error()))
+		}
+		return false
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	p.pool = pool
 	if p.log != nil {
-		p.log.Info("lazy postgres storage unit connected and migrated")
+		p.log.Info("auto-migrated missing postgres schema after recovery")
 	}
-	return p.pool, nil
+	return true
+}
+
+func (p *postgresUnitBackend) ensurePool(ctx context.Context) (*pgxpool.Pool, error) {
+	for {
+		p.mu.Lock()
+		if p.pool != nil {
+			pool := p.pool
+			p.mu.Unlock()
+			return pool, nil
+		}
+		if p.dsn == "" {
+			p.mu.Unlock()
+			return nil, errors.New("postgres unit has no connection pool or DSN")
+		}
+		if p.dialing {
+			waitCh := p.dialDone
+			p.mu.Unlock()
+			select {
+			case <-waitCh:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		p.dialing = true
+		p.dialDone = make(chan struct{})
+		p.mu.Unlock()
+
+		dialCtx, cancel := context.WithTimeout(ctx, unitWriteTimeout)
+		pool, err := NewPostgresPool(dialCtx, p.dsn, p.maxConns, p.minConns)
+		if err == nil {
+			if mErr := RunMigrations(dialCtx, pool); mErr != nil {
+				pool.Close()
+				pool = nil
+				err = mErr
+			}
+		}
+		cancel()
+
+		p.mu.Lock()
+		if err == nil && pool != nil {
+			p.pool = pool
+			if p.log != nil {
+				p.log.Info("lazy postgres storage unit connected and migrated")
+			}
+		}
+		p.dialing = false
+		close(p.dialDone)
+		p.dialDone = nil
+		p.mu.Unlock()
+
+		if err != nil {
+			return nil, err
+		}
+		return pool, nil
+	}
 }
 
 func (p *postgresUnitBackend) Close() {
@@ -1994,6 +2090,14 @@ func buildUnitHazardWhere(q UnitHazardQuery) ([]string, []any, int) {
 }
 
 func (p *postgresUnitBackend) CountHazards(ctx context.Context, q UnitHazardQuery) (int, error) {
+	count, err := p.countHazardsOnce(ctx, q)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.countHazardsOnce(ctx, q)
+	}
+	return count, err
+}
+
+func (p *postgresUnitBackend) countHazardsOnce(ctx context.Context, q UnitHazardQuery) (int, error) {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return 0, err
@@ -2008,6 +2112,14 @@ func (p *postgresUnitBackend) CountHazards(ctx context.Context, q UnitHazardQuer
 }
 
 func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuery) ([]domain.HazardEvent, error) {
+	events, err := p.queryHazardsOnce(ctx, q)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.queryHazardsOnce(ctx, q)
+	}
+	return events, err
+}
+
+func (p *postgresUnitBackend) queryHazardsOnce(ctx context.Context, q UnitHazardQuery) ([]domain.HazardEvent, error) {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return nil, err
@@ -2054,6 +2166,14 @@ func (p *postgresUnitBackend) QueryHazards(ctx context.Context, q UnitHazardQuer
 }
 
 func (p *postgresUnitBackend) QueryAuditRefs(ctx context.Context, source *domain.Source) ([]AuditRefEntry, error) {
+	entries, err := p.queryAuditRefsOnce(ctx, source)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.queryAuditRefsOnce(ctx, source)
+	}
+	return entries, err
+}
+
+func (p *postgresUnitBackend) queryAuditRefsOnce(ctx context.Context, source *domain.Source) ([]AuditRefEntry, error) {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return nil, err
@@ -2115,9 +2235,9 @@ func hazardUpsertArgs(h *domain.HazardEvent) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal hazard attributes: %w", err)
 	}
-	ingestedAt := h.IngestedAt.UTC()
+	ingestedAt := h.IngestedAt.UTC().Truncate(time.Microsecond)
 	if ingestedAt.IsZero() {
-		ingestedAt = time.Now().UTC()
+		ingestedAt = time.Now().UTC().Truncate(time.Microsecond)
 	}
 	return []any{
 		h.HazardID,
@@ -2137,6 +2257,14 @@ func hazardUpsertArgs(h *domain.HazardEvent) ([]any, error) {
 }
 
 func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEvent) error {
+	err := p.saveHazardOnce(ctx, h)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.saveHazardOnce(ctx, h)
+	}
+	return err
+}
+
+func (p *postgresUnitBackend) saveHazardOnce(ctx context.Context, h *domain.HazardEvent) error {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return err
@@ -2152,6 +2280,14 @@ func (p *postgresUnitBackend) SaveHazard(ctx context.Context, h *domain.HazardEv
 }
 
 func (p *postgresUnitBackend) SaveHazardsBatch(ctx context.Context, events []domain.HazardEvent) error {
+	err := p.saveHazardsBatchOnce(ctx, events)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.saveHazardsBatchOnce(ctx, events)
+	}
+	return err
+}
+
+func (p *postgresUnitBackend) saveHazardsBatchOnce(ctx context.Context, events []domain.HazardEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -2193,6 +2329,14 @@ func (p *postgresUnitBackend) SaveHazardsBatch(ctx context.Context, events []dom
 }
 
 func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domain.HazardEvent, correlationID string) error {
+	err := p.saveHazardWithOutboxOnce(ctx, h, correlationID)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.saveHazardWithOutboxOnce(ctx, h, correlationID)
+	}
+	return err
+}
+
+func (p *postgresUnitBackend) saveHazardWithOutboxOnce(ctx context.Context, h *domain.HazardEvent, correlationID string) error {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return err
@@ -2217,11 +2361,11 @@ func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domai
 	var existingIngestedAt time.Time
 	err = tx.QueryRow(ctx, "SELECT ingested_at FROM hazards WHERE hazard_id = $1 OR (source = $2 AND source_ref_id = $3) LIMIT 1;", h.HazardID, string(h.Source), h.SourceRefID).Scan(&existingIngestedAt)
 	if err == nil && !existingIngestedAt.IsZero() {
-		h.IngestedAt = existingIngestedAt.UTC()
+		h.IngestedAt = existingIngestedAt.UTC().Truncate(time.Microsecond)
 	} else if h.IngestedAt.IsZero() {
-		h.IngestedAt = time.Now().UTC()
+		h.IngestedAt = time.Now().UTC().Truncate(time.Microsecond)
 	} else {
-		h.IngestedAt = h.IngestedAt.UTC()
+		h.IngestedAt = h.IngestedAt.UTC().Truncate(time.Microsecond)
 	}
 
 	payloadJSON, err := json.Marshal(h)
@@ -2249,7 +2393,7 @@ func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domai
 		WHERE hazards.fencing_token <= EXCLUDED.fencing_token
 		  AND ($12 <= 0 OR hazards.row_version <= EXCLUDED.row_version);
 	`
-	_, err = tx.Exec(ctx, hazardSQL,
+	hazardTag, err := tx.Exec(ctx, hazardSQL,
 		h.HazardID,
 		string(h.Source),
 		h.SourceRefID,
@@ -2266,6 +2410,12 @@ func (p *postgresUnitBackend) SaveHazardWithOutbox(ctx context.Context, h *domai
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert hazard %q: %w", h.HazardID, err)
+	}
+	if hazardTag.RowsAffected() == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("failed to commit ignored hazard tx for %q: %w", h.HazardID, err)
+		}
+		return nil
 	}
 
 	outboxEventID := formatOutboxEventID(h.Source, h.SourceRefID)
@@ -2541,7 +2691,9 @@ func (p *postgresUnitBackend) RelayOutboxBatch(
 
 	published, quarantined, err := relayFn(events)
 	if err != nil {
-		_, _ = pool.Exec(ctx, "UPDATE outbox_events SET claim_expires_at = NULL WHERE id = ANY($1) AND published = FALSE;", claimedIDs)
+		relCtx, relCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_, _ = pool.Exec(relCtx, "UPDATE outbox_events SET claim_expires_at = NULL WHERE id = ANY($1) AND published = FALSE;", claimedIDs)
+		relCancel()
 		return err
 	}
 
@@ -2699,16 +2851,32 @@ func (p *postgresUnitBackend) MarkOutboxQuarantined(ctx context.Context, id int6
 	return nil
 }
 
-func (p *postgresUnitBackend) QueryUnprocessed(ctx context.Context, source *domain.Source) ([]domain.UnprocessedMessage, error) {
-	pool, err := p.ensurePool(ctx)
-	if err != nil {
-		return nil, err
+func (p *postgresUnitBackend) QueryAllDLQMessages(ctx context.Context) ([]domain.UnprocessedMessage, error) {
+	msgs, err := p.queryDLQMessages(ctx, "1=1", nil)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.queryDLQMessages(ctx, "1=1", nil)
 	}
+	return msgs, err
+}
+
+func (p *postgresUnitBackend) QueryUnprocessed(ctx context.Context, source *domain.Source) ([]domain.UnprocessedMessage, error) {
 	where := "status IN ('retrying', 'parked')"
 	var args []any
 	if source != nil && *source != "" {
 		where += " AND source = $1"
 		args = append(args, string(*source))
+	}
+	msgs, err := p.queryDLQMessages(ctx, where, args)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.queryDLQMessages(ctx, where, args)
+	}
+	return msgs, err
+}
+
+func (p *postgresUnitBackend) queryDLQMessages(ctx context.Context, where string, args []any) ([]domain.UnprocessedMessage, error) {
+	pool, err := p.ensurePool(ctx)
+	if err != nil {
+		return nil, err
 	}
 	sql := fmt.Sprintf(`
 		SELECT message_id, source, raw_payload, received_at, reason, retryable, attempts, status
@@ -2751,6 +2919,14 @@ func (p *postgresUnitBackend) QueryUnprocessed(ctx context.Context, source *doma
 }
 
 func (p *postgresUnitBackend) SaveUnprocessedMessage(ctx context.Context, msg domain.UnprocessedMessage) error {
+	err := p.saveUnprocessedMessageOnce(ctx, msg)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.saveUnprocessedMessageOnce(ctx, msg)
+	}
+	return err
+}
+
+func (p *postgresUnitBackend) saveUnprocessedMessageOnce(ctx context.Context, msg domain.UnprocessedMessage) error {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return err

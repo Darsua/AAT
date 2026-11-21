@@ -432,6 +432,19 @@ func (p *postgresUnitBackend) AcquireOrRenewLease(
 	minToken int64,
 	ttl time.Duration,
 ) (domain.LeaderLease, bool, error) {
+	lease, acquired, err := p.acquireOrRenewLeaseOnce(ctx, leaseKey, holderID, minToken, ttl)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.acquireOrRenewLeaseOnce(ctx, leaseKey, holderID, minToken, ttl)
+	}
+	return lease, acquired, err
+}
+
+func (p *postgresUnitBackend) acquireOrRenewLeaseOnce(
+	ctx context.Context,
+	leaseKey, holderID string,
+	minToken int64,
+	ttl time.Duration,
+) (domain.LeaderLease, bool, error) {
 	pool, err := p.ensurePool(ctx)
 	if err != nil {
 		return domain.LeaderLease{}, false, err
@@ -583,7 +596,11 @@ func (p *postgresUnitBackend) MirrorLease(ctx context.Context, lease domain.Lead
 			acquired_at = EXCLUDED.acquired_at,
 			renewed_at = EXCLUDED.renewed_at,
 			expires_at = EXCLUDED.expires_at
-		WHERE leader_leases.fencing_token <= EXCLUDED.fencing_token;
+		WHERE leader_leases.fencing_token < EXCLUDED.fencing_token
+		   OR (leader_leases.fencing_token = EXCLUDED.fencing_token
+		       AND (leader_leases.renewed_at < EXCLUDED.renewed_at
+		            OR (leader_leases.renewed_at = EXCLUDED.renewed_at
+		                AND EXCLUDED.expires_at < leader_leases.expires_at)));
 	`, lease.LeaseKey, lease.HolderID, lease.FencingToken, lease.AcquiredAt.UTC(), lease.RenewedAt.UTC(), lease.ExpiresAt.UTC())
 	return err
 }
@@ -681,6 +698,20 @@ func (p *postgresUnitBackend) SaveHazardWithFence(
 	fence domain.WriteFence,
 	withOutbox bool,
 ) error {
+	err := p.saveHazardWithFenceOnce(ctx, h, correlationID, fence, withOutbox)
+	if p.recoverMissingSchema(ctx, err) {
+		return p.saveHazardWithFenceOnce(ctx, h, correlationID, fence, withOutbox)
+	}
+	return err
+}
+
+func (p *postgresUnitBackend) saveHazardWithFenceOnce(
+	ctx context.Context,
+	h *domain.HazardEvent,
+	correlationID string,
+	fence domain.WriteFence,
+	withOutbox bool,
+) error {
 	if fence.FencingToken <= 0 {
 		return ErrStaleFencingToken
 	}
@@ -726,11 +757,11 @@ func (p *postgresUnitBackend) SaveHazardWithFence(
 		h.HazardID, string(h.Source), h.SourceRefID,
 	).Scan(&existingIngestedAt)
 	if err == nil && !existingIngestedAt.IsZero() {
-		h.IngestedAt = existingIngestedAt.UTC()
+		h.IngestedAt = existingIngestedAt.UTC().Truncate(time.Microsecond)
 	} else if h.IngestedAt.IsZero() {
-		h.IngestedAt = time.Now().UTC()
+		h.IngestedAt = time.Now().UTC().Truncate(time.Microsecond)
 	} else {
-		h.IngestedAt = h.IngestedAt.UTC()
+		h.IngestedAt = h.IngestedAt.UTC().Truncate(time.Microsecond)
 	}
 
 	hazardTag, err := tx.Exec(ctx, `

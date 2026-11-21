@@ -209,3 +209,52 @@ func TestCoastalPoller_PersistNotCanceledByHTTPTimeout(t *testing.T) {
 		t.Fatal("expected coastal status to remain healthy")
 	}
 }
+
+type failingLeaseCoordinator struct {
+	*recordingHazardSaver
+}
+
+var _ FencedCoordinator = failingLeaseCoordinator{}
+
+func (failingLeaseCoordinator) AcquireOrRenewSourceLease(context.Context, domain.Source, string, int64, time.Duration) (domain.LeaderLease, bool, error) {
+	return domain.LeaderLease{}, false, errors.New("coordinator unreachable")
+}
+
+func (failingLeaseCoordinator) ReleaseSourceLease(context.Context, domain.Source, string, int64) error {
+	return nil
+}
+
+func (failingLeaseCoordinator) SaveHazardWithFence(context.Context, *domain.HazardEvent, string, domain.WriteFence) error {
+	return nil
+}
+
+func (failingLeaseCoordinator) GetSourceCheckpoint(context.Context, domain.Source) (*domain.SourceCheckpoint, error) {
+	return nil, nil
+}
+
+func (failingLeaseCoordinator) SaveSourceCheckpoint(context.Context, domain.SourceCheckpoint) error {
+	return nil
+}
+
+func TestCoastalPoller_StandbyOrLeaseErrorDoesNotWedgeHalfOpenBreaker(t *testing.T) {
+	now := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
+	cb := NewCircuitBreaker(1, time.Second)
+	cb.nowFn = func() time.Time { return now }
+	cb.RecordFailure() // opens breaker at now..now+1s
+
+	now = now.Add(2 * time.Second) // cooldown elapsed -> next Allow() would enter half-open
+	poller := NewCoastalPoller(&stubCoastalClient{}, nil, nil, time.Second, time.Second, 30*time.Second, slog.New(slog.NewTextHandler(io.Discard, nil))).
+		WithLeaseConfig("agg-standby", 15*time.Second, 5*time.Second)
+	poller.breaker = cb
+	poller.lease.repo = failingLeaseCoordinator{recordingHazardSaver: &recordingHazardSaver{}}
+
+	if err := poller.pollOnce(context.Background()); err == nil {
+		t.Fatal("expected lease acquisition error")
+	}
+	if cb.State() != BreakerOpen {
+		t.Fatalf("expected breaker to stay open rather than wedging half-open on lease error, got %s", cb.State())
+	}
+	if !cb.Allow() {
+		t.Fatal("expected half-open probe slot to remain free after lease failure")
+	}
+}

@@ -589,7 +589,7 @@ func main() {
 	baselineCount := flag.Int("baseline-count", 500, "Historical multi-region seismic events when --catalog is omitted")
 	spikeCount := flag.Int("spike-count", 200, "Regional spike seismic events when --catalog is omitted")
 	spikeArea := flag.String("spike-area", defaultSpikeArea, "Area name for simulated regional seismic spike")
-	inMemory := flag.Bool("in-memory", false, "Run against an in-memory 3-node (aqua/ruby/kana) sharded repository")
+	inMemory := flag.Bool("in-memory", false, "Run against an in-memory 3-node (aqua/ruby/akane) sharded repository")
 	shardConfigOverride := flag.String("shard-config", "", "Override SHARD_CONFIG topology string")
 	exportCatalogPath := flag.String("export-catalog", "", "Optional path to write canonical catalog JSON")
 	jsonOutput := flag.Bool("json", false, "Emit machine-readable JSON report to stdout")

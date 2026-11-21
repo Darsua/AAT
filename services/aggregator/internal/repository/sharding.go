@@ -116,6 +116,44 @@ type ShardGroup struct {
 	Units   []StorageUnit
 }
 
+// redactDSN masks userinfo passwords inside any URI substrings for safe logging/errors.
+func redactDSN(raw string) string {
+	var b strings.Builder
+	rest := raw
+	for len(rest) > 0 {
+		schemeIdx := strings.Index(rest, "://")
+		if schemeIdx < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:schemeIdx+3])
+		afterScheme := rest[schemeIdx+3:]
+		// Search up to the end of the authority section (/, ?, #, or delimiter)
+		endAuth := len(afterScheme)
+		for i, r := range afterScheme {
+			if r == '/' || r == '?' || r == '#' || r == ' ' || r == ',' || r == ';' || r == '|' {
+				endAuth = i
+				break
+			}
+		}
+		auth := afterScheme[:endAuth]
+		if atIdx := strings.LastIndexByte(auth, '@'); atIdx >= 0 {
+			userInfo := auth[:atIdx]
+			if colonIdx := strings.IndexByte(userInfo, ':'); colonIdx >= 0 {
+				b.WriteString(userInfo[:colonIdx+1])
+				b.WriteString("***")
+			} else {
+				b.WriteString(userInfo)
+			}
+			b.WriteString(auth[atIdx:])
+		} else {
+			b.WriteString(auth)
+		}
+		rest = afterScheme[endAuth:]
+	}
+	return b.String()
+}
+
 // ParseShardTopology parses shard definitions from SHARD_TOPOLOGY_JSON, SHARD_CONFIG, or fallback DATABASE_URL.
 func ParseShardTopology(topologyJSON, shardConfigStr, fallbackDSN, fallbackNode, fallbackUnit string) ([]ShardSpec, error) {
 	if raw := strings.TrimSpace(topologyJSON); raw != "" {
@@ -138,7 +176,7 @@ func ParseShardTopology(topologyJSON, shardConfigStr, fallbackDSN, fallbackNode,
 			}
 			eqIdx := strings.IndexByte(entry, '=')
 			if eqIdx <= 0 || eqIdx == len(entry)-1 {
-				return nil, fmt.Errorf("invalid SHARD_CONFIG entry %q: expected shard_id=units", entry)
+				return nil, fmt.Errorf("invalid SHARD_CONFIG entry %q: expected shard_id=units", redactDSN(entry))
 			}
 			shardID := strings.TrimSpace(entry[:eqIdx])
 			unitPart := strings.TrimSpace(entry[eqIdx+1:])
@@ -151,7 +189,7 @@ func ParseShardTopology(topologyJSON, shardConfigStr, fallbackDSN, fallbackNode,
 				}
 				fields := strings.Split(uRaw, "|")
 				if len(fields) != 4 {
-					return nil, fmt.Errorf("invalid SHARD_CONFIG unit %q: expected unit|node|role|dsn", uRaw)
+					return nil, fmt.Errorf("invalid SHARD_CONFIG unit %q: expected unit|node|role|dsn", redactDSN(uRaw))
 				}
 				units = append(units, UnitSpec{
 					Unit: strings.TrimSpace(fields[0]),
@@ -884,6 +922,25 @@ func (m *MemoryUnitBackend) QueryUnprocessed(ctx context.Context, source *domain
 		if source != nil && *source != "" && msg.Source != *source {
 			continue
 		}
+		cp := msg
+		cp.ReceivedAt = cp.ReceivedAt.UTC()
+		if len(msg.RawPayload) > 0 {
+			cp.RawPayload = slices.Clone(msg.RawPayload)
+		}
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+// QueryAllDLQMessages returns all DLQ rows regardless of status for cross-replica state reconciliation.
+func (m *MemoryUnitBackend) QueryAllDLQMessages(ctx context.Context) ([]domain.UnprocessedMessage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if err := m.checkHealth(ctx); err != nil {
+		return nil, err
+	}
+	out := make([]domain.UnprocessedMessage, 0, len(m.dlq))
+	for _, msg := range m.dlq {
 		cp := msg
 		cp.ReceivedAt = cp.ReceivedAt.UTC()
 		if len(msg.RawPayload) > 0 {

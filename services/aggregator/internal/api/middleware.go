@@ -47,6 +47,7 @@ func CorrelationIDMiddleware(next http.Handler) http.Handler {
 		corrID := r.Header.Get("X-Correlation-ID")
 		if corrID == "" {
 			corrID = GenerateCorrelationID()
+			r.Header.Set("X-Correlation-ID", corrID)
 		}
 
 		// Inject into context

@@ -64,3 +64,28 @@ func TestCoastalAdapter_FetchStationsAndObservationsIsolatesInvalid(t *testing.T
 		t.Fatalf("expected next_cursor cursor-2, got %q", batch.NextCursor)
 	}
 }
+
+func TestCoastalAdapter_QuarantinesNullFieldsAndOversizedObservationID(t *testing.T) {
+	now := time.Date(2026, 11, 12, 2, 43, 10, 0, time.UTC)
+	stations := map[string]CoastalStation{
+		"stn-padang-01": {StationID: "stn-padang-01", Name: "Padang", Province: "Sumatera Barat", Latitude: -0.95, Longitude: 100.35},
+	}
+
+	longID := "obs-" + string(make([]byte, 120))
+	for i := range []byte(longID) {
+		if i >= 4 {
+			b := []byte(longID)
+			b[i] = 'a'
+			longID = string(b)
+		}
+	}
+	nullRaw := []byte(`{"observation_id":"obs-null","station_id":"stn-padang-01","observed_at":"2026-11-12T02:43:00Z","sea_level_anomaly_m":null,"wave_height_m":1.2,"quality":"ok","critical":true}`)
+	if _, reason := parseAndValidateObservation(nullRaw, stations, now); reason == "" {
+		t.Fatal("expected JSON null sea_level_anomaly_m to be rejected")
+	}
+
+	oversizedRaw := []byte(`{"observation_id":"` + longID + `","station_id":"stn-padang-01","observed_at":"2026-11-12T02:43:00Z","sea_level_anomaly_m":0.2,"wave_height_m":1.2,"quality":"ok","critical":false}`)
+	if _, reason := parseAndValidateObservation(oversizedRaw, stations, now); reason == "" {
+		t.Fatal("expected oversized observation_id (>117 chars) to be rejected")
+	}
+}
