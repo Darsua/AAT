@@ -1,6 +1,6 @@
 # Repository rules
 
-This is the BNPB Disaster Coordination Platform for IF4031. The runnable application is the **M1 baseline**; M2 work is in progress. Contracts and Kubernetes base resources do not imply that M2 features are implemented.
+This is the BNPB Disaster Coordination Platform for IF4031. The repository contains both the **M1 Docker Compose baseline** and implemented **M2 workloads** (3-node sharded storage, HA Aggregator, Audit API, PVMBG DLQ/replay, field-report staging, satellite/coastal ingestion, analytics UI, AI summarizer, and Kubernetes manifests); remaining verification and M2 report authoring are tracked in GitHub issues. Contracts do not by themselves guarantee deployment or certification of downstream clusters.
 
 ## Service boundaries and contracts
 
@@ -32,9 +32,9 @@ Several M2 workstreams touch the Aggregator. Coordinate overlapping edits with i
 ## M2 deployment and safety
 
 - Application workloads belong to `sistem-informasi-kebencanaan-bnpb`, with the required `role` labels. Follow the [Kubernetes runbook](k8s/README.md) for component memory allocations and the pinned Tester Agent.
-- Demo nodes must have separate kernels. Store data must use node-local disks, not external/network storage that bypasses wipe tests. In a two-node setup, destructive node scenarios target only the non-control-plane worker.
+- Demo nodes must have separate kernels. Store data must use node-local disks, not external/network storage that bypasses wipe tests. In multi-node setups (including the 3-node `aqua`/`ruby`/`akane` cluster), destructive node scenarios target only non-control-plane workers, never the control plane.
 - Never block, replace, stop, or constrain the Tester Agent contrary to the course contract. Treat chaos tests as destructive; do not run them, change a live cluster, or restore snapshots during an assessed recovery window without the appropriate explicit instruction.
-- A complete, one-command M2 deployment is still pending. Do not present `kubectl apply -k k8s/base` as deployment of the application.
+- Use `./scripts/deploy_k8s.sh` (`make k8s-deploy`) for one-command deployment with Secret provisioning; do not present raw `kubectl apply -k k8s/base` alone as complete deployment of the application because `kustomization.yaml` excludes secrets.
 
 ## Documentation discipline
 

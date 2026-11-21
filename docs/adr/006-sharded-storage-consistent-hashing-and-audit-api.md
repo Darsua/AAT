@@ -4,7 +4,7 @@
 
 ## Status and scope
 
-**Accepted and implemented in Aggregator (`#23`, `#30`).** Extends the single-node PostgreSQL baseline in [ADR 003](003-canonical-storage-postgres-jsonb.md) and resolves the storage-sharding and audit questions in [ADR 005](005-stateless-architecture-and-m2-readiness.md). Core implementation resides in [sharding.go](../../services/aggregator/internal/repository/sharding.go), [hazard_repo.go](../../services/aggregator/internal/repository/hazard_repo.go), [audit_handler.go](../../services/aggregator/internal/api/audit_handler.go), [catalog-loader](../../services/aggregator/cmd/catalog-loader/main.go), and [verify_audit_and_catalog.py](../../scripts/verify_audit_and_catalog.py). Multi-node live cluster chaos testing waits on physical 3-node Kubernetes evaluation.
+**Accepted and implemented in Aggregator (`#23`, `#30`).** Extends the single-node PostgreSQL baseline in [ADR 003](003-canonical-storage-postgres-jsonb.md) and resolves the storage-sharding and audit questions in [ADR 005](005-stateless-architecture-and-m2-readiness.md). Core implementation resides in [sharding.go](../../services/aggregator/internal/repository/sharding.go), [hazard_repo.go](../../services/aggregator/internal/repository/hazard_repo.go), [audit_handler.go](../../services/aggregator/internal/api/audit_handler.go), [catalog-loader](../../services/aggregator/cmd/catalog-loader/main.go), and [verify_audit_and_catalog.py](../../scripts/verify_audit_and_catalog.py). Live 3-node cluster baseline, NetworkPolicy storage isolation, Audit API verification, and `wipe-node` recovery evidence are recorded in [p1-p4-baseline](../evidence/m2/p1-p4-baseline/README.md) and [chaos-drills](../evidence/m2/chaos-drills/README.md).
 
 ---
 

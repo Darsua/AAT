@@ -1,14 +1,12 @@
 flowchart TD
-    AGG["aggregator: transactional outbox relay"]
-    RP["redpanda: topic bnpb.hazard-events"]
-    DASH["dashboard-consumer: process-local type and severity counters"]
-    NOTI["notifier-consumer: alert decisions in logs only"]
-    SUM["summarizer-consumer: bounded window + async LLM/extractive briefs (:8087)"]
-    LIMIT["Dashboard/Notifier: unbounded local seen-ID sets; reset on restart"]
+    AGG["aggregator: transactional outbox relay + Audit API"]
+    RP["redpanda: bnpb.hazard-events (+ bnpb.field-reports)"]
+    DASH["dashboard-consumer (:8085): Web analytics UI + update-aware projection"]
+    NOTI["notifier-consumer (:8086): bounded hash dedup + JSONL receipts + webhooks"]
+    SUM["summarizer-consumer (:8087): bounded window + async LLM/extractive briefs"]
 
     AGG -->|"publish hazard payloads"| RP
     RP -->|"group bnpb-dashboard-group"| DASH
     RP -->|"group bnpb-notifier-group"| NOTI
     RP -->|"group bnpb-summarizer-group"| SUM
-    DASH -.-> LIMIT
-    NOTI -.-> LIMIT
+    DASH -->|"Audit delta/checksum sync"| AGG

@@ -26,7 +26,7 @@ No incompatible record reached `hazards`. Each rejected record was parked once (
 
 - The first replay cycle scanned 20 parked messages and marked 11 `recovered` (4 `rename_field` + 7 `type_change`). The 9 `missing_required_field` messages stayed parked, as no policy accepts them; the Audit API then listed only those 9.
 - With the policy on, 25 s of live `rename_field` traffic was ingested directly (38 → 40 hazards) with no new parked rows.
-- At the end the database held 41 PVMBG hazards with 41 distinct `source_ref_id` values, so replay created no duplicates.
+- At the end the database held 40 PVMBG hazards (`pvmbg_hazards: 40` in `replay-policy.log`), so replay created no duplicates.
 
 ## Limitations
 

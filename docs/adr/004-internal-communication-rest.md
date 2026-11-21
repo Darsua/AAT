@@ -4,7 +4,7 @@
 
 ## Status and scope
 
-This describes the M1 HTTP read path. The broader M2 contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34) are not all implemented: field-report writes ([#27](https://github.com/Darsua/AAT/issues/27), Jenka), satellite/coastal types ([#28](https://github.com/Darsua/AAT/issues/28), Aldoy; [#29](https://github.com/Darsua/AAT/issues/29), Jenka), audit ([#30](https://github.com/Darsua/AAT/issues/30), Darrel), and unified observability ([#35](https://github.com/Darsua/AAT/issues/35), Jenka) remain future work.
+This describes the M1 HTTP read path and its M2 extensions. The broader M2 contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34)—field-report writes ([#27](https://github.com/Darsua/AAT/issues/27), Jenka), satellite/coastal types ([#28](https://github.com/Darsua/AAT/issues/28), Aldoy; [#29](https://github.com/Darsua/AAT/issues/29), Jenka), Internal Audit API ([#30](https://github.com/Darsua/AAT/issues/30), Darrel), and unified observability ([#35](https://github.com/Darsua/AAT/issues/35), Jenka)—build on this HTTP boundary while keeping canonical PostgreSQL strictly owned by `services/aggregator`.
 
 ## Context
 In IF4031 Milestone 1, services must communicate across network boundaries:
@@ -21,7 +21,7 @@ We evaluated the choice of internal communication protocol between `client-api` 
 We select **HTTP/1.1 with JSON payloads (REST)** for all internal synchronous service-to-service communication, coupled with an **interface-driven domain abstraction (`HazardService`)** inside `client-api`:
 
 1. **Protocol**: HTTP/1.1 over Docker bridge network (`bnpb-internal`), using Go standard library `net/http` with connection keep-alive and tuned connection pools (`http.Transport`).
-2. **Endpoint**: `http://aggregator:8083/internal/hazards` supports query filters (`since`, `type`, `severity`, `limit`, `offset`) and returns a JSON **`{data, meta}` object**, including degradation metadata. Only Aggregator accesses canonical PostgreSQL. The public gateway also implements `GET /api/v1/hazards/{id}` by scanning this list in pages of 500, not through an internal get-by-ID HTTP route.
+2. **Endpoint**: `http://aggregator:8083/internal/hazards` supports query filters (`id`, `since`, `type`, `severity`, `limit`, `offset`) and returns a JSON **`{data, meta}` object**, including degradation metadata. Only Aggregator accesses canonical PostgreSQL. In M1, `GET /api/v1/hazards/{id}` scanned this list in pages of 500; M2 added direct `?id={hazard_id}` O(1) point lookup with page-scan fallback.
 3. **Header Propagation**: `client-api` generates or propagates `X-Correlation-ID` across all internal HTTP calls for distributed tracing.
 4. **Interface Decoupling**: Handlers in `client-api` never reference raw HTTP client details; they interact with a domain interface:
    ```go

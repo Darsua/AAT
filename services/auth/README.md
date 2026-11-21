@@ -5,9 +5,12 @@ rotates refresh tokens in process-local memory. The gateway verifies JWTs
 locally using the same signing secret; there is no username/password login
 or public-key mode.
 
-This is M1 read authorization. Role claims do not implement planned M2
-field-report writes or an Audit API. Shared refresh-state design remains
-unresolved; see [ADR 005](../../docs/adr/005-stateless-architecture-and-m2-readiness.md).
+The issued `hazards:read:summary` (`media`) and `hazards:read:all` (`field`,
+`internal`) scopes gate both `GET /api/v1/hazards*` projections and
+`POST /api/v1/field-reports` (alias `POST /field-reports`) on `client-api`.
+Aggregator's Audit API (`/internal/audit/*`) uses its own static `AUDIT_TOKEN`
+Bearer credential. Shared refresh-session storage across multiple Auth replicas
+remains unresolved; see [ADR 005](../../docs/adr/005-stateless-architecture-and-m2-readiness.md).
 
 ## Routes and contract
 
@@ -17,6 +20,7 @@ Full request/response shapes: frozen [Auth API](../../contracts/auth_api.yaml).
 | Route | Current behavior |
 | --- | --- |
 | `GET /health` | Process liveness. |
+| `GET /metrics` | Prometheus metrics registry. |
 | `POST /auth/token` | Authenticate `client_id` + `client_secret`; issue access and refresh tokens. |
 | `POST /auth/refresh` | Consume a refresh token and return a rotated token pair. |
 
@@ -43,9 +47,11 @@ These are **process defaults**, not Compose credential fallbacks.
 | `AUTH_MEDIA_CLIENT_ID` | `test-media-client` |
 | `AUTH_FIELD_CLIENT_ID` | `test-field-client` |
 | `AUTH_INTERNAL_CLIENT_ID` | `test-internal-client` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty; optional OTLP/HTTP JSON trace endpoint (e.g. `http://tempo:4318`). |
 
-Supply secrets through the environment. Override Compose's development-only
-fallbacks and keep the development stack off untrusted networks.
+Supply secrets through `.env` or the process environment (`docker-compose.yml`
+and `.env.example` ship empty secret placeholders) and keep the development
+stack off untrusted networks.
 
 ## Token-state limits
 

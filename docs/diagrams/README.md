@@ -1,8 +1,8 @@
 # Diagram sources
 
 The `.mmd` files are canonical [Mermaid](https://mermaid.js.org/) sources.
-They describe the M1 runtime or explicitly labeled provisional M2 requirements;
-a diagram does not establish that planned behavior is implemented.
+They describe the current platform architecture, service flows, and implemented
+M1/M2 ADR designs; historical M1 baselines remain labeled where retained.
 
 ## Architecture and ADR embeddings
 

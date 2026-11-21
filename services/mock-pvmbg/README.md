@@ -12,6 +12,7 @@ Full request/response shapes: frozen [PVMBG API](../../contracts/pvmbg.yaml).
 | Route | Authentication | Current behavior |
 | --- | --- | --- |
 | `GET /health` | None | `200` normally; `503` / `DOWN` during simulated outage. |
+| `GET /metrics` | None | Prometheus metrics registry. |
 | `GET /volcanic-reports` | Bearer token | Reports; optional `since` (UTC RFC3339). |
 | `POST /admin/schema-version` | Same Bearer token | Set `mode` and/or toggle `include_confidence_level`. |
 | `POST /admin/outage` | Same Bearer token | Toggle `is_outage`. |
@@ -46,9 +47,10 @@ These are **process defaults**, not Compose credential fallbacks or host ports.
 | `PVMBG_TOKEN` | Required; no default. Startup fails if empty. |
 | `PVMBG_DELAY_MIN_MS` | `500` |
 | `PVMBG_DELAY_MAX_MS` | `3000`; must not be below the minimum. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty; optional OTLP/HTTP JSON trace endpoint (e.g. `http://tempo:4318`). |
 
-Supply the token through the environment and use the same value for Aggregator.
-Override Compose's development-only fallback. Set both delay bounds to `3000`
+Supply the token through `.env` or the process environment and use the same
+value for Aggregator. Set both delay bounds to `3000`
 for a fixed three-second report delay.
 
 ## Dataset and toggle behavior

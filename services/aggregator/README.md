@@ -1,6 +1,8 @@
 # Aggregator
 
-`bnpb/aggregator` polls upstream hazard feeds (BMKG and PVMBG), normalizes
+`bnpb/aggregator` polls upstream hazard feeds (BMKG, PVMBG, and `sensor-pantai`
+coastal buoys), streams live satellite wildfire detections over SSE (`SATELIT`),
+consumes staged field reports from Redpanda (`bnpb.field-reports`), normalizes
 canonical events, replicates them across sharded PostgreSQL units, serves
 internal hazard and Appendix A Audit APIs, and publishes outbox records to
 Redpanda. It exclusively owns canonical database shards; other services read
@@ -16,15 +18,21 @@ Internal base URL: `http://aggregator:8083`.
 
 | Route | Auth | Behavior |
 | :--- | :--- | :--- |
-| `GET /health` | None | Checks reachable shards and broker dependencies; returns `503` while draining. |
-| `GET /internal/hazards` | None (internal net) | Filtered, paginated `{data, meta}` list with degradation and partial-shard metadata. |
+| `GET /readyz` | None | Readiness probe: checks draining state and canonical shard reachability (decoupled from single-broker outages). |
+| `GET /health` | None | Full dependency check across reachable shards and broker dependencies; returns `503` while draining. |
+| `GET /livez` | None | Process liveness probe (`200` even while draining). |
+| `GET /metrics` | None | Prometheus metrics registry (HTTP, polling, shard sync, outbox, coastal, and satellite metrics). |
+| `GET /internal/hazards` | None (internal net) | Filtered, paginated `{data, meta}` list with degradation and partial-shard metadata; supports `?id={hazard_id}` O(1) point lookup. |
+| `GET /internal/coastal/quarantine` | None (internal net) | In-memory snapshot of quarantined `sensor-pantai` observations. |
+| `GET /internal/coastal/fallback` | None (internal net) | Freshness-bounded cached coastal events and circuit-breaker state. |
 | `GET /internal/audit/events` | `Bearer AUDIT_TOKEN` | Scatter-gather events ordered `(ingested_at ASC, hazard_id ASC)` with keyset cursor. |
 | `GET /internal/audit/checksum` | `Bearer AUDIT_TOKEN` | SHA-256 over raw-byte sorted `source_ref_id` values joined by `\n` (all or per-source). |
 | `GET /internal/audit/location` | `Bearer AUDIT_TOKEN` | Reports `{node, unit, role}` shard/replica placement for a `hazard_id` (`404` vs `503`). |
 | `GET /internal/audit/unprocessed` | `Bearer AUDIT_TOKEN` | Paginated dead-letter / retrying entries from `dlq_messages`. |
 
-List filters on `/internal/hazards`: `type`, `severity`, `since` (UTC RFC3339),
-`limit`, `offset`. Full API shapes are defined in the frozen
+List filters on `/internal/hazards`: `id` (O(1) shard point lookup), `type`,
+`severity`, `since` (UTC RFC3339), `limit`, `offset`. Full API shapes are
+defined in the frozen
 [internal API](../../contracts/aggregator_internal.yaml),
 [Audit API](../../contracts/audit_api.yaml), and
 [HazardEvent schema](../../contracts/hazard_event.json).
@@ -37,8 +45,10 @@ These are **process defaults**, not Compose credentials or host mappings.
 | :--- | :--- |
 | `PORT` | `8083` |
 | `DATABASE_URL` | Fallback single-shard DSN when `SHARD_CONFIG` / `SHARD_TOPOLOGY_JSON` are empty |
+| `DB_MAX_CONNS`, `DB_MIN_CONNS` | `25`, `5` (per-unit PostgreSQL connection pool bounds) |
 | `SHARD_CONFIG`, `SHARD_TOPOLOGY_JSON` | Empty; configure multi-shard primary/replica units and worker nodes (`${VAR}` env expansion supported) |
 | `NODE_NAME`, `STORAGE_UNIT_ID` | `local`, `shard-1` (fallback single-shard unit identity) |
+| `LOG_LEVEL` | `info` |
 | `AUDIT_TOKEN` | Empty (fail-closed `401` if unset on `/internal/audit/*`) |
 | `AUDIT_ALL_SOURCES_LABEL` | `ALL` |
 | `INSTANCE_ID`, `LEASE_TTL_SECS`, `LEASE_RENEW_INTERVAL_SECS` | Auto (`HOSTNAME`/`NODE_NAME-pid`), `15`, `5` |
@@ -46,6 +56,8 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `BMKG_KEY`, `PVMBG_TOKEN` | Empty; supply matching mock credentials for ingestion |
 | `BMKG_URL` | `http://mock-bmkg:8081` |
 | `PVMBG_URL` | `http://mock-pvmbg:8082` |
+| `SENSOR_PANTAI_URL`, `PANTAI_AUTH_TOKEN` | Empty; coastal buoy simulator base URL (`http://sensor-pantai:8080`) and Bearer token |
+| `COASTAL_POLL_INTERVAL_SECS`, `COASTAL_TIMEOUT_MS`, `COASTAL_FRESHNESS_TTL_SECS` | `2`, `2000`, `30` (coastal polling cadence, per-request timeout, and fallback cache freshness TTL) |
 | `REDPANDA_BROKERS` | `redpanda:9092` |
 | `TOPIC` | `bnpb.hazard-events` |
 | `REDPANDA_TOPIC_FIELD_REPORTS` | `bnpb.field-reports` (staged field-report topic consumed into canonical storage) |
@@ -60,9 +72,10 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `PVMBG_FIELD_ALIASES` | Empty (no renamed fields accepted); `from=to` pairs, comma-separated. |
 | `PVMBG_COERCE_NUMERIC_STRINGS` | `false` |
 | `DLQ_RETRY_BUDGET` | `5` polls before a retryable rejection is parked. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty; optional OTLP/HTTP JSON trace endpoint (e.g. `http://tempo:4318`). |
 
 Compose maps `BMKG_API_KEY` to `BMKG_KEY` and `KAFKA_TOPIC_HAZARDS` to `TOPIC`.
-Override development credentials through the environment.
+Supply credentials through `.env` or environment variables.
 
 ## Ingestion and delivery limits
 
@@ -84,8 +97,12 @@ Override development credentials through the environment.
   marks them `recovered` so they leave `GET /internal/audit/unprocessed`. A
   replayed report older than the stored hazard for the same `report_id` is not
   written. Missing `volcano_id` has no policy and stays parked.
-- Pollers use backoff/jitter and process-local source-staleness tracking,
-  not a circuit breaker. Stored hazards remain readable during upstream outages.
+- BMKG and PVMBG pollers use exponential backoff/jitter and source-staleness
+  tracking. `CoastalPoller` (`internal/worker/coastal_poller.go`) implements a
+  3-state circuit breaker (threshold `3`, cooldown `10s`) with a freshness-bounded
+  fallback cache (`GET /internal/coastal/fallback`) and quarantine store
+  (`GET /internal/coastal/quarantine`). Stored hazards remain readable during
+  upstream outages.
 - Each `(source, source_ref_id)` has current hazard state and one outbox row.
   Pending revisions can coalesce into the latest payload: this is not event
   sourcing and does not guarantee delivery of every intermediate revision.

@@ -1,29 +1,37 @@
 flowchart TD
     BM["mock-bmkg :8081"]:::ext
     PV["mock-pvmbg :8082"]:::ext
+    CP["sensor-pantai :8080"]:::ext
+    SAT["Satellite SSE wildfire stream"]:::ext
 
-    subgraph AGG["aggregator :8083"]
+    subgraph AGG["aggregator :8083 (3 HA replicas)"]
         direction TB
-        POLL["Pollers<br/>exponential backoff, max 30 s"]:::svc
-        NORM["Normaliser<br/>canonical HazardEvent"]:::svc
-        REPO["Repository<br/>one transaction: hazards + outbox_events"]:::svc
-        RELAY["Outbox relay"]:::svc
-        API["GET /internal/hazards"]:::svc
-        POLL --> NORM --> REPO
+        LEASE["Storage-clock leases + fencing<br/>leader_leases + source_fences"]:::svc
+        POLL["Pollers + SSE streamer + field-report consumer<br/>Coastal 3-state circuit breaker + fallback cache"]:::svc
+        DLQ["PVMBG per-item validation + DLQ replay<br/>dlq_messages (retrying / parked / recovered)"]:::svc
+        NORM["Normaliser + volcano/province enrichment<br/>canonical HazardEvent"]:::svc
+        REPO["Sharded repository (64-vnode ring, RF=2)<br/>hazards + outbox_events + SyncShardReplicas"]:::svc
+        RELAY["Per-unit bounded outbox relay"]:::svc
+        API["GET /internal/hazards (?id= O(1))<br/>GET /internal/audit/* + /readyz + /livez"]:::svc
+        LEASE --> POLL --> DLQ --> NORM --> REPO
     end
 
-    DB[("PostgreSQL")]:::store
-    RP[["redpanda<br/>bnpb.hazard-events"]]:::broker
+    DB[("3-node sharded PostgreSQL<br/>aqua / ruby / akane (RF=2)")]:::store
+    RP[["redpanda<br/>bnpb.hazard-events + bnpb.field-reports"]]:::broker
     CAPI["client-api :8080"]:::svc
-    CONS["dashboard-consumer<br/>notifier-consumer"]:::cons
+    CONS["dashboard-consumer (:8085)<br/>notifier-consumer (:8086)<br/>summarizer-consumer (:8087)"]:::cons
 
     BM -->|"HTTP"| POLL
     PV -->|"HTTP"| POLL
-    REPO <-->|"ACID write"| DB
+    CP -->|"HTTP"| POLL
+    SAT -->|"SSE"| POLL
+    RP -->|"consume bnpb.field-reports"| POLL
+    REPO <-->|"fenced write + anti-entropy"| DB
     DB -->|"unpublished rows"| RELAY
-    RELAY -->|"publish"| RP
+    RELAY -->|"publish bnpb.hazard-events"| RP
     RP --> CONS
     CAPI -->|"internal read"| API
+    CONS -->|"Audit delta sync"| API
     API --> DB
 
     classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545

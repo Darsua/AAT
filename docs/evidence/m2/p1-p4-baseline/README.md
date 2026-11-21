@@ -1,6 +1,6 @@
 # P1, P4, Audit, Satellite, Analytics, Summarizer & Observability Baseline (M2)
 
-**Recorded date: 2026-11-20 (15:00–15:13 UTC).** Non-destructive live baseline verification on the 3-node M2 k3s cluster (`aqua`, `ruby`, `akane`; namespace `sistem-informasi-kebencanaan-bnpb`). Notice this baseline is distinct from chaos fault injection drills (`#31`).
+**Recorded date: 2026-11-20 (15:00–15:14 UTC).** Non-destructive live baseline verification on the 3-node M2 k3s cluster (`aqua`, `ruby`, `akane`; namespace `sistem-informasi-kebencanaan-bnpb`). Notice this baseline is distinct from chaos fault injection drills (`#31`).
 
 ## 1. Cluster Topology, Governance & Tester Agent ([`cluster-baseline.log`](cluster-baseline.log))
 
@@ -29,7 +29,7 @@ Ran [`scripts/verify_audit_and_catalog.py`](../../../../scripts/verify_audit_and
   - `checksum_PVMBG`: `passed: true` (`1,959 == 1,959`, exact SHA-256 `0b07c8e9289784ff7a17cef535992d4aef728d0aed19f072546c9692a0494c49`).
   - `location_sharding_and_replication`: `passed: true` (`30` sampled events spread across `aqua`, `ruby`, `akane` and all 6 units `shard-1`, `shard-1-r1`, `shard-2`, `shard-2-r1`, `shard-3`, `shard-3-r1`; `no_node_holds_all_records: true`).
   - `unprocessed_dlq_endpoint`: `passed: true` (`0` parked messages).
-- **Live-ingestion drift note:** `verify_audit_and_catalog.py` reported `passed: false` solely because active streaming ingested additional `SATELIT` (+1: `33,563` vs `33,562`) and `SENSOR_PANTAI` (+45: `14,357` vs `14,312`) events during the ~50 s 52-page `/internal/audit/events` enumeration before `get_checksum()` ran (`ALL`: `51,800` vs `51,792`). Direct SQL queries in [`shard-distribution.log`](shard-distribution.log) confirm balanced per-shard primary and replica row counts across all 3 nodes (`bnpb_shard_1`: 637 BMKG / 629 PVMBG / 10,654 SATELIT / 7,637 SENSOR_PANTAI; `bnpb_shard_2`: 631 / 655 / 10,741 / 7,614; `bnpb_shard_3`: 748 / 731 / 12,236 / 8,990).
+- **Live-ingestion drift note:** `verify_audit_and_catalog.py` reported `passed: false` solely because active streaming ingested additional `SATELIT` (+1: `33,563` vs `33,562`) and `SENSOR_PANTAI` (+45: `14,357` vs `14,312`) events during the ~50 s 52-page `/internal/audit/events` enumeration before `get_checksum()` ran (`ALL`: `51,800` vs `51,792`). Direct SQL queries in [`shard-distribution.log`](shard-distribution.log) confirm balanced per-shard primary row counts across all 3 nodes (`bnpb_shard_1`: 639 BMKG / 629 PVMBG / 10,655 SATELIT / 7,910 SENSOR_PANTAI; `bnpb_shard_2`: 632 / 656 / 10,744 / 7,914; `bnpb_shard_3`: 750 / 735 / 12,242 / 9,367).
 
 ## 4. Satellite Wildfire Stream & Coastal Poller ([`satellite-coastal.log`](satellite-coastal.log))
 
@@ -38,8 +38,8 @@ Ran [`scripts/verify_audit_and_catalog.py`](../../../../scripts/verify_audit_and
 
 ## 5. Analytics Dashboard & GPU LLM Summarizer ([`analytics-summarizer.log`](analytics-summarizer.log))
 
-- `https://aat.darsu.dev/dashboard/api/analytics?window=all` reported `51,749` hazards (`partial_data: false`, `degraded: false`, `correlated_tsunami_count: 280`, `source_ref_checksum: f25c29f1cb4ea3640222953d7cbeb7c088f64451fb5fe4120d2f88094c1f7640`); `window=24h` reported `37,483` hazards (`partial_data: false`, `degraded: false`). In the archived log, `by_area` and `timeseries` arrays were truncated to compact samples.
-- `https://aat.darsu.dev/summaries/latest` returned `model: "qwen3.5:9b"`, `circuit_state: "closed"`, `generator_mode: "llm"`, `degraded: false`, `llm_success_total: 56`, `fallback_total: 0`, `last_latency_ms: 8579`, and valid named province/region clusters. Internal health checks on `dashboard-consumer:8085/health` and `summarizer-consumer:8087/health` both returned `{"status":"UP"}`.
+- `https://aat.darsu.dev/dashboard/api/analytics?window=all` reported `63,447` hazards (`partial_data: false`, `degraded: false`, `correlated_tsunami_count: 289`, `source_ref_checksum: 399cba104b82456711ac825ea39dc9dac1121337379a330d1aa0cd630c5ef680`); `window=24h` reported `37,703` hazards (`partial_data: false`, `degraded: false`, `source_ref_checksum: 0ad4f5d626826ac0f134d7896e768443ff53d82234c8eac0e9f2741e975f8eb7`; includes upstream satellite events timestamped `2027-05-30`–`2027-06-01`). In the archived log, `by_area` and `timeseries` arrays were truncated to compact samples.
+- `https://aat.darsu.dev/summaries/latest` returned `model: "qwen3.5:9b"`, `circuit_state: "closed"`, `generator_mode: "llm"`, `degraded: false`, `llm_success_total: 83`, `fallback_total: 1` (`validation_failures_total: 1`), `last_latency_ms: 7344`, and valid named province/region clusters. Internal health checks on `dashboard-consumer:8085/health` returned `{"status":"UP"}`, while `summarizer-consumer:8087/health` returned `{"circuit_state":"closed","service":"summarizer-consumer","status":"ok"}`.
 
 ## 6. Unified Observability & Trace Correlation ([`observability-trace.log`](observability-trace.log))
 

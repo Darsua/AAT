@@ -12,6 +12,7 @@ Full request/response shapes: frozen [BMKG API](../../contracts/bmkg.yaml).
 | Route | Authentication | Current behavior |
 | --- | --- | --- |
 | `GET /health` | None | Process health. |
+| `GET /metrics` | None | Prometheus metrics registry. |
 | `GET /seismic-events` | `X-BMKG-Key` | Seismic event list. |
 | `GET /tsunami-warnings` | `X-BMKG-Key` | Tsunami warning list. |
 
@@ -27,10 +28,10 @@ These are **process defaults**, not Compose credential fallbacks or host ports.
 | --- | --- |
 | `PORT` | `8081` |
 | `BMKG_API_KEY` | Required; no default. Startup fails if empty. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty; optional OTLP/HTTP JSON trace endpoint (e.g. `http://tempo:4318`). |
 
-Supply the key through the environment. Compose provides a development-only
-fallback and passes the matching value to Aggregator as `BMKG_KEY`; override
-it rather than relying on it outside a trusted development stack.
+Supply the key through `.env` or the process environment; Compose passes the
+matching `BMKG_API_KEY` value to Aggregator as `BMKG_KEY`.
 
 ## Dataset and process state
 

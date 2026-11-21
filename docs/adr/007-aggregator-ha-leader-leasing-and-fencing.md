@@ -4,7 +4,7 @@
 
 ## Status and scope
 
-**Accepted and implemented in Aggregator (`#22`, `#25`).** Extends the single-aggregator polling model in [ADR 005](005-stateless-architecture-and-m2-readiness.md) to a multi-replica Deployment (`replicas: 3` in [aggregator.yaml](../../k8s/base/aggregator.yaml) and `aggregator`, `aggregator-2`, `aggregator-3` in [docker-compose.sharded.yml](../../docker-compose.sharded.yml)). Core implementation resides in [fencing.go](../../services/aggregator/internal/repository/fencing.go), [poller.go](../../services/aggregator/internal/worker/poller.go), [health.go](../../services/aggregator/internal/api/health.go), and [001_init.sql](../../services/aggregator/migrations/001_init.sql). Live Kubernetes `SIGSTOP` and rolling-drain drills wait on 3-node cluster evaluation.
+**Accepted and implemented in Aggregator (`#22`, `#25`).** Extends the single-aggregator polling model in [ADR 005](005-stateless-architecture-and-m2-readiness.md) to a multi-replica Deployment (`replicas: 3` in [aggregator.yaml](../../k8s/base/aggregator.yaml) and `aggregator`, `aggregator-2`, `aggregator-3` in [docker-compose.sharded.yml](../../docker-compose.sharded.yml)). Core implementation resides in [fencing.go](../../services/aggregator/internal/repository/fencing.go), [poller.go](../../services/aggregator/internal/worker/poller.go), [health.go](../../services/aggregator/internal/api/health.go), and [001_init.sql](../../services/aggregator/migrations/001_init.sql). Live 3-node Kubernetes HA scaling (`3 -> 5 -> 2`), fencing, `clock-skew`, `kill-leader`, and `partition` drills are recorded in [p2-ha-scaling](../evidence/m2/p2-ha-scaling/README.md) and [chaos-drills](../evidence/m2/chaos-drills/README.md).
 
 ---
 
@@ -22,7 +22,7 @@ Scaling `services/aggregator` horizontally introduces two coordination hazards i
 We coordinate per-source polling exclusivity inside the existing sharded PostgreSQL tier using **storage-clock leases, strictly monotonic fencing tokens, durable checkpoints, and graceful readiness draining**:
 
 1. **Storage-Clock Leader Leases (`leader_leases`)**:
-   - Each upstream source and background anti-entropy coordinator acquires its own fine-grained lease key (`source:BMKG`, `source:PVMBG`, and `source:SYNC` for `SyncShardReplicas`) backed by PostgreSQL's `clock_timestamp()` (`LEASE_TTL_SECS=15`, `LEASE_RENEW_INTERVAL_SECS=5`), avoiding reliance on application node clocks.
+   - Each upstream source and background anti-entropy coordinator acquires its own fine-grained lease key (`source:BMKG`, `source:PVMBG`, `source:SATELIT`, and `source:SENSOR_PANTAI` with `LEASE_TTL_SECS=15`, `LEASE_RENEW_INTERVAL_SECS=5`; plus `source:SYNC` for `SyncShardReplicas` with `2 * syncInterval = 60s`) backed by PostgreSQL's `clock_timestamp()`, avoiding reliance on application node clocks.
    - Coordinator selection prefers shard-1's primary unit and falls back automatically to shard-1's replica (`coordinatorUnits()`) when the coordinator primary is unavailable, reconciling split leases via `reconcileCoordinatorLease` during lease acquisition/reconciliation once the failed primary returns.
 2. **Monotonic Fencing Tokens (`source_fences`, `hazards.fencing_token`)**:
    - Every new lease acquisition or handoff allocates a strictly increasing `fencing_token` greater than both `leader_leases.fencing_token` and `source_fences.max_fencing_token`.
@@ -31,7 +31,7 @@ We coordinate per-source polling exclusivity inside the existing sharded Postgre
    - Checkpoints record `(source, last_occurred_at, last_source_ref_id, fencing_token, holder_id)` after each successful cycle and apply monotonically so `last_occurred_at` never regresses on failover.
    - Newly promoted leaders resume from `last_occurred_at - 10s` (overlap safety window paired with idempotent upserts on `(source, source_ref_id)`).
 4. **Voluntary Release & Readiness Draining**:
-   - On `SIGINT` or `SIGTERM`, `HealthHandler.SetDraining(true)` immediately flips `GET /health` to HTTP `503` so Kubernetes Ingress stops routing new traffic while `GET /livez` continues reporting process liveness (`200`).
+   - On `SIGINT` or `SIGTERM`, `HealthHandler.SetDraining(true)` immediately flips `GET /readyz` (Kubernetes readiness probe, decoupled from single-broker failures) and `GET /health` to HTTP `503` so Kubernetes Ingress stops routing new traffic while `GET /livez` continues reporting process liveness (`200`).
    - Polling workers stop cleanly and invoke `ReleaseSourceLease` so a standby can take over immediately without waiting the full 15s TTL, and the process waits `DRAIN_DELAY_MS` (`3000ms` in K8s/sharded Compose) before closing active HTTP connections.
 
 ```mermaid

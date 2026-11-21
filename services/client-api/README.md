@@ -16,7 +16,8 @@ Full shapes: frozen [Client API](../../contracts/client_api.yaml).
 
 | Route | Current behavior |
 | --- | --- |
-| `GET /health` | Unauthenticated process liveness. |
+| `GET /health` | Unauthenticated process liveness and live QoS limiter stats (`qos` object). |
+| `GET /metrics` | Unauthenticated Prometheus metrics registry. |
 | `GET /api/v1/hazards` | Bearer JWT required; projected `{data, meta}` list. |
 | `GET /api/v1/hazards/{id}` | Bearer JWT required; single projected object or `404`. |
 | `POST /api/v1/field-reports` | Bearer JWT (`hazards:read:all`) required; validates and stages durably before `202 Accepted`. |
@@ -81,9 +82,18 @@ scope checks.
   forwarded to Aggregator.
 - List retrieval forwards filters to `GET /internal/hazards` and preserves
   degradation metadata. The HTTP timeout is five seconds per upstream request.
-- **Get-by-ID scans Aggregator list pages of 500**, not a direct index or an
-  internal get-by-ID endpoint. Large stores require multiple requests;
-  concurrent writes can shift offset pagination. A failed page fails the lookup.
+- **O(1) Get-by-ID lookup with page-scan fallback**: `GET /api/v1/hazards/{id}`
+  first queries `GET /internal/hazards?id={id}&limit=1&offset=0` for a direct
+  shard point lookup on Aggregator, falling back to 500-item page scanning only
+  if an upstream ignores `?id=` and returns multiple items.
+- **Priority QoS load shedding (`qos.go`, `#29`)**: Tracks concurrent in-flight
+  authenticated requests against `QOS_MAX_CONCURRENT` (default `100`) and
+  `QOS_MEDIA_SHED_THRESHOLD` (default `70`). When in-flight requests reach the
+  media threshold, `hazards:read:summary` (`media`) requests are immediately
+  shed with `HTTP 429 Too Many Requests` (`Retry-After: 2`, releasing the slot
+  before socket writes) so the remaining capacity is reserved for
+  `hazards:read:all` (`field`/`internal`) traffic up to `QOS_MAX_CONCURRENT`
+  (returning `HTTP 503` only when all 100 slots are saturated).
 - JWT verification is local; refresh-session revocation does not invalidate
   an already-issued access token before expiry.
 
@@ -98,10 +108,12 @@ These are **process defaults**, not Compose credentials or host mappings.
 | `AGGREGATOR_URL` | `http://aggregator:8083` |
 | `REDPANDA_BROKERS` | `redpanda:9092` |
 | `REDPANDA_TOPIC_FIELD_REPORTS` | `bnpb.field-reports` |
+| `QOS_MAX_CONCURRENT` | `100` |
+| `QOS_MEDIA_SHED_THRESHOLD` | `70` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty; optional OTLP/HTTP JSON trace endpoint (e.g. `http://tempo:4318`). |
 
-Supply the signing secret through the environment and override Compose's
-development-only fallback. A host process needs a reachable Aggregator URL;
-do not assume Compose's internal Aggregator is host-accessible.
+Supply the signing secret through `.env` or the process environment. A host
+process needs a reachable Aggregator URL.
 
 ## Run, test, and code
 

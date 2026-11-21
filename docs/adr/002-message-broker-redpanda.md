@@ -4,7 +4,7 @@
 
 ## Status and scope
 
-This is the M1 single-node broker decision, not an M2 HA/durability claim. The expanded contracts frozen in [#34](https://github.com/Darsua/AAT/issues/34) are not all implemented. M2 analytics ([#24](https://github.com/Darsua/AAT/issues/24), Jenka), DLQ handling ([#26](https://github.com/Darsua/AAT/issues/26), Aldoy), and Aggregator HA ([#25](https://github.com/Darsua/AAT/issues/25), Darrel) require further design and validation.
+This is the M1 single-node broker decision, not a multi-broker HA/durability claim. M2 analytics ([#24](https://github.com/Darsua/AAT/issues/24), Jenka), Aggregator HA ([#25](https://github.com/Darsua/AAT/issues/25), Darrel), DLQ handling ([#26](https://github.com/Darsua/AAT/issues/26), Aldoy), field-report staging ([#27](https://github.com/Darsua/AAT/issues/27), Jenka), and the AI situation summarizer ([#36](https://github.com/Darsua/AAT/issues/36), Darrel) extend this broker flow while retaining single-replica Redpanda in Compose and `k8s/base/broker.yaml`.
 
 ## Context
 Problem 5 of IF4031 Milestone 1 requires an event-driven architecture to broadcast canonical hazard alerts to multiple downstream consumers (the implemented consumers maintain counters and log alert decisions; they do not deliver SMS or render dashboards).
@@ -25,7 +25,7 @@ We select **Redpanda** (single-node development mode) as our message broker, int
 * **Topic**: `bnpb.hazard-events` (partitioned topic with durable commit log).
 * **Go Client**: `github.com/segmentio/kafka-go` for both publishing in `aggregator` and consuming in `consumers/*`. The producer uses the `kafka.Hash` balancer on the message key, `RequiredAcks: kafka.RequireOne` (acks=1) and `MaxAttempts: 3`; consumers read with `FetchMessage`, commit manually with `CommitMessages`, and start from `kafka.FirstOffset` for a new group.
 * **Consumer Groups**: Each consumer registers under a distinct, dedicated consumer group (currently `bnpb-dashboard-group` and `bnpb-notifier-group`, overridable via `CONSUMER_GROUP`; a third-party evaluator service would use its own, e.g. `bnpb-evaluator-audit-group` as in `scripts/test_consumer_recovery.sh`).
-* **Message Envelope** (frozen contract between producer and consumers, detailed in `services/aggregator/README.md` §3.5): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
+* **Message Envelope** (frozen contract between producer and consumers, detailed in [services/aggregator/README.md](../../services/aggregator/README.md#ingestion-and-delivery-limits)): message **key** = `hazard_id`; message **value** = the canonical `HazardEvent` JSON object from `contracts/hazard_event.json` with no additional wrapper; optional `X-Correlation-ID` header for tracing.
 
 ```mermaid
 flowchart LR
@@ -119,7 +119,7 @@ Kafka's log-centric architecture is ideally suited for Problem 5:
 
 ### 1. Mandatory Idempotent Consumer Processing
 This producer/manual-commit consumer design uses **at-least-once delivery semantics**: retransmissions, crashes, or rebalances can repeat delivery. Recovery still depends on retained broker data and available offsets; a single-node broker is not node-loss durable.
-* **Requirement and M1 limit**: Consumers must handle duplicate delivery. Both currently use an **unbounded**, mutex-protected process-local `map[string]struct{}` keyed by hazard ID, with no TTL/LRU or shared durable state. It resets on restart and suppresses **every later payload with that ID**, including legitimate severity/attribute changes. Dashboard counters also reset. M2 needs revision-aware processing and durable projection/idempotency semantics; storage technology remains unresolved (see [ADR 005](005-stateless-architecture-and-m2-readiness.md)).
+* **Requirement, M1 limit, and M2 evolution**: Consumers must handle duplicate delivery. In the M1 baseline, both consumers used an unbounded process-local `map[string]struct{}` keyed by hazard ID that suppressed later updates. In M2, `dashboard-consumer` (`#24`) applies update-aware projection keyed by `hazard_id` with periodic Audit API delta/checksum reconciliation, and `notifier-consumer` (`#29`) uses a bounded FIFO SHA-256 payload-fingerprint map (`50,000` entries), durable JSONL receipt log (`NOTIFIER_RECEIPT_LOG`), and commit-after-delivery semantics (see [services/consumers/README.md](../../services/consumers/README.md)).
 
 ### 2. Asynchronous Outbox Relay Decoupling
 To ensure that database transactions are not blocked by message broker network latency or transient broker outages, `services/aggregator` never publishes directly to Redpanda inside the HTTP request or polling transaction. Instead, it upserts an `outbox_events` row in PostgreSQL, which an asynchronous background relay publishes to Redpanda (see [ADR 003](003-canonical-storage-postgres-jsonb.md)). Pending revisions can coalesce in that row; at-least-once retry does not mean every revision reaches the log. `hazard_id` with `kafka.Hash` gives partition affinity only for a fixed partition count; retries/concurrent relays do not guarantee event-time or revision order. Compose defaults to three partitions with replication factor one and producer acks=1; it does not demonstrate node-loss durability.

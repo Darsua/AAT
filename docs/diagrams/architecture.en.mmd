@@ -1,11 +1,17 @@
 flowchart TD
-    CLIENT[API clients] -->|Request tokens| AUTH[Auth]
-    AUTH -->|JWT| CLIENT
-    CLIENT -->|Authenticated queries| API[Client API]
-    API -->|HTTP| AGG[Aggregator]
-    AGG -->|Poll| BMKG[Simulated BMKG feed]
-    AGG -->|Poll| PVMBG[Simulated PVMBG feed]
-    AGG -->|Read and write canonical state and outbox| DB[(PostgreSQL)]
-    AGG -->|Relay pending outbox payloads| BUS[Redpanda]
-    BUS --> DASH[Dashboard consumer]
-    BUS --> NOTIFY[Notifier consumer]
+    CLIENT["API clients (Media / Field / Internal)"] -->|"Request tokens"| AUTH["auth :8084"]
+    AUTH -->|"HS256 JWT"| CLIENT
+    CLIENT -->|"GET hazards / POST field-reports"| API["client-api :8080 (QoS + JWT)"]
+    API -->|"HTTP reads + O(1) lookup"| AGG["aggregator :8083 (3 HA replicas)"]
+    API -->|"Stage field reports"| BUS[["Redpanda (hazard-events + field-reports)"]]
+    AGG -->|"Consume staged reports"| BUS
+    AGG -->|"Poll"| BMKG["mock-bmkg :8081"]
+    AGG -->|"Poll + DLQ/replay"| PVMBG["mock-pvmbg :8082"]
+    AGG -->|"Poll + breaker"| COASTAL["sensor-pantai :8080"]
+    AGG -->|"SSE stream"| SAT["Satellite wildfire feed"]
+    AGG -->|"Sharded RF=2 + leases + outbox"| DB[("3-node sharded PostgreSQL")]
+    AGG -->|"Relay outbox"| BUS
+    BUS --> DASH["dashboard-consumer :8085 (Web UI)"]
+    DASH -->|"Audit delta sync"| AGG
+    BUS --> NOTIFY["notifier-consumer :8086 (Receipts/Webhooks)"]
+    BUS --> SUM["summarizer-consumer :8087 (Async LLM/Fallback)"]

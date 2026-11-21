@@ -3,7 +3,7 @@ flowchart TD
     ING["consume loop: decode + bounded 200-event window + immediate commit"]
     CH["bounded triggerCh (size 16, drop/coalesce when full)"]
     GATE{"Quota <= 12/min and Circuit Closed?"}
-    LLM["langley llama-server: qwen3.5:9b (20s timeout, thinking off)"]
+    LLM["langley llama-server: qwen3.5:9b (30s K8s/Compose timeout, 20s default, thinking off)"]
     VAL{"Grounding check passed (<= 1200 chars + cited facts)?"}
     FB["extractive-fallback: deterministic summary from canonical facts"]
     RING["bounded summaries ring (30 items) + HTTP :8087 (/summaries, /metrics)"]

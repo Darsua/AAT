@@ -1,17 +1,23 @@
 flowchart TD
-    EXT["External consumers<br/>Media, field teams, public portal"]:::actor
+    EXT["External consumers<br/>Media, field teams, internal ops"]:::actor
     subgraph GW["client-api :8080"]
         direction TB
-        S1["1. Inject or preserve X-Correlation-ID"]:::svc
-        S2["2. Validate JWT signature and claims"]:::svc
-        S3["3. Enforce scope permissions"]:::svc
-        S4["4. Fetch list; get-by-ID scans pages of 500"]:::svc
+        S1["1. Inject or preserve X-Correlation-ID + W3C traceparent"]:::svc
+        S2["2. Validate HS256 JWT signature and claims"]:::svc
+        S3["3. Priority QoS limiter (shed media 429 >= 70, max 100)"]:::svc
+        S4["4. Enforce scope permissions (summary vs all)"]:::svc
+        S5["5a. GET /api/v1/hazards or O(1) ?id= lookup"]:::svc
+        S6["5b. POST /api/v1/field-reports (Idempotency-Key + RequireAll)"]:::svc
         S1 --> S2 --> S3 --> S4
+        S4 --> S5
+        S4 --> S6
     end
     AGG["aggregator :8083"]:::svc
+    RP[["redpanda<br/>bnpb.field-reports"]]:::broker
 
-    EXT -->|"GET list or get-by-ID with Bearer JWT"| S1
-    S4 -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+    EXT -->|"GET hazards or POST field-reports with Bearer JWT"| S1
+    S5 -->|"GET /internal/hazards<br/>X-Correlation-ID"| AGG
+    S6 -->|"Publish StagedFieldReport"| RP
 
     classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
     classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
