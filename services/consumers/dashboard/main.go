@@ -357,13 +357,30 @@ func splitAndTrim(value string) []string {
 	return brokers
 }
 
-// decodeEvent decodes and validates a canonical hazard event from a byte slice.
+// isRetractedPayload reports whether attributes explicitly request retraction.
+func isRetractedPayload(attrs map[string]any) bool {
+	if len(attrs) == 0 {
+		return false
+	}
+	if b, ok := attrs["retracted"].(bool); ok && b {
+		return true
+	}
+	if act, ok := attrs["action"].(string); ok && strings.EqualFold(strings.TrimSpace(act), "retract") {
+		return true
+	}
+	return false
+}
+
+// decodeEvent decodes and validates a canonical hazard event (or attribute retraction) from a byte slice.
 func decodeEvent(data []byte) (HazardEvent, error) {
 	var event HazardEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		return HazardEvent{}, fmt.Errorf("decode hazard event: %w", err)
 	}
-	if event.HazardID == "" || event.HazardType == "" || event.Severity == "" {
+	if event.HazardID == "" {
+		return HazardEvent{}, errors.New("hazard_id is required")
+	}
+	if !isRetractedPayload(event.Attributes) && (event.HazardType == "" || event.Severity == "") {
 		return HazardEvent{}, errors.New("hazard_id, hazard_type, and severity are required")
 	}
 	return event, nil
@@ -505,7 +522,7 @@ func main() {
 	logger := newJSONLogger("dashboard-consumer")
 	reg := newRegistry()
 	tracer := newTracer("dashboard-consumer", logger)
-	startDashboardServerWithTelemetry(ctx, getEnv("PORT", "8085"), dashboard, reg)
+	startDashboardServerWithObservability(ctx, getEnv("PORT", "8085"), dashboard, reg, tracer, logger)
 	startAggregatorSyncLoopWithConfig(ctx, config, &http.Client{Timeout: 20 * time.Second}, dashboard)
 
 	logger.Info("consuming hazard events",
@@ -517,7 +534,7 @@ func main() {
 
 	if err := consumeWithTelemetry(ctx, reader, dashboard, reg, tracer, logger); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("consumer stopped with error", slog.String("error", err.Error()))
-		return
+		os.Exit(1)
 	}
 	logger.Info("consumer stopped")
 }

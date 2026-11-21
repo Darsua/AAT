@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -247,4 +248,39 @@ func (r *scriptedReader) FetchMessage(context.Context) (kafka.Message, error) {
 func (r *scriptedReader) CommitMessages(_ context.Context, messages ...kafka.Message) error {
 	r.committed = append(r.committed, messages...)
 	return nil
+}
+
+func TestConsumeDoesNotMarkDuplicateOnDeliveryFailure(t *testing.T) {
+	var failWebhook atomic.Bool
+	failWebhook.Store(true)
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if failWebhook.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer receiver.Close()
+
+	ev := []byte(`{"hazard_id":"haz-retry-1","hazard_type":"VOLCANIC","severity":"AWAS"}`)
+	n := NewNotifierWithOptions(filepath.Join(t.TempDir(), "r.jsonl"), receiver.URL)
+
+	// First attempt fails webhook delivery -> error returned, offset NOT committed, NOT marked processed.
+	r1 := &scriptedReader{messages: []kafka.Message{{Value: ev, Partition: 0, Offset: 1}}}
+	if err := consume(context.Background(), r1, n); err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("expected delivery error on first attempt, got %v", err)
+	}
+	if len(r1.committed) != 0 {
+		t.Fatalf("expected 0 commits on failed delivery, got %d", len(r1.committed))
+	}
+
+	// Redelivery succeeds once receiver recovers and is NOT suppressed as duplicate.
+	failWebhook.Store(false)
+	r2 := &scriptedReader{messages: []kafka.Message{{Value: ev, Partition: 0, Offset: 1}}}
+	if err := consume(context.Background(), r2, n); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected clean second pass ending with context.Canceled, got %v", err)
+	}
+	if len(r2.committed) != 1 || len(n.Deliveries()) != 1 {
+		t.Fatalf("expected 1 committed delivery on retry, committed=%d deliveries=%d", len(r2.committed), len(n.Deliveries()))
+	}
 }

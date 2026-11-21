@@ -37,11 +37,6 @@ type config struct {
 	FieldReportsTopic string
 }
 
-type healthResponse struct {
-	Status  string `json:"status"`
-	Service string `json:"service"`
-}
-
 type errorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
@@ -655,20 +650,6 @@ func (w *statusRecorder) Write(body []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(body)
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		started := time.Now()
-		recorder := &statusRecorder{ResponseWriter: w}
-		next.ServeHTTP(recorder, r)
-		status := recorder.status
-		if status == 0 {
-			status = http.StatusOK
-		}
-		log.Printf("[client-api] correlation_id=%q method=%q path=%q status=%d duration_ms=%d",
-			correlationID(r), r.Method, r.URL.Path, status, time.Since(started).Milliseconds())
-	})
 }
 
 // Request and JSON helpers.

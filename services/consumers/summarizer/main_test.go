@@ -437,3 +437,40 @@ func TestNormalizeRegionKeyPreservesCoordinates(t *testing.T) {
 		t.Fatalf("normalizeRegionKey province suffix = %q, want Banten", got)
 	}
 }
+
+func TestOpenAIChatClient_QuotaInHalfOpenDoesNotWedgeBreaker(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}}},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := testConfig()
+	cfg.AIAPIURL = srv.URL
+	cfg.AIMaxCallsPerMin = 1
+	cfg.AICBFailureThreshold = 1
+	cfg.AICBCooldown = 20 * time.Millisecond
+
+	c := NewOpenAIChatClient(cfg)
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+
+	// Simulate breaker opened by prior failure while per-minute quota is also full.
+	c.mu.Lock()
+	c.callStamps = []time.Time{now.Add(-5 * time.Second)}
+	c.failures = 1
+	c.openUntil = now.Add(-time.Millisecond) // cooldown elapsed -> half-open check
+	c.mu.Unlock()
+
+	if err := c.allowRequest(now); !errors.Is(err, errQuotaExhausted) {
+		t.Fatalf("expected errQuotaExhausted, got %v", err)
+	}
+	// Once quota window expires later, half-open probe must still succeed instead of returning errCircuitOpen.
+	if err := c.allowRequest(now.Add(61 * time.Second)); err != nil {
+		t.Fatalf("expected half-open probe to succeed after quota reset, got %v", err)
+	}
+	c.recordSuccess()
+	if st := c.CircuitState(); st != "closed" {
+		t.Fatalf("expected closed circuit after half-open success, got %q", st)
+	}
+}

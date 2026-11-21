@@ -38,6 +38,7 @@ type Config struct {
 	AIModel              string
 	AIAPIKey             string
 	AIUseEnvProxy        bool
+	AIEnableThinking     bool
 	AITimeout            time.Duration
 	AIMaxTokens          int
 	AIMaxCallsPerMin     int
@@ -66,14 +67,15 @@ func loadConfig() Config {
 		AIModel:              getEnv("AI_MODEL", defaultAIModel),
 		AIAPIKey:             strings.TrimSpace(os.Getenv("AI_API_KEY")),
 		AIUseEnvProxy:        getBoolEnv("AI_USE_ENV_PROXY", false),
+		AIEnableThinking:     !getBoolEnv("AI_DISABLE_THINKING", true),
 		AITimeout:            time.Duration(getIntEnv("AI_TIMEOUT_MS", 20000)) * time.Millisecond,
 		AIMaxTokens:          getIntEnv("AI_MAX_TOKENS", 160),
 		AIMaxCallsPerMin:     getIntEnv("AI_MAX_CALLS_PER_MIN", 12),
 		AICBFailureThreshold: getIntEnv("AI_CB_FAILURE_THRESHOLD", 3),
 		AICBCooldown:         time.Duration(getIntEnv("AI_CB_COOLDOWN_SECS", 30)) * time.Second,
-		MaxRecentEvents:      getIntEnv("MAX_RECENT_EVENTS", 200),
-		MaxSummaries:         getIntEnv("MAX_SUMMARIES", 30),
-		SummaryQueueSize:     getIntEnv("SUMMARY_QUEUE_SIZE", 16),
+		MaxRecentEvents:      max(1, getIntEnv("MAX_RECENT_EVENTS", 200)),
+		MaxSummaries:         max(1, getIntEnv("MAX_SUMMARIES", 30)),
+		SummaryQueueSize:     max(1, getIntEnv("SUMMARY_QUEUE_SIZE", 16)),
 		SummaryMinInterval:   time.Duration(getIntEnv("SUMMARY_MIN_INTERVAL_MS", 2000)) * time.Millisecond,
 	}
 }
@@ -158,6 +160,15 @@ func decodeFieldReportOrEvent(data []byte) (HazardEvent, error) {
 	if ht == "" {
 		ht = "LAPORAN_LAPANGAN"
 	}
+	occurredAt := time.Now().UTC()
+	if tsStr := strAttr(raw, "occurred_at"); tsStr != "" {
+		if parsed, pErr := time.Parse(time.RFC3339Nano, tsStr); pErr == nil {
+			occurredAt = parsed.UTC()
+		}
+	}
+	if !strings.HasPrefix(id, "haz-field-") {
+		id = "haz-field-" + id
+	}
 	return HazardEvent{
 		HazardID:   id,
 		Source:     "LAPORAN_LAPANGAN",
@@ -165,7 +176,7 @@ func decodeFieldReportOrEvent(data []byte) (HazardEvent, error) {
 		Severity:   sev,
 		AreaName:   area,
 		Attributes: map[string]any{"description": strAttr(raw, "description")},
-		OccurredAt: time.Now().UTC(),
+		OccurredAt: occurredAt,
 		IngestedAt: time.Now().UTC(),
 	}, nil
 }
@@ -261,7 +272,7 @@ func main() {
 
 	if err := consume(ctx, reader, engine, false); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("[summarizer] stopped: %v", err)
-		return
+		os.Exit(1)
 	}
 	log.Println("[summarizer] stopped")
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,10 +23,12 @@ import (
 )
 
 const (
-	defaultBrokers    = "localhost:19092"
-	defaultTopic      = "bnpb.hazard-events"
-	defaultGroupID    = "bnpb-notifier-group"
-	correlationHeader = "X-Correlation-ID"
+	defaultBrokers        = "localhost:19092"
+	defaultTopic          = "bnpb.hazard-events"
+	defaultGroupID        = "bnpb-notifier-group"
+	correlationHeader     = "X-Correlation-ID"
+	maxNotifierProcessed  = 50000
+	maxNotifierDeliveries = 10000
 )
 
 // Config contains the connection settings needed by this consumer.
@@ -80,12 +83,13 @@ type NotificationResult struct {
 
 // Notifier performs update-aware deduplication and records Field Team alert deliveries.
 type Notifier struct {
-	mu          sync.RWMutex
-	processed   map[string]string
-	deliveries  []NotificationDelivery
-	receiptPath string
-	receiverURL string
-	httpClient  *http.Client
+	mu             sync.RWMutex
+	processed      map[string]string
+	processedOrder []string
+	deliveries     []NotificationDelivery
+	receiptPath    string
+	receiverURL    string
+	httpClient     *http.Client
 }
 
 func NewNotifier() *Notifier {
@@ -105,6 +109,27 @@ func NewNotifierWithOptions(receiptPath, receiverURL string) *Notifier {
 	return n
 }
 
+func (n *Notifier) recordProcessedLocked(hazardID, hash string) {
+	if _, exists := n.processed[hazardID]; !exists {
+		n.processedOrder = append(n.processedOrder, hazardID)
+	}
+	n.processed[hazardID] = hash
+	for len(n.processed) > maxNotifierProcessed && len(n.processedOrder) > 0 {
+		oldest := n.processedOrder[0]
+		n.processedOrder = n.processedOrder[1:]
+		delete(n.processed, oldest)
+	}
+}
+
+func (n *Notifier) appendDeliveryLocked(delivery NotificationDelivery) {
+	n.deliveries = append(n.deliveries, delivery)
+	if len(n.deliveries) > maxNotifierDeliveries {
+		trimmed := make([]NotificationDelivery, maxNotifierDeliveries)
+		copy(trimmed, n.deliveries[len(n.deliveries)-maxNotifierDeliveries:])
+		n.deliveries = trimmed
+	}
+}
+
 func (n *Notifier) loadReceipts() {
 	f, err := os.Open(n.receiptPath)
 	if err != nil {
@@ -115,17 +140,38 @@ func (n *Notifier) loadReceipts() {
 	for scanner.Scan() {
 		var d NotificationDelivery
 		if err := json.Unmarshal(scanner.Bytes(), &d); err == nil && d.HazardID != "" {
-			n.deliveries = append(n.deliveries, d)
+			n.appendDeliveryLocked(d)
 			if d.PayloadHash != "" {
-				n.processed[d.HazardID] = d.PayloadHash
+				n.recordProcessedLocked(d.HazardID, d.PayloadHash)
 			}
 		}
 	}
+	_ = scanner.Err()
 }
 
-// Process evaluates an event with update-aware deduplication:
-// identical payloads for the same hazard_id are suppressed, while updated payloads
-// (e.g. severity escalation or critical=true flip) are re-evaluated and notified.
+// Evaluate checks whether an event is a duplicate or triggers an alert without mutating dedup state.
+func (n *Notifier) Evaluate(event HazardEvent) (NotificationResult, string) {
+	hash := eventFingerprint(event)
+
+	n.mu.RLock()
+	prevHash, exists := n.processed[event.HazardID]
+	n.mu.RUnlock()
+	if exists && prevHash == hash {
+		return NotificationResult{Duplicate: true}, hash
+	}
+
+	reason, alert := alertReason(event)
+	return NotificationResult{Alert: alert, Reason: reason}, hash
+}
+
+// RecordProcessed records a processed event fingerprint for subsequent deduplication.
+func (n *Notifier) RecordProcessed(hazardID, hash string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.recordProcessedLocked(hazardID, hash)
+}
+
+// Process evaluates an event with update-aware deduplication and immediately records its fingerprint.
 func (n *Notifier) Process(event HazardEvent) NotificationResult {
 	hash := eventFingerprint(event)
 
@@ -137,7 +183,7 @@ func (n *Notifier) Process(event HazardEvent) NotificationResult {
 	}
 
 	reason, alert := alertReason(event)
-	n.processed[event.HazardID] = hash
+	n.recordProcessedLocked(event.HazardID, hash)
 	return NotificationResult{Alert: alert, Reason: reason}
 }
 
@@ -184,7 +230,7 @@ func (n *Notifier) Deliver(ctx context.Context, event HazardEvent, reason, corre
 			return NotificationDelivery{}, closeErr
 		}
 	}
-	n.deliveries = append(n.deliveries, delivery)
+	n.appendDeliveryLocked(delivery)
 	return delivery, nil
 }
 
@@ -200,11 +246,13 @@ func (n *Notifier) postToReceiver(ctx context.Context, delivery NotificationDeli
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		injectTraceHTTP(ctx, req)
 		if delivery.CorrelationID != "" {
 			req.Header.Set(correlationHeader, delivery.CorrelationID)
 		}
 		resp, err := n.httpClient.Do(req)
 		if err == nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return nil
@@ -378,7 +426,7 @@ func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *N
 			continue
 		}
 
-		result := notifier.Process(event)
+		result, fingerprint := notifier.Evaluate(event)
 		switch {
 		case result.Duplicate:
 			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "duplicate"}, 1)
@@ -391,9 +439,11 @@ func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *N
 			)
 		case result.Alert:
 			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "alert"}, 1)
-			delivery, err := notifier.Deliver(ctx, event, result.Reason, correlationID)
+			delivery, err := notifier.Deliver(msgCtx, event, result.Reason, correlationID)
 			if err != nil {
 				reg.IncCounter("notification_delivery_failures_total", map[string]string{"service": "notifier-consumer"}, 1)
+				reg.ObserveHistogram("kafka_message_processing_duration_seconds", map[string]string{"service": "notifier-consumer", "topic": message.Topic}, time.Since(started).Seconds())
+				span.End(500, err.Error())
 				logger.Error("notification delivery failed",
 					slog.String("correlation_id", correlationID),
 					slog.String("trace_id", st.TraceID),
@@ -401,8 +451,9 @@ func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *N
 					slog.String("hazard_id", event.HazardID),
 					slog.String("error", err.Error()),
 				)
-				continue
+				return fmt.Errorf("deliver notification %s: %w", event.HazardID, err)
 			}
+			notifier.RecordProcessed(event.HazardID, fingerprint)
 			logger.Info("ALERT triggered",
 				slog.String("correlation_id", correlationID),
 				slog.String("trace_id", st.TraceID),
@@ -413,6 +464,7 @@ func consumeWithTelemetry(ctx context.Context, reader messageReader, notifier *N
 				slog.String("reason", result.Reason),
 			)
 		default:
+			notifier.RecordProcessed(event.HazardID, fingerprint)
 			reg.IncCounter("kafka_messages_consumed_total", map[string]string{"service": "notifier-consumer", "topic": message.Topic, "status": "processed"}, 1)
 			logger.Info("processed hazard event without alert",
 				slog.String("correlation_id", correlationID),
@@ -447,7 +499,7 @@ func main() {
 	reg := newRegistry()
 	tracer := newTracer("notifier-consumer", logger)
 	notifier := NewNotifierWithOptions(os.Getenv("NOTIFIER_RECEIPT_LOG"), os.Getenv("FIELD_TEAM_RECEIVER_URL"))
-	startHTTPServer(ctx, getEnv("PORT", "8086"), reg, notifier)
+	startHTTPServerWithObservability(ctx, getEnv("PORT", "8086"), reg, tracer, logger, notifier)
 
 	logger.Info("consuming hazard events",
 		slog.String("topic", config.Topic),
@@ -457,7 +509,7 @@ func main() {
 
 	if err := consumeWithTelemetry(ctx, reader, notifier, reg, tracer, logger); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("consumer stopped with error", slog.String("error", err.Error()))
-		return
+		os.Exit(1)
 	}
 	logger.Info("consumer stopped")
 }

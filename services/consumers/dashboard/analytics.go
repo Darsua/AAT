@@ -405,7 +405,8 @@ func hasCorrelatedTsunami(ev HazardEvent) bool {
 
 func computeSourceRefChecksum(refs []string) string {
 	if len(refs) == 0 {
-		return ""
+		sum := sha256.Sum256(nil)
+		return hex.EncodeToString(sum[:])
 	}
 	sorted := make([]string, len(refs))
 	copy(sorted, refs)

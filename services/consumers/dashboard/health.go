@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -20,6 +21,10 @@ func newHTTPHandler(dashboard *Dashboard) http.Handler {
 }
 
 func newHTTPHandlerWithTelemetry(dashboard *Dashboard, reg *Registry) http.Handler {
+	return newHTTPHandlerWithObservability(dashboard, reg, nil, nil)
+}
+
+func newHTTPHandlerWithObservability(dashboard *Dashboard, reg *Registry, tracer *Tracer, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	if reg != nil {
@@ -31,6 +36,9 @@ func newHTTPHandlerWithTelemetry(dashboard *Dashboard, reg *Registry) http.Handl
 		mux.HandleFunc("GET /", dashboardPageHandler)
 		mux.HandleFunc("GET /dashboard", dashboardPageHandler)
 		mux.HandleFunc("GET /dashboard/", dashboardPageHandler)
+	}
+	if reg != nil && tracer != nil && logger != nil {
+		return correlationMiddleware(observabilityMiddleware("dashboard-consumer", reg, tracer, logger, mux))
 	}
 	return mux
 }
@@ -47,7 +55,11 @@ func startDashboardServer(ctx context.Context, port string, dashboard *Dashboard
 
 // startDashboardServerWithTelemetry serves health, /metrics, analytics JSON API, and the web analytics UI until ctx is cancelled.
 func startDashboardServerWithTelemetry(ctx context.Context, port string, dashboard *Dashboard, reg *Registry) {
-	server := &http.Server{Addr: ":" + port, Handler: newHTTPHandlerWithTelemetry(dashboard, reg), ReadHeaderTimeout: 5 * time.Second}
+	startDashboardServerWithObservability(ctx, port, dashboard, reg, nil, nil)
+}
+
+func startDashboardServerWithObservability(ctx context.Context, port string, dashboard *Dashboard, reg *Registry, tracer *Tracer, logger *slog.Logger) {
+	server := &http.Server{Addr: ":" + port, Handler: newHTTPHandlerWithObservability(dashboard, reg, tracer, logger), ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		<-ctx.Done()

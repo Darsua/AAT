@@ -594,3 +594,16 @@ func TestAnalyticsDefaultOmitsEventsAndOptInCapsAt500(t *testing.T) {
 		t.Fatalf("newest event = %q, want haz-cap-509", snapWithEvents.Events[0].HazardID)
 	}
 }
+
+func TestDecodeEventAllowsAttributeRetractionAndEmptyChecksum(t *testing.T) {
+	ev, err := decodeEvent([]byte(`{"hazard_id":"haz-retract-2","attributes":{"retracted":true}}`))
+	if err != nil || ev.HazardID != "haz-retract-2" {
+		t.Fatalf("expected attribute-based retraction to decode cleanly, got %+v err=%v", ev, err)
+	}
+	if _, err := decodeEvent([]byte(`{"hazard_id":"haz-missing-fields"}`)); err == nil {
+		t.Fatal("expected non-retraction without hazard_type/severity to fail decodeEvent")
+	}
+	if got := computeSourceRefChecksum(nil); got != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Fatalf("empty checksum = %q, want sha256('')", got)
+	}
+}

@@ -166,12 +166,21 @@ func (e *SummarizerEngine) Ingest(ev HazardEvent, correlationID string) bool {
 			e.duplicatesSkippedTotal.Add(1)
 			return false
 		}
-		// Adjust aggregates when replacing an escalated/updated event.
+		// Adjust active window aggregates when replacing an escalated/updated event and move ID to tail.
+		e.bySource[existing.Source] = maxInt(0, e.bySource[existing.Source]-1)
 		e.byType[existing.HazardType] = maxInt(0, e.byType[existing.HazardType]-1)
 		e.bySeverity[existing.Severity] = maxInt(0, e.bySeverity[existing.Severity]-1)
+		e.bySource[ev.Source]++
 		e.byType[ev.HazardType]++
 		e.bySeverity[ev.Severity]++
 		e.windowByID[ev.HazardID] = ev
+		for i, id := range e.windowOrder {
+			if id == ev.HazardID {
+				e.windowOrder = append(e.windowOrder[:i], e.windowOrder[i+1:]...)
+				break
+			}
+		}
+		e.windowOrder = append(e.windowOrder, ev.HazardID)
 	} else {
 		e.windowOrder = append(e.windowOrder, ev.HazardID)
 		e.windowByID[ev.HazardID] = ev
@@ -181,7 +190,12 @@ func (e *SummarizerEngine) Ingest(ev HazardEvent, correlationID string) bool {
 		for len(e.windowOrder) > e.cfg.MaxRecentEvents {
 			evictID := e.windowOrder[0]
 			e.windowOrder = e.windowOrder[1:]
-			delete(e.windowByID, evictID)
+			if evicted, ok := e.windowByID[evictID]; ok {
+				e.bySource[evicted.Source] = maxInt(0, e.bySource[evicted.Source]-1)
+				e.byType[evicted.HazardType] = maxInt(0, e.byType[evicted.HazardType]-1)
+				e.bySeverity[evicted.Severity] = maxInt(0, e.bySeverity[evicted.Severity]-1)
+				delete(e.windowByID, evictID)
+			}
 		}
 	}
 	e.mu.Unlock()

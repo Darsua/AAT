@@ -39,6 +39,7 @@ type OpenAIChatClient struct {
 	maxCallsPerMin   int
 	failureThreshold int
 	cooldown         time.Duration
+	disableThinking  bool
 	client           *http.Client
 
 	mu          sync.Mutex
@@ -77,6 +78,7 @@ func NewOpenAIChatClient(cfg Config) *OpenAIChatClient {
 		maxCallsPerMin:   cfg.AIMaxCallsPerMin,
 		failureThreshold: threshold,
 		cooldown:         cooldown,
+		disableThinking:  !cfg.AIEnableThinking,
 		client: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
@@ -102,6 +104,7 @@ func (c *OpenAIChatClient) allowRequest(now time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	isHalfOpenProbe := false
 	if !c.openUntil.IsZero() {
 		if now.Before(c.openUntil) {
 			return errCircuitOpen
@@ -109,7 +112,7 @@ func (c *OpenAIChatClient) allowRequest(now time.Time) error {
 		if c.halfOpenTry {
 			return errCircuitOpen
 		}
-		c.halfOpenTry = true
+		isHalfOpenProbe = true
 	}
 
 	if c.maxCallsPerMin > 0 {
@@ -125,6 +128,9 @@ func (c *OpenAIChatClient) allowRequest(now time.Time) error {
 			return errQuotaExhausted
 		}
 		c.callStamps = append(c.callStamps, now)
+	}
+	if isHalfOpenProbe {
+		c.halfOpenTry = true
 	}
 	return nil
 }
@@ -182,9 +188,9 @@ func (c *OpenAIChatClient) Generate(ctx context.Context, systemPrompt, userPromp
 		},
 		MaxTokens:   c.maxTokens,
 		Temperature: 0.2,
-		ChatTemplateKwargs: map[string]bool{
-			"enable_thinking": false,
-		},
+	}
+	if c.disableThinking {
+		reqBody.ChatTemplateKwargs = map[string]bool{"enable_thinking": false}
 	}
 	payload, err := json.Marshal(reqBody)
 	if err != nil {

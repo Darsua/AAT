@@ -175,9 +175,29 @@ func (s *idempotencyStore) acquire(key, payloadHash string, now time.Time) (exis
 	}
 
 	if len(s.entries) >= s.maxSize && len(s.order) > 0 {
-		oldest := s.order[0]
-		s.order = s.order[1:]
-		delete(s.entries, oldest)
+		kept := s.order[:0]
+		evicted := false
+		for _, candidate := range s.order {
+			e, exists := s.entries[candidate]
+			if !exists {
+				continue
+			}
+			if !evicted {
+				select {
+				case <-e.done:
+					delete(s.entries, candidate)
+					evicted = true
+					continue
+				default:
+				}
+			}
+			kept = append(kept, candidate)
+		}
+		if len(kept) == 0 {
+			s.order = nil
+		} else {
+			s.order = append([]string(nil), kept...)
+		}
 	}
 
 	leader = &idempotencyEntry{
@@ -394,6 +414,9 @@ func decodeAndValidateFieldReport(raw []byte) (FieldReportRequest, error) {
 	}
 
 	req.ReportID = strings.TrimSpace(req.ReportID)
+	if len(req.ReportID) > 118 {
+		return FieldReportRequest{}, errors.New("report_id must be 118 characters or fewer")
+	}
 	req.ReporterID = strings.TrimSpace(req.ReporterID)
 	req.HazardType = strings.ToUpper(strings.TrimSpace(req.HazardType))
 	req.Severity = strings.ToUpper(strings.TrimSpace(req.Severity))
@@ -419,6 +442,9 @@ func decodeAndValidateFieldReport(raw []byte) (FieldReportRequest, error) {
 	parsedOccurred, err := time.Parse(time.RFC3339Nano, req.OccurredAt)
 	if err != nil {
 		return FieldReportRequest{}, errors.New("Invalid occurred_at format. Expected ISO 8601 UTC timestamp")
+	}
+	if parsedOccurred.UTC().After(time.Now().UTC().Add(5 * time.Minute)) {
+		return FieldReportRequest{}, errors.New("occurred_at cannot be more than 5 minutes in the future")
 	}
 	req.OccurredAt = parsedOccurred.UTC().Format(time.RFC3339Nano)
 

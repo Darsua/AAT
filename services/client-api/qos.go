@@ -54,10 +54,10 @@ func (q *QoSLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		claims := claimsFromContext(r.Context())
 		cur := q.inFlight.Add(1)
-		defer q.inFlight.Add(-1)
 
 		if claims != nil && claims.Scope == scopeSummary {
 			if cur > q.mediaShedThreshold {
+				q.inFlight.Add(-1)
 				q.mediaShed.Add(1)
 				w.Header().Set("Retry-After", "1")
 				writeJSON(w, http.StatusTooManyRequests, errorResponse{
@@ -69,6 +69,7 @@ func (q *QoSLimiter) Middleware(next http.Handler) http.Handler {
 			q.mediaAccepted.Add(1)
 		} else {
 			if cur > q.maxConcurrent {
+				q.inFlight.Add(-1)
 				writeJSON(w, http.StatusServiceUnavailable, errorResponse{
 					Error:   "SERVICE_UNAVAILABLE",
 					Message: "Gateway at maximum capacity; please retry",
@@ -78,6 +79,7 @@ func (q *QoSLimiter) Middleware(next http.Handler) http.Handler {
 			q.fieldAccepted.Add(1)
 		}
 
+		defer q.inFlight.Add(-1)
 		next.ServeHTTP(w, r)
 	})
 }

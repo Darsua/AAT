@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -22,6 +23,10 @@ func startHealthServer(ctx context.Context, port string) {
 
 // startHTTPServer serves GET /health, GET /metrics, and GET /notifications until ctx is cancelled.
 func startHTTPServer(ctx context.Context, port string, reg *Registry, notifier *Notifier) {
+	startHTTPServerWithObservability(ctx, port, reg, nil, nil, notifier)
+}
+
+func startHTTPServerWithObservability(ctx context.Context, port string, reg *Registry, tracer *Tracer, logger *slog.Logger, notifier *Notifier) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	if reg != nil {
@@ -38,7 +43,11 @@ func startHTTPServer(ctx context.Context, port string, reg *Registry, notifier *
 			"items": items,
 		})
 	})
-	server := &http.Server{Addr: ":" + port, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	var handler http.Handler = mux
+	if reg != nil && tracer != nil && logger != nil {
+		handler = correlationMiddleware(observabilityMiddleware("notifier-consumer", reg, tracer, logger, mux))
+	}
+	server := &http.Server{Addr: ":" + port, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() {
 		<-ctx.Done()

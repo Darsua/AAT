@@ -1239,16 +1239,25 @@
       }
     }
 
+    let dashboardAbort = null;
+    let dashboardSeq = 0;
+
     async function loadDashboard() {
       const basePath = window.location.pathname.startsWith('/dashboard') ? '/dashboard/api/analytics' : '/api/analytics';
       const type = document.getElementById('typeFilter').value;
       let url = `${basePath}?window=${encodeURIComponent(selectedWindow)}`;
       if (type) url += `&type=${encodeURIComponent(type)}`;
 
+      if (dashboardAbort) dashboardAbort.abort();
+      const controller = new AbortController();
+      dashboardAbort = controller;
+      const reqSeq = ++dashboardSeq;
+
       try {
-        const resp = await fetch(url, { cache: 'no-store' });
+        const resp = await fetch(url, { cache: 'no-store', signal: controller.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
+        if (reqSeq !== dashboardSeq) return;
         cachedSnapshot = data;
 
         const isDegraded = Boolean(data.status.partial_data || data.status.degraded);
@@ -1267,7 +1276,10 @@
           const units = (data.status.unavailable_units && data.status.unavailable_units.length > 0)
             ? data.status.unavailable_units.map(u => `<span class="unit-tag">${escapeHTML(u)} (offline)</span>`).join(' ')
             : '1 or more storage units';
-          outageDesc.innerHTML = `Storage node degradation detected: ${units}. Displayed counts reflect surviving nodes and do not match the Audit API canonical total.`;
+          const reasonDetail = data.status.partial_reason
+            ? ` (${escapeHTML(data.status.partial_reason)})`
+            : '';
+          outageDesc.innerHTML = `Partial/degraded state detected${reasonDetail}: ${units}. Displayed counts reflect surviving nodes and may not match the Audit API canonical total.`;
 
           // Show Incomplete warning badges next to affected metrics
           document.querySelectorAll('.incomplete-badge').forEach(b => b.style.display = 'inline-block');
@@ -1337,7 +1349,19 @@
         renderRegions(data.by_area || [], document.getElementById('areaSearchInput').value);
 
       } catch (err) {
+        if (err && err.name === 'AbortError') return;
         console.error('Failed to load dashboard:', err);
+        const pill = document.getElementById('statusPill');
+        const pillText = document.getElementById('statusPillText');
+        const syncEl = document.getElementById('kpiSyncStatus');
+        if (pill && pillText) {
+          pill.className = 'status-pill pill-degraded';
+          pillText.textContent = 'POLL ERROR';
+        }
+        if (syncEl) {
+          syncEl.textContent = 'Error polling API';
+          syncEl.style.color = '#B45309';
+        }
       }
     }
 
@@ -1391,15 +1415,29 @@
 
     // Click-to-copy SHA-256 checksum
     document.getElementById('checksumSnippet').addEventListener('click', () => {
-      const full = document.getElementById('checksumSnippet').getAttribute('data-full');
-      if (full) {
-        navigator.clipboard.writeText(full).then(() => {
-          const el = document.getElementById('checksumSnippet');
-          const prev = el.textContent;
-          el.textContent = 'Copied!';
-          setTimeout(() => { el.textContent = prev; }, 1500);
-        });
+      const el = document.getElementById('checksumSnippet');
+      const full = el.getAttribute('data-full');
+      if (!full) return;
+      const showCopied = () => {
+        const prev = el.textContent;
+        el.textContent = 'Copied!';
+        setTimeout(() => { el.textContent = prev; }, 1500);
+      };
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(full).then(showCopied).catch(() => {});
+        return;
       }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = full;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showCopied();
+      } catch (_) {}
     });
 
     // Polling every 5 seconds
