@@ -16,12 +16,30 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 PVMBG_URL="${PVMBG_URL:-http://localhost:8082}"
-PVMBG_TOKEN="${PVMBG_TOKEN:-pvmbg-bearer-token-2026}"
+PVMBG_TOKEN="${PVMBG_TOKEN:-}"
 BMKG_URL="${BMKG_URL:-http://localhost:8081}"
-BMKG_KEY="${BMKG_KEY:-bmkg-secret-key-2026}"
+BMKG_KEY="${BMKG_KEY:-${BMKG_API_KEY:-}}"
 CLIENT_API_URL="${CLIENT_API_URL:-http://localhost:8080}"
-AGGREGATOR_URL="${AGGREGATOR_URL:-http://localhost:8083}"
 AUTH_URL="${AUTH_URL:-http://localhost:8084}"
+AUTH_INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
+AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-}"
+
+command -v curl >/dev/null 2>&1 || { echo -e "${RED}[ERROR] curl is required${NC}" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo -e "${RED}[ERROR] jq is required${NC}" >&2; exit 1; }
+[ -n "${PVMBG_TOKEN}" ] || { echo -e "${RED}[ERROR] PVMBG_TOKEN must be set${NC}" >&2; exit 1; }
+[ -n "${BMKG_KEY}" ] || { echo -e "${RED}[ERROR] BMKG_KEY or BMKG_API_KEY must be set${NC}" >&2; exit 1; }
+[ -n "${AUTH_INTERNAL_CLIENT_SECRET}" ] || { echo -e "${RED}[ERROR] AUTH_INTERNAL_CLIENT_SECRET must be set${NC}" >&2; exit 1; }
+
+OUTAGE_ACTIVE=0
+restore_pvmbg() {
+    if [ "${OUTAGE_ACTIVE}" -eq 1 ]; then
+        curl -s -X POST "${PVMBG_URL}/admin/outage" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${PVMBG_TOKEN}" \
+            -d '{"is_outage": false}' >/dev/null 2>&1 || true
+    fi
+}
+trap restore_pvmbg EXIT
 
 echo -e "${BLUE}========================================================================${NC}"
 echo -e "${CYAN}     Problem 2 Demo: Upstream Outage Simulation & Degraded Handling     ${NC}"
@@ -46,15 +64,19 @@ echo -e "Response: ${RESET_RESP}"
 
 # Verify baseline report fetch
 BASELINE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${PVMBG_URL}/volcanic-reports" \
-    -H "Authorization: Bearer ${PVMBG_TOKEN}")
+    -H "Authorization: Bearer ${PVMBG_TOKEN}" || echo "000")
 echo -e "PVMBG reports HTTP status: ${BASELINE_STATUS}"
 if [ "${BASELINE_STATUS}" -eq 200 ]; then
     echo -e "${GREEN}[OK] PVMBG reports are accessible under normal operation.${NC}"
+else
+    echo -e "${RED}[ERROR] Expected HTTP 200 from PVMBG baseline fetch, got ${BASELINE_STATUS}.${NC}" >&2
+    exit 1
 fi
 
 # 2. Trigger PVMBG outage simulation
 echo -e "\n${BLUE}[Step 2] Simulating PVMBG outage (is_outage = true)...${NC}"
-OUTAGE_RESP=$(curl -s -X POST "${PVMBG_URL}/admin/outage" \
+OUTAGE_ACTIVE=1
+OUTAGE_RESP=$(curl -s -f -X POST "${PVMBG_URL}/admin/outage" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${PVMBG_TOKEN}" \
     -d '{"is_outage": true}')
@@ -63,12 +85,13 @@ echo -e "Outage toggle response: ${OUTAGE_RESP}"
 # 3. Verify PVMBG is now reporting failure / unavailable
 echo -e "\n${BLUE}[Step 3] Verifying PVMBG reports failure during outage...${NC}"
 OUTAGE_HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${PVMBG_URL}/volcanic-reports" \
-    -H "Authorization: Bearer ${PVMBG_TOKEN}" || echo "FAILED")
+    -H "Authorization: Bearer ${PVMBG_TOKEN}" || echo "000")
 echo -e "PVMBG reports HTTP status during outage: ${OUTAGE_HTTP_STATUS}"
-if [ "${OUTAGE_HTTP_STATUS}" -eq 503 ] || [ "${OUTAGE_HTTP_STATUS}" -ge 500 ]; then
+if [ "${OUTAGE_HTTP_STATUS}" -ge 500 ]; then
     echo -e "${GREEN}[OK] PVMBG correctly simulated upstream outage (HTTP ${OUTAGE_HTTP_STATUS}).${NC}"
 else
-    echo -e "${YELLOW}[INFO] Upstream outage simulation triggered (HTTP ${OUTAGE_HTTP_STATUS}).${NC}"
+    echo -e "${RED}[ERROR] Expected HTTP 5xx from PVMBG during outage, got ${OUTAGE_HTTP_STATUS}.${NC}" >&2
+    exit 1
 fi
 
 # 4. Verify system resilience: Client API & Aggregator
@@ -77,20 +100,22 @@ echo -e "${YELLOW}Waiting 4 seconds for circuit breaker / fallback to engage...$
 sleep 4
 
 # Acquire token for Client API
-AUTH_INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
-AUTH_INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-internal-secret-2026}"
+AUTH_PAYLOAD="$(jq -cn \
+    --arg client_id "${AUTH_INTERNAL_CLIENT_ID}" \
+    --arg client_secret "${AUTH_INTERNAL_CLIENT_SECRET}" \
+    '{client_id: $client_id, client_secret: $client_secret, requested_scope: "internal"}')"
 AUTH_RESP=$(curl -s -X POST "${AUTH_URL}/auth/token" \
     -H "Content-Type: application/json" \
-    -d "{\"client_id\": \"${AUTH_INTERNAL_CLIENT_ID}\", \"client_secret\": \"${AUTH_INTERNAL_CLIENT_SECRET}\", \"requested_scope\": \"internal\"}" 2>/dev/null || echo "")
+    -d "${AUTH_PAYLOAD}" 2>/dev/null || echo "")
 INTERNAL_TOKEN=$(echo "${AUTH_RESP}" | jq -r '.access_token // empty' 2>/dev/null || echo "")
+if [ -z "${INTERNAL_TOKEN}" ]; then
+    echo -e "${RED}[ERROR] Failed to acquire internal access token from ${AUTH_URL}/auth/token.${NC}" >&2
+    exit 1
+fi
 
 # Query client API hazards
-if [ -n "${INTERNAL_TOKEN}" ]; then
-    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" \
-        -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo "HTTP_STATUS:200")
-else
-    CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" 2>/dev/null || echo "HTTP_STATUS:200")
-fi
+CLIENT_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "${CLIENT_API_URL}/api/v1/hazards?limit=5" \
+    -H "Authorization: Bearer ${INTERNAL_TOKEN}" 2>/dev/null || echo -e "\nHTTP_STATUS:000")
 
 HTTP_CODE=$(echo "${CLIENT_RESP}" | grep "HTTP_STATUS:" | cut -d':' -f2)
 BODY=$(echo "${CLIENT_RESP}" | grep -v "HTTP_STATUS:")
@@ -105,43 +130,42 @@ if [ "${HTTP_CODE}" -eq 200 ]; then
         echo -e "${GREEN}[OK] Verified: System reports degraded status (meta.degraded=true) with stale data fallback!${NC}"
     else
         echo -e "${RED}[ERROR] Expected meta.degraded=true during PVMBG outage, but got: '${DEGRADED}'${NC}" >&2
-        curl -s -X POST "${PVMBG_URL}/admin/outage" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${PVMBG_TOKEN}" \
-            -d '{"is_outage": false}' >/dev/null 2>&1 || true
         exit 1
     fi
 else
     echo -e "${RED}[ERROR] Client API returned status ${HTTP_CODE} during PVMBG outage.${NC}" >&2
-    curl -s -X POST "${PVMBG_URL}/admin/outage" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer ${PVMBG_TOKEN}" \
-        -d '{"is_outage": false}' >/dev/null 2>&1 || true
     exit 1
 fi
 
 # Verify BMKG isolation (BMKG should still be functioning 100%)
 echo -e "\n${BLUE}[Step 5] Verifying BMKG service isolation...${NC}"
 BMKG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${BMKG_URL}/seismic-events" \
-    -H "X-BMKG-Key: ${BMKG_KEY}" 2>/dev/null || echo "200")
+    -H "X-BMKG-Key: ${BMKG_KEY}" 2>/dev/null || echo "000")
 echo -e "BMKG seismic reports status: ${BMKG_STATUS}"
 if [ "${BMKG_STATUS}" -eq 200 ]; then
     echo -e "${GREEN}[OK] BMKG provider pipeline is fully isolated and operational.${NC}"
+else
+    echo -e "${RED}[ERROR] BMKG isolation check failed (HTTP ${BMKG_STATUS}).${NC}" >&2
+    exit 1
 fi
 
 # 5. Restore PVMBG operational status
 echo -e "\n${BLUE}[Step 6] Restoring PVMBG service (is_outage = false)...${NC}"
-RESTORE_RESP=$(curl -s -X POST "${PVMBG_URL}/admin/outage" \
+RESTORE_RESP=$(curl -s -f -X POST "${PVMBG_URL}/admin/outage" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${PVMBG_TOKEN}" \
     -d '{"is_outage": false}')
+OUTAGE_ACTIVE=0
 echo -e "Restore response: ${RESTORE_RESP}"
 
 RECOVER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X GET "${PVMBG_URL}/volcanic-reports" \
-    -H "Authorization: Bearer ${PVMBG_TOKEN}")
+    -H "Authorization: Bearer ${PVMBG_TOKEN}" || echo "000")
 echo -e "PVMBG reports HTTP status after recovery: ${RECOVER_STATUS}"
 if [ "${RECOVER_STATUS}" -eq 200 ]; then
     echo -e "${GREEN}[OK] PVMBG successfully recovered to operational state.${NC}"
+else
+    echo -e "${RED}[ERROR] PVMBG recovery verification failed (HTTP ${RECOVER_STATUS}).${NC}" >&2
+    exit 1
 fi
 
 echo -e "\n${GREEN}========================================================================${NC}"

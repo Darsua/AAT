@@ -16,6 +16,10 @@ WORKDIR /app
 
 COPY --from=builder /bin/dashboard-consumer /app/dashboard-consumer
 
+EXPOSE 8085
+
+ENV PORT=8085
+
 USER nobody:nobody
 
 ENTRYPOINT ["/app/dashboard-consumer"]

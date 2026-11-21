@@ -35,6 +35,13 @@ class RepositoryChecksTest(unittest.TestCase):
         self.assertIn("document 2", errors[0])
         self.assertNotIn("do-not-display", errors[0])
 
+    def test_populated_secret_outside_template_filename_is_rejected(self):
+        path = self.file("k8s/base/secrets.yaml", "kind: Secret\nstringData:\n  JWT_SECRET: leaked\n")
+        errors = checker.check_configs(self.root, [path])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("must contain only empty strings", errors[0])
+        self.assertNotIn("leaked", errors[0])
+
     def test_nonempty_or_malformed_secret_fields(self):
         for value in ("null", "false", "123", "[]", "{key: null}", "{key: 'encoded'}"):
             with self.subTest(value=value):

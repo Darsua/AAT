@@ -49,7 +49,12 @@ jobs:
         run: make test
 
       - name: Validate Docker Compose Configuration
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.sharded.yml config --quiet
+
+      - name: Shell Script Syntax Check
+        run: bash -n scripts/*.sh
 
       - name: Setup Python for Repository Checks
         uses: actions/setup-python@v7.1.0

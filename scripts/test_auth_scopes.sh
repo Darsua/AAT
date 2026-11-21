@@ -26,10 +26,10 @@ MEDIA_CLIENT_ID="${AUTH_MEDIA_CLIENT_ID:-test-media-client}"
 FIELD_CLIENT_ID="${AUTH_FIELD_CLIENT_ID:-test-field-client}"
 INTERNAL_CLIENT_ID="${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}"
 
-# Secrets default to standard development credentials matching docker-compose.yml if not set
-MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET:-media-secret-2026}"
-FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET:-field-secret-2026}"
-INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-internal-secret-2026}"
+# Secrets must be supplied through the environment (e.g. from .env).
+MEDIA_CLIENT_SECRET="${AUTH_MEDIA_CLIENT_SECRET:-}"
+FIELD_CLIENT_SECRET="${AUTH_FIELD_CLIENT_SECRET:-}"
+INTERNAL_CLIENT_SECRET="${AUTH_INTERNAL_CLIENT_SECRET:-}"
 
 PASSES=0
 FAILURES=0

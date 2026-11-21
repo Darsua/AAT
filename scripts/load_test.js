@@ -89,8 +89,15 @@ function getToken() {
     { headers: { 'Content-Type': 'application/json' }, timeout: '5s', tags: { name: 'auth_token' } },
   );
   if (res.status === 200) {
-    accessToken = JSON.parse(res.body).access_token;
-    issuedAt = now;
+    try {
+      const parsed = JSON.parse(res.body);
+      if (parsed && parsed.access_token) {
+        accessToken = parsed.access_token;
+        issuedAt = now;
+      }
+    } catch (_) {
+      // Preserve any existing token when an auth response body is truncated.
+    }
   }
   return accessToken;
 }

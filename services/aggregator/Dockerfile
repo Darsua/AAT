@@ -5,11 +5,11 @@ WORKDIR /app
 
 # Cache dependencies
 COPY go.mod go.sum* ./
-RUN go mod download || true
+RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/aggregator ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/aggregator ./cmd/server
 
 # Runtime stage
 FROM alpine:3.20

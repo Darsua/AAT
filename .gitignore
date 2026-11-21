@@ -1,11 +1,19 @@
 # Environment configs & secrets
 .env
 .env.local
-.env.*.local
+.env.*
+!.env.example
 *kubeconfig*.yaml
-*.kubeconfig
+*kubeconfig*.yml
 !*kubeconfig*.template.yaml
+!*kubeconfig*.template.yml
 !*kubeconfig*.example.yaml
+!*kubeconfig*.example.yml
+k8s/**/secrets.yaml
+
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # Binaries & build artifacts
 *.exe
@@ -19,12 +27,14 @@ dist/
 services/*/server
 /server
 services/*/aggregator
+services/aggregator/catalog-loader
 services/*/auth
 services/*/client-api
 services/*/mock-bmkg
 services/*/mock-pvmbg
 services/consumers/*/dashboard
 services/consumers/*/notifier
+services/consumers/*/summarizer
 
 # OS-specific artifacts
 .DS_Store

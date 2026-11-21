@@ -239,13 +239,14 @@ def verify_live_audit_api(
         api_algo = str(api_res.get("algorithm", ""))
         api_partial = bool(api_res.get("partial", False))
 
-        scope_ok = (
+        api_ok = (
             api_algo == "sha256"
             and not api_partial
             and api_count == ind_count
             and api_digest == ind_digest
             and len(api_digest) == 64
         )
+        scope_ok = api_ok
         entry: dict[str, Any] = {
             "scope": label,
             "api_count": api_count,
@@ -255,6 +256,12 @@ def verify_live_audit_api(
             "partial": api_partial,
             "passed": scope_ok,
         }
+
+        if not api_ok:
+            errors.append(
+                f"Checksum mismatch for {label}: api=({api_count}, {api_digest}, algo={api_algo}, partial={api_partial}) "
+                f"!= independent=({ind_count}, {ind_digest})"
+            )
 
         if catalog_events is not None:
             cat_scoped = catalog_events if scope is None else [ev for ev in catalog_events if ev.get("source") == scope]
@@ -270,12 +277,6 @@ def verify_live_audit_api(
                 errors.append(
                     f"Catalog mismatch for {label}: api=({api_count}, {api_digest}) != catalog=({cat_count}, {cat_digest})"
                 )
-
-        if not scope_ok and label not in "".join(errors):
-            errors.append(
-                f"Checksum mismatch for {label}: api=({api_count}, {api_digest}, algo={api_algo}, partial={api_partial}) "
-                f"!= independent=({ind_count}, {ind_digest})"
-            )
 
         checksums_report[label] = entry
         checks.append({
@@ -582,7 +583,7 @@ def run_self_test() -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default=os.getenv("AGGREGATOR_URL", "http://localhost:8083"), help="Aggregator base URL")
-    parser.add_argument("--token", default=os.getenv("AUDIT_TOKEN", "audit-secret-token-2026"), help="Audit Bearer token")
+    parser.add_argument("--token", default=os.getenv("AUDIT_TOKEN", ""), help="Audit Bearer token")
     parser.add_argument("--catalog", type=Path, help="Optional canonical catalog JSON file to cross-check against")
     parser.add_argument("--sample-locations", type=int, default=30, help="Number of events to probe on /internal/audit/location (<=0 probes all)")
     parser.add_argument("--page-limit", type=int, default=100, help="Page size for /internal/audit/events")
@@ -594,6 +595,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.self_test:
         report = run_self_test()
     else:
+        if not args.token:
+            print("ERROR: AUDIT_TOKEN or --token is required when running live verification.", file=sys.stderr)
+            return 2
         catalog_events = load_catalog_events(args.catalog) if args.catalog else None
         report = verify_live_audit_api(
             args.url,

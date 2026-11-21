@@ -16,6 +16,10 @@ WORKDIR /app
 
 COPY --from=builder /bin/summarizer-consumer /app/summarizer-consumer
 
+EXPOSE 8087
+
+ENV PORT=8087
+
 USER nobody:nobody
 
 ENTRYPOINT ["/app/summarizer-consumer"]

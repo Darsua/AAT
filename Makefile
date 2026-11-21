@@ -32,8 +32,9 @@ help:
 	@echo "  demo-p2       Execute Problem 2 demo (PVMBG outage simulation & degraded response)"
 	@echo "  demo-p3       Execute Problem 3 demo (cross-credential rejection + auth scopes + TTL/refresh)"
 	@echo "  demo-p4       Execute Problem 4 demo (independent container restart & flexible JSONB storage)"
-	@echo "  demo-p5       Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
-	@echo "  load-test     Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
+	@echo "  demo-p5            Execute Problem 5 demo (Pub-Sub event fan-out & consumer recovery)"
+	@echo "  test-observability Audit HTTP correlation, tracing logs, and Kafka lag metrics"
+	@echo "  load-test          Run k6 load test against Client API (50 VUs + 5 direct PVMBG VUs, 60s)"
 	@echo "  report        Compile modular LaTeX report to PDF via tectonic"
 	@echo "========================================================================"
 
@@ -131,7 +132,7 @@ load-test:
 		k6 run ./scripts/load_test.js; \
 	else \
 		echo "[load-test] k6 binary not found locally. Running via Docker grafana/k6..."; \
-		$(DOCKER) run --rm -i --network host -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" -e PVMBG_TOKEN="$$PVMBG_TOKEN" -e LOAD_DURATION="$${LOAD_DURATION:-60s}" grafana/k6 run - < ./scripts/load_test.js; \
+		$(DOCKER) run --rm -i --network host -e TARGET_URL="$${TARGET_URL:-http://localhost:8080}" -e AUTH_URL="$${AUTH_URL:-http://localhost:8084}" -e PVMBG_URL="$${PVMBG_URL:-http://localhost:8082}" -e AUTH_INTERNAL_CLIENT_SECRET="$$AUTH_INTERNAL_CLIENT_SECRET" -e AUTH_INTERNAL_CLIENT_ID="$${AUTH_INTERNAL_CLIENT_ID:-test-internal-client}" -e PVMBG_TOKEN="$$PVMBG_TOKEN" -e LOAD_DURATION="$${LOAD_DURATION:-60s}" grafana/k6 run - < ./scripts/load_test.js; \
 	fi
 
 ## Build the M1 LaTeX report using tectonic
@@ -143,7 +144,7 @@ report:
 		cp docs/report/m1/main.pdf docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf; \
 		echo "[report] Submission PDF: docs/report/m1/IF4031_M1_AhhAldoyTolong.pdf"; \
 	else \
-		echo "[report] ERROR: tectonic is not installed. Install via: sudo pacman -S tectonic" >&2; \
+		echo "[report] ERROR: tectonic is not installed. Install tectonic from https://tectonic-typesetting.github.io/" >&2; \
 		exit 1; \
 	fi
 

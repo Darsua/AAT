@@ -45,8 +45,6 @@ def check_configs(root, paths):
             # Parser exceptions may contain source lines with credentials.
             errors.append(f"{path}: invalid or unreadable {path.suffix[1:].upper()} syntax")
             continue
-        if not path.name.endswith((".template.yaml", ".template.yml")):
-            continue
         for number, document in enumerate(documents, 1):
             if not isinstance(document, dict) or document.get("kind") != "Secret":
                 continue

@@ -16,6 +16,10 @@ WORKDIR /app
 
 COPY --from=builder /bin/notifier-consumer /app/notifier-consumer
 
+EXPOSE 8086
+
+ENV PORT=8086
+
 USER nobody:nobody
 
 ENTRYPOINT ["/app/notifier-consumer"]
