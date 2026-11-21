@@ -142,13 +142,27 @@ data:
             grpc:
               endpoint: "0.0.0.0:4317"
 
+    ingester:
+      max_block_bytes: 1048576
+      max_block_duration: 5m
+      trace_idle_period: 5s
+
+    compactor:
+      compaction:
+        block_retention: 1h
+
     storage:
       trace:
         backend: local
+        block:
+          version: vParquet3
         local:
           path: /tmp/tempo/blocks
         wal:
           path: /tmp/tempo/wal
+        pool:
+          max_workers: 10
+          queue_depth: 200
 
   datasources.yml: |
     apiVersion: 1
@@ -972,6 +986,11 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - "-config.file=/etc/tempo.yaml"
+          env:
+            - name: GOMEMLIMIT
+              value: "180MiB"
+            - name: GOGC
+              value: "50"
           ports:
             - name: http
               containerPort: 3200
