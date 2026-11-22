@@ -1,0 +1,46 @@
+\chapter{Pendahuluan}
+
+\section{Deskripsi Umum Sistem}
+\textit{Platform Koordinasi Kebencanaan BNPB} merupakan prototipe aplikasi terdistribusi yang dirancang untuk mengintegrasikan informasi kebencanaan dari beberapa sumber serta menyediakan akses data sesuai kebutuhan pengguna. Sistem mengolah data gempa bumi dan peringatan tsunami dari layanan simulasi BMKG serta laporan aktivitas gunung api dari layanan simulasi PVMBG. Data yang memiliki format berbeda tersebut dikumpulkan oleh layanan agregator, diseragamkan ke dalam skema kanonik, dan disimpan agar dapat diakses melalui antarmuka yang konsisten.
+
+Fungsi utama sistem meliputi pengambilan data secara berkala, penyeragaman struktur data, pengayaan laporan aktivitas gunung api menggunakan katalog referensi statis, serta penyediaan API publik dengan pembatasan akses. Sistem membedakan pengguna menjadi kelompok media, petugas lapangan, dan pengguna internal. Kelompok media memperoleh akses terhadap informasi ringkasan, sedangkan petugas lapangan dan pengguna internal memperoleh cakupan akses yang lebih lengkap. Selain menyediakan jalur akses berbasis permintaan melalui HTTP/REST, sistem menggunakan mekanisme \textit{publish--subscribe} untuk mendistribusikan kejadian kebencanaan kepada \textit{consumer}.
+
+Untuk Milestone 1, lingkup hanya mencakup pengembangan layanan simulasi sumber data, agregator, penyimpanan kanonis, autentikasi, API publik, serta konsumen kejadian. Perancangan dan demonstrasi sistem berfokus pada lima permasalahan, yaitu perubahan skema data saat sistem berjalan, penanganan gangguan sumber data dan permintaan konkuren, pengendalian hak akses dan pembaruan token, isolasi layanan saat pembangunan ulang atau pemulihan, serta distribusi kejadian dan pemulihan konsumsi pesan setelah konsumen berhenti sementara. Setiap layanan dijalankan dalam container dan berkomunikasi melalui HTTP/REST atau broker pesan Redpanda yang kompatibel dengan API Kafka.
+
+% [Perbarui paragraf ruang lingkup di atas agar mencakup pengembangan pada Milestone 2.]
+
+\section{Tujuan Sistem}
+Sistem dikembangkan dengan tujuan:
+\begin{enumerate}
+    \item Memahami perancangan arsitektur aplikasi terdistribusi melalui penentuan batas tanggung jawab \textit{service}, komunikasi jaringan antarservice, kepemilikan penyimpanan, dan pengoperasian container secara independen.
+    \item Menganalisis keputusan arsitektur beserta alternatif dan \textit{trade-off}-nya dalam menangani interoperabilitas data, perubahan skema, konkurensi, ketersediaan layanan, autentikasi, dan distribusi event.
+    \item Memvalidasi rancangan arsitektur melalui implementasi \textit{proof-of-concept} dan pengujian perubahan skema, keterlambatan, kegagalan layanan, pembatasan akses, serta pemulihan konsumen.
+\end{enumerate}
+
+\section{Asumsi Perancangan dan Implementasi}
+% [Jelaskan asumsi perancangan dan implementasi sistem pada Milestone 2, termasuk batasan lingkungan, jaringan antar-node, beban kerja, dan skenario pengujian.]
+
+\section{Perubahan dari Milestone 1}
+% [Uraikan keputusan arsitektur dan implementasi dari Milestone 1 mana saja yang dipertahankan, diubah, atau dibatalkan pada Milestone 2, beserta alasan teknisnya.]
+
+\begin{small}
+\begin{xltabular}{\textwidth}{p{3.5cm} c p{4cm} X}
+\caption{Ringkasan Perubahan Keputusan dari Milestone 1 ke Milestone 2} \label{tab:perubahan_m1_m2} \\
+\toprule
+\textbf{Keputusan / Komponen M1} & \textbf{Status} & \textbf{Perubahan pada M2} & \textbf{Alasan} \\
+\midrule
+\endfirsthead
+
+\multicolumn{4}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:perubahan_m1_m2}}} \\
+\toprule
+\textbf{Keputusan / Komponen M1} & \textbf{Status} & \textbf{Perubahan pada M2} & \textbf{Alasan} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+% [Contoh baris tabel - isi sesuai keputusan tim]
+% Skema kanonis & JSONB & Dipertahankan & Penyempurnaan minor & Tetap fleksibel untuk multi-sumber \\
+\end{xltabular}
+\end{small}

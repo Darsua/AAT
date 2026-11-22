@@ -1,0 +1,90 @@
+\chapter{Arsitektur dan Teknologi Sistem}
+
+\section{Arsitektur Sistem}
+% [Sisipkan diagram yang memuat seluruh service, protokol komunikasi antarservice, kepemilikan penyimpanan, alur event, dan batas container.]
+
+\section{Tanggung Jawab Setiap Service}
+% [Jelaskan diagram secara naratif: tanggung jawab tiap service, alur permintaan/data, dan hubungan antarkomponen.]
+
+\section{Protokol Komunikasi Antarservice}
+% [Jelaskan protokol komunikasi antarservice (HTTP/REST, gRPC, Kafka/Redpanda, dsb.) beserta pola komunikasinya.]
+
+\section{Kepemilikan Penyimpanan dan Batas Container}
+% [Jelaskan kepemilikan basis data/storage per service (database-per-service / shared) dan batasan masing-masing container.]
+
+\section{Alur Permintaan, Data, dan Event}
+% [Jelaskan alur permintaan klien, ingestion data dari sumber, penyimpanan, hingga distribusi event.]
+
+\clearpage
+\section{Teknologi Terpilih dan Alasan Pemilihan}
+\label{sec:teknologi_terpilih}
+
+% [Tuliskan teknologi terpilih, alasan pemilihan, serta ringkas pada tabel berikut.]
+
+\begin{small}
+\begin{xltabular}{\textwidth}{l p{3.5cm} X}
+\caption{Rangkuman Pemilihan Teknologi} \label{tab:pemilihan_teknologi} \\
+\toprule
+\textbf{Kategori} & \textbf{Teknologi} & \textbf{Alasan Pemilihan} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:pemilihan_teknologi}}} \\
+\toprule
+\textbf{Kategori} & \textbf{Teknologi} & \textbf{Alasan Pemilihan} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+Back-End & Go 1.22 & Mendukung pemrosesan konkuren dan menyeragamkan pengembangan seluruh service. \\
+\addlinespace
+Database & PostgreSQL 16 dengan JSONB & Menyimpan data kanonik dan atribut dinamis tanpa migrasi tabel ketika atribut baru ditambahkan. \\
+\addlinespace
+Komunikasi Antarservice & HTTP/REST dan JSON & Memudahkan pertukaran data melalui antarmuka jaringan yang jelas dan mudah diuji. \\
+\addlinespace
+Message Broker & Redpanda dengan API Kafka & Mendistribusikan event kepada beberapa konsumen secara independen dan mendukung pemulihan pembacaan pesan. \\
+\addlinespace
+Autentikasi & JWT dan refresh token & Mengatur akses berdasarkan scope serta memperbarui token tanpa login ulang manual. \\
+\addlinespace
+Infrastruktur & Docker dan Docker Compose & Memisahkan service dalam container dan menjalankan seluruh sistem melalui satu perintah. \\
+\addlinespace
+Dokumentasi API & OpenAPI 3.0 dan JSON Schema & Mendefinisikan kontrak endpoint dan struktur data untuk integrasi antarservice. \\
+\addlinespace
+Pengujian & k6, curl, dan jq & Menguji performa, mengirim permintaan HTTP, dan memeriksa respons JSON. \\
+\addlinespace
+Pengelolaan Proyek & GitHub dan Makefile & Mengelola repositori serta menyeragamkan perintah pengoperasian dan demonstrasi. \\
+\end{xltabular}
+\end{small}
+
+\clearpage
+\section{Diagram Deployment}
+% [Sisipkan diagram deployment yang menunjukkan penempatan setiap komponen/service pada masing-masing node (host/VM/container) beserta jalur komunikasi dan aliran data antar-node (termasuk protokol, port, dan batas jaringan).]
+
+% [Tambahkan penjelasan singkat mengenai penempatan komponen pada node serta alasan pemisahan/pengelompokan jalur data antar-node.]
+
+\section{Deklarasi Topologi}
+% [Deklarasikan topologi deployment yang digunakan sesuai Ketentuan Implementasi Milestone 2 (jenis topologi, jumlah node, pemetaan komponen ke node, serta spesifikasi lingkungan/jaringan).]
+
+\begin{small}
+\begin{xltabular}{\textwidth}{l p{3.5cm} X p{3.5cm}}
+\caption{Deklarasi Topologi Deployment} \label{tab:deklarasi_topologi} \\
+\toprule
+\textbf{Node / Host} & \textbf{Peran \& Lingkungan} & \textbf{Komponen / Service yang Dijalankan} & \textbf{Jalur Data \& Port} \\
+\midrule
+\endfirsthead
+
+\multicolumn{4}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:deklarasi_topologi}}} \\
+\toprule
+\textbf{Node / Host} & \textbf{Peran \& Lingkungan} & \textbf{Komponen / Service yang Dijalankan} & \textbf{Jalur Data \& Port} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+% [Node 1] & [mis. VM / Host Lokal / Cloud] & [Daftar service / broker / DB] & [Protokol & port antar-node] \\
+% [Node 2] & [mis. VM / Host Lokal / Cloud] & [Daftar service / broker / DB] & [Protokol & port antar-node] \\
+\end{xltabular}
+\end{small}

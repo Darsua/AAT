@@ -1,0 +1,135 @@
+\usepackage[a4paper, top=2cm, bottom=2cm, left=2cm, right=2cm, headheight=14.5pt]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% Typography & Language
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[indonesian]{babel}
+\usepackage{microtype}
+\usepackage{xurl}
+
+% Typography penalties & spacing hygiene
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+\emergencystretch=2.5em
+\raggedbottom
+
+% Format and spacing for headings (proporsional dan rapi)
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\large\bfseries\centering}
+  {\chaptertitlename\ \thechapter}
+  {4pt}
+  {\LARGE\bfseries\centering}
+\titlespacing*{\chapter}{0pt}{10pt}{14pt}
+
+\titleformat{\section}
+  {\large\bfseries\raggedright}
+  {\thesection}
+  {1em}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+
+\titleformat{\subsection}
+  {\normalsize\bfseries\raggedright}
+  {\thesubsection}
+  {1em}{}
+\titlespacing*{\subsection}{0pt}{8pt}{3pt}
+
+\titleformat{\subsubsection}
+  {\normalsize\itshape\bfseries\raggedright}
+  {\thesubsubsection}
+  {1em}{}
+\titlespacing*{\subsubsection}{0pt}{6pt}{2pt}
+
+% Math & Symbols
+\usepackage{amsmath, amssymb, amsfonts}
+
+% Tables & Figures
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xltabular}
+\usepackage{multirow}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt, parsep=1pt, partopsep=0pt}
+\setlist[1]{leftmargin=*}
+\setlist[2]{leftmargin=1.5em}
+\setlist[3]{leftmargin=1.5em}
+
+% TikZ for crisp diagrams
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+
+% Colors & Code Listings
+\usepackage{xcolor}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.45,0.45,0.45}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+\definecolor{itbblue}{rgb}{0.0,0.2,0.5}
+\definecolor{boxbg}{rgb}{0.93,0.95,0.99}
+\definecolor{boxborder}{rgb}{0.2,0.4,0.7}
+
+\usepackage{listings}
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{itbblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\scriptsize\singlespacing,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=6pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2,
+    frame=single,
+    rulecolor=\color{codegray}
+}
+\lstdefinelanguage{json}{
+    basicstyle=\ttfamily\scriptsize\singlespacing,
+    string=[s]{"}{"},
+    stringstyle=\color{codepurple},
+    comment=[l]{:},
+    commentstyle=\color{black},
+    morekeywords={true,false,null},
+    keywordstyle=\color{itbblue}\bfseries,
+}
+\lstset{style=mystyle}
+
+% Headers & Footers
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\lhead{\footnotesize IF4031: Arsitektur Aplikasi Terdistribusi}
+\rhead{\footnotesize Milestone 2}
+\rfoot{\footnotesize\thepage}
+\lfoot{\footnotesize Tim AhhAldoyTolong}
+
+% Hyperlinks
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=itbblue,
+    filecolor=magenta,      
+    urlcolor=itbblue,
+    citecolor=itbblue,
+    pdftitle={Laporan Milestone 2 - IF4031 Arsitektur Aplikasi Terdistribusi},
+    pdfauthor={Darrel Adinarya Sunanda, Jennifer Khang, Aldoy Fauzan Avanza}
+}
+
+% Bibliography styling
+\usepackage[numbers]{natbib}
