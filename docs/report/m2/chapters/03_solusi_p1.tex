@@ -2,18 +2,22 @@
 \label{sec:problem_1}
 
 \subsection{Identifikasi Masalah}
-Pada arsitektur sistem terdistribusi kebencanaan BNPB, lonjakan volume data dari berbagai jenis bencana yang mengalir bersamaan menyebabkan batas kapasitas vertikal (\textit{vertical scaling ceiling}) pada basis data tunggal tercapai. Penyimpanan tunggal menjadi leher botol performa (\textit{I/O bottleneck}) sekaligus titik kegagalan tunggal (\textit{single point of failure / SPOF}). Ketika sistem mencoba membagi penyimpanan ke beberapa mesin, timbul dua permasalahan mendasar:
+Pada arsitektur sistem terdistribusi kebencanaan BNPB, lonjakan volume data dari berbagai jenis bencana yang mengalir bersamaan menyebabkan batas kapasitas vertikal (\textit{vertical scaling ceiling}) pada basis data tunggal tercapai. Penyimpanan tunggal menjadi \textit{I/O bottleneck} sekaligus menjadi \textit{single point of failure}. Ketika sistem mencoba membagi penyimpanan ke beberapa mesin, timbul dua permasalahan mendasar, yakni sebagai berikut.
 
 \begin{enumerate}
-    \item \textbf{Ketimpangan Beban Penyimpanan (\textit{Storage Skew \& Hotspotting}):} Kejadian gempa bumi secara alami tidak terdistribusi secara merata di seluruh ruang geografi, melainkan terkonsentrasi pada zona subduksi dan sesar tektonik aktif (misalnya, sesar Jawa Barat). Jika data dipartisi berdasarkan kriteria wilayah administratif atau sumber agensi secara naif, satu unit penyimpanan akan menanggung seluruh lonjakan beban penulisan sementara unit lainnya menganggur.
-    \item \textbf{Kegagalan Node dan Kehilangan Data (\textit{Node Loss \& Volume Wipe}):} Dalam sistem terdistribusi yang berjalan pada perangkat keras komoditas atau lingkungan fisik terpisah, node dapat mengalami kegagalan permanen (seperti skenario seorang anggota tim pulang membawa laptop/node beserta penyimpanannya dan disknya dihapus bersih). Jika data hanya disimpan pada satu unit tanpa replikasi lintas node ($RF=1$), musnahnya node tersebut mengakibatkan hilangnya catatan bencana secara permanen (\textit{catastrophic data loss}).
+    \item \textbf{Ketimpangan Beban Penyimpanan (\textit{Storage Skew \& Hotspotting}):} Kejadian gempa bumi secara alami tidak terdistribusi secara merata di seluruh ruang geografi, melainkan terkonsentrasi pada zona subduksi dan sesar tektonik aktif. Jika data dipartisi berdasarkan kriteria wilayah administratif atau sumber agensi saja, satu unit penyimpanan akan menanggung seluruh beban penulisan sementara unit lainnya menganggur.
+    \item \textbf{Kegagalan Node dan Kehilangan Data (\textit{Node Loss \& Volume Wipe}):} Dalam sistem terdistribusi yang berjalan pada perangkat keras komoditas atau lingkungan fisik terpisah, node dapat mengalami kegagalan permanen, seperti pada skenario persoalan. Jika data hanya disimpan pada satu unit tanpa replikasi, rusaknya node tersebut mengakibatkan hilangnya catatan bencana secara permanen (\textit{catastrophic data loss}).
     \item \textbf{Reorganisasi Kapasitas Dinamis (\textit{Dynamic Rebalancing}):} Ketika node pengganti dimasukkan ke dalam kluster, sistem harus mampu mendistribusikan kembali data dan beban penulisan ke node baru tersebut secara dinamis tanpa mengharuskan pemadaman kluster (\textit{zero downtime rebalancing}).
 \end{enumerate}
 
-Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Database Sharding and Partitioning}}, \textbf{\textit{Partition Skew and Hotspots}}, \textbf{\textit{Fault Tolerance through Cross-Node Data Replication}}, \textbf{\textit{Consistent Hashing}}, serta \textbf{\textit{Graceful Degradation and Partial Availability}} sebagaimana dirumuskan pada Teorema CAP (mempertahankan ketersediaan penulisan dan pembacaan dengan status \textit{partial} saat terjadi partisi jaringan atau kegagalan node).
+\vspace{1em}
+
+\noindent Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Database Sharding and Partitioning}}, \textbf{\textit{Partition Skew and Hotspots}}, \textbf{\textit{Fault Tolerance through Cross-Node Data Replication}}, \textbf{\textit{Consistent Hashing}}, serta \textbf{\textit{Graceful Degradation and Partial Availability}} sebagaimana dirumuskan pada Teorema CAP (mempertahankan ketersediaan penulisan dan pembacaan dengan status \textit{partial} saat terjadi partisi jaringan atau kegagalan node).
+
+\vspace{1em}
 
 \subsection{Rancangan Solusi dan Mekanisme}
-Untuk menyelesaikan Problem 1, dirancang arsitektur penyimpanan kanonis terpartisi berbasis **PostgreSQL Sharding dengan Consistent Hashing dan Replikasi Lintas Node ($RF=2$)** yang dikelola langsung oleh layanan Aggregator:
+Untuk menyelesaikan permasalahan ini, tim telah merancang arsitektur penyimpanan kanonis terpartisi menggunakan PostgreSQL Sharding dengan Consistent Hashing dan Replikasi Lintas Node yang dikelola langsung oleh layanan Aggregator. Berikut ini adalah penjelasan tambahan terkait solusi.
 
 \begin{enumerate}
     \item \textbf{Cincin Hash Konsisten (\textit{Consistent Hash Ring}):} Penentuan lokasi shard untuk setiap kejadian bencana (\textit{HazardEvent}) dilakukan menggunakan fungsi hash SHA-256 64-bit \textit{big-endian} terhadap atribut identitas unik \texttt{hazard\_id}. Cincin konfigurasi memetakan 64 node virtual (\textit{vnodes}) per shard logis, menghasilkan sebaran kunci yang seragam dan meminimalkan pergeseran data saat terjadi penambahan atau pengurangan shard.
@@ -26,12 +30,14 @@ Untuk menyelesaikan Problem 1, dirancang arsitektur penyimpanan kanonis terparti
     Dengan konfigurasi ini, tidak ada satu node pun yang menampung 100\% data kanonik (maksimum beban primer adalah sepertiga atau 33,33\% per node).
     \item \textbf{Mekanisme Penulisan dan Toleransi Kegagalan Terdegradasi:} Penulisan dilakukan secara konkuren menuju unit primer dan replika dari shard pemilik data. Transaksi penulisan dinyatakan berhasil jika minimal satu unit berhasil menyimpan data (\textit{degraded write availability}). Unit yang gagal dihubungi ditandai sebagai tertinggal (\textit{stale units}), dan sinkronisasi berkala latar belakang (\texttt{SyncShardReplicas}) akan memulihkan data yang tertinggal (\textit{anti-entropy reconciliation}).
     \item \textbf{Kueri Terpencar-Kumpul (\textit{Scatter-Gather Query}) dan Paginasi Deterministik:} Pembacaan yang melintasi seluruh lokasi penyimpanan (seperti membaca 50 event terbaru lintas jenis bahaya atau kueri Audit API) dieksekusi secara paralel menuju seluruh unit primer yang aktif (atau fallback ke replika bila primer mati). Hasil dari tiap unit digabungkan dan diurutkan secara deterministik berdasarkan \texttt{(ingested\_at ASC, hazard\_id ASC)} menggunakan \textit{keyset cursor} berbasis base64url.
-    \item \textbf{Penanganan Jawaban Parsial (\textit{Partial Response Guarantee}):} Bila salah satu node mati dan replikanya belum selesai menyinkronkan seluruh baris, API tidak mengembalikan kesalahan status 500 atau koneksi menggantung (\textit{hanging request}), melainkan mengembalikan seluruh data yang berhasil dijangkau disertai penanda eksplisit \texttt{"partial": true} dan daftar unit yang tidak dapat dihubungi (\texttt{"unavailable\_units"}).
-    \item \textbf{Penyeimbangan Ulang Daring (\textit{Online Cluster Rebalancing}):} Saat node baru ditambahkan, fungsi \texttt{RebalanceCluster} membangun cincin hash baru, memigrasikan rekaman yang berpindah kepemilikan, dan menghapus salinan usang hanya setelah penulisan pada tujuan baru terkonfirmasi persisten.
+    \item \textbf{Penanganan Jawaban Parsial (\textit{Partial Response Guarantee}):} Bila salah satu node mati dan replikanya belum selesai menyinkronkan seluruh baris, API tidak mengembalikan kesalahan status 500 atau \textit{hanging request}, melainkan mengembalikan seluruh data yang berhasil dijangkau disertai penanda eksplisit [\texttt{"partial": true}] dan daftar unit yang tidak dapat dihubungi (\texttt{"unavailable\_units"}).
+    \item \textbf{Penyeimbangan Ulang Daring (\textit{Online Cluster Rebalancing}):} Saat node baru ditambahkan, fungsi \texttt{RebalanceCluster} membangun cincin hash baru, memigrasikan rekaman yang berpindah kepemilikan, dan menghapus salinan \textit{stale} hanya setelah penulisan pada tujuan baru terkonfirmasi persisten.
 \end{enumerate}
 
+\vspace{1em}
+
 \subsection{Alasan Keputusan dan Trade-Off}
-Dalam menentukan strategi pemartisian data pada kriteria 2, dievaluasi tiga alternatif pendekatan menggunakan dataset acuan 709 rekaman historis:
+Dalam menentukan strategi pemartisian data pada kriteria 2, dievaluasi tiga alternatif pendekatan menggunakan dataset acuan 709 rekaman historis.
 
 \begin{footnotesize}
 \begin{xltabular}{\textwidth}{p{2.8cm} c c c c X}
@@ -58,28 +64,34 @@ AgencyPartition (\texttt{source}) & 0 / 703 / 6 & 2.975 & 0 / 200 / 0 & 3.000 & 
 \end{xltabular}
 \end{footnotesize}
 
-\textit{Trade-off} utama dari pemilihan \texttt{hazard\_id} adalah bahwa kueri analitik berbasis rentang waktu atau agensi harus melakukan pemindaian paralel (\textit{scatter-gather}) ke seluruh shard, alih-alih langsung mengarah ke satu shard target. Namun, dengan batasan batas waktu baca (\textit{read timeout}) sebesar 2500 ms dan eksekusi paralel menggunakan Go \textit{goroutines}, latensi tambahan terukur hanya berkisar antara 10--25 ms, yang dinilai sebagai kompromi yang sangat menguntungkan demi perlindungan mutlak dari bahaya \textit{write bottleneck}.
+\noindent \textit{Trade-off} utama dari pemilihan \texttt{hazard\_id} adalah bahwa kueri analitik berbasis rentang waktu atau agensi harus melakukan pemindaian paralel (\textit{scatter-gather}) ke seluruh shard, dibanding langsung mengarah ke satu shard target. Namun, dengan batasan waktu baca (\textit{read timeout}) sebesar 2500 ms dan eksekusi paralel menggunakan Go \textit{goroutines}, latensi tambahan terukur hanya berkisar antara 10--25 ms, yang dinilai sebagai kompromi yang sangat menguntungkan untuk perlindungan dari bahaya \textit{write bottleneck}.
+
+\vspace{1em}
 
 \subsection{Batasan yang Disadari}
 Implementasi solusi pada Problem 1 menyadari beberapa batasan teknis:
 \begin{enumerate}
     \item \textbf{Konsistensi Replikasi Asinkron:} Sinkronisasi replika yang tertinggal (\textit{anti-entropy}) dieksekusi secara periodik latar belakang. Selama jendela propagasi tersebut, replika berada dalam kondisi konsistensi bertahap (\textit{eventual consistency}) sebelum rekonsiliasi selesai.
-    \item \textbf{Ambang Batas Kehilangan Node:} Arsitektur dirancang bertahan terhadap kehilangan satu node ($N-1$). Kehilangan dua node penyimpanan secara bersamaan pada waktu yang sama melebihi faktor replikasi ($RF=2$), sehingga shard yang kehilangan kedua salinannya tidak dapat dijangkau dan memicu respons \texttt{partial: true}.
+    \item \textbf{Ambang Batas Kehilangan Node:} Arsitektur dirancang bertahan terhadap kehilangan satu node ($N-1$). Kehilangan dua node penyimpanan secara bersamaan pada waktu yang sama melebihi faktor replikasi ($RF=2$), sehingga shard yang kehilangan kedua salinannya tidak dapat dijangkau dan memicu respons [\texttt{partial: true}].
     \item \textbf{Overhead Jaringan Scatter-Gather:} Pemanggilan lintas node menambah jumlah koneksi TCP pada kluster. Beban ini dimitigasi dengan penggunaan \textit{connection pool} terkelola dan \textit{bounded timeout}.
 \end{enumerate}
+
+\vspace{1em}
 
 \subsection{Bukti Penyelesaian}
 Bukti keberhasilan penyelesaian Problem 1 dibuktikan secara empiris melalui pengujian live pada kluster 3-node:
 \begin{enumerate}
-    \item \textbf{Pemuatan Katalog Gempa Historis (Kriteria 1 \& 2):} Dataset 709 kejadian bencana dimuat ke dalam kluster. Sebaran data terdistribusi secara seimbang: node \texttt{aqua} menampung 239 primer dan 236 replika, node \texttt{akane} menampung 236 primer dan 234 replika, serta node \texttt{ruby} menampung 234 primer dan 239 replika. Tidak ada node yang memuat seluruh data (maksimal 33,71\% primer). Rasio ketimpangan beban (\textit{skew ratio}) terukur sebesar 1.011 pada kondisi normal dan 1.125 pada kondisi simulasi lonjakan gempa.
-    \item \textbf{Kueri Lintas Seluruh Shard dengan Paginasi (Kriteria 3):} Eksekusi endpoint \texttt{GET /internal/audit/events} berhasil mengambil 51.792 rekaman lintas seluruh shard melalui 52 halaman paginasi berurutan deterministik \texttt{(ingested\_at, hazard\_id)} tanpa duplikasi baris.
-    \item \textbf{Ketahanan Terhadap Penghapusan Node / Wipe-Node (Kriteria 4):} Dilakukan simulasi pemadaman node \texttt{akane} dan penghapusan seluruh volume penyimpanannya secara permanen (\textit{wipe disk}). Seluruh kueri pembacaan dialihkan secara otomatis ke replika \texttt{shard-2-r1} dan \texttt{shard-3-r1} pada node yang bertahan. Pengecekan via \texttt{GET /internal/audit/checksum} menghasilkan nilai SHA-256 yang identik persis dengan checksum acuan (tidak ada data yang hilang).
-    \item \textbf{Pemulihan dan Skalabilitas Node Baru (Kriteria 5 \& 6):} Node \texttt{akane} dipulihkan dengan volume kosong. Prosedur \texttt{RebalanceCluster} dan \texttt{SyncShardReplicas} berjalan secara otomatis di latar belakang, memulihkan data replika dan primer tanpa menghentikan operasi baca maupun tulis.
-    \item \textbf{Dasbor Analitik Real-Time (Kriteria 7):} Dasbor analitik berbasis web berhasil menampilkan grafik deret waktu per jenis bahaya, agregasi tingkat keparahan, dan sebaran wilayah secara tepat. Saat simulasi pemadaman node berlangsung, dasbor tetap dapat diakses dan menampilkan lencana peringatan \texttt{PARTIAL DATA} secara transparan.
+    \item \textbf{Pemuatan Katalog Gempa Historis (Kriteria 1 \& 2):} Dataset 709 kejadian bencana dimuat ke dalam kluster. Sebaran data terdistribusi secara seimbang: node \texttt{aqua} menampung 239 primer dan 236 replika, node \texttt{akane} menampung 236 primer dan 234 replika, serta node \texttt{ruby} menampung 234 primer dan 239 replika. Tidak ada node yang memuat seluruh data (maksimal 33,71\% primer). Rasio ketimpangan beban (\textit{skew ratio}) terukur sebesar 1.011 pada kondisi normal dan 1.125 pada kondisi simulasi lonjakan gempa (Bukti: ADR 006 \S Evaluasi Sebaran, berkas \nolinkurl{docs/evidence/m2/p1-p4-baseline/shard-distribution.log}, dan \nolinkurl{docs/evidence/m2/p1-p4-baseline/audit-verification.json}).
+    \item \textbf{Kueri Lintas Seluruh Shard dengan Paginasi (Kriteria 3):} Eksekusi endpoint \texttt{GET /internal/audit/events} berhasil mengambil 51.792 rekaman lintas seluruh shard melalui 52 halaman paginasi berurutan deterministik \texttt{(ingested\_at, hazard\_id)} tanpa duplikasi baris (Bukti: \nolinkurl{docs/evidence/m2/p1-p4-baseline/audit-verification.json} butir \texttt{events\_pagination\_and\_ordering} dan skrip \nolinkurl{scripts/verify_audit_and_catalog.py}).
+    \item \textbf{Ketahanan Terhadap Penghapusan Node / Wipe-Node (Kriteria 4):} Dilakukan simulasi pemadaman node \texttt{akane} dan penghapusan seluruh volume penyimpanannya secara permanen (\textit{wipe disk}). Seluruh kueri pembacaan dialihkan secara otomatis ke replika \texttt{shard-2-r1} dan \texttt{shard-3-r1} pada node yang bertahan. Pengecekan via \texttt{GET /internal/audit/checksum} menghasilkan nilai SHA-256 yang identik persis dengan checksum acuan (tidak ada data yang hilang) (Bukti: \nolinkurl{docs/evidence/m2/chaos-drills/06-wipe-node.log} baris 4--32 dan \nolinkurl{docs/evidence/m2/chaos-drills/README.md}).
+    \item \textbf{Pemulihan dan Skalabilitas Node Baru (Kriteria 5 \& 6):} Node \texttt{akane} dipulihkan dengan volume kosong. Prosedur \texttt{RebalanceCluster} dan \texttt{SyncShardReplicas} berjalan secara otomatis di latar belakang, memulihkan data replika dan primer tanpa menghentikan operasi baca maupun tulis (Bukti: \nolinkurl{docs/evidence/m2/chaos-drills/06-wipe-node.log} baris 157--191 dan berkas \nolinkurl{services/aggregator/internal/repository/sharding.go}).
+    \item \textbf{Dasbor Analitik Real-Time (Kriteria 7):} Dasbor analitik berbasis web berhasil menampilkan grafik deret waktu per jenis bahaya, agregasi tingkat keparahan, dan sebaran wilayah secara tepat. Saat simulasi pemadaman node berlangsung, dasbor tetap dapat diakses dan menampilkan lencana peringatan \texttt{PARTIAL DATA} secara transparan (Bukti: \nolinkurl{docs/evidence/m2/p1-p4-baseline/analytics-summarizer.log} baris 1--25 dan \nolinkurl{docs/evidence/m2/p1-p4-baseline/README.md} Bagian 5).
 \end{enumerate}
 
+\vspace{1em}
+
 \subsection{Jawaban atas Butir ``Di Laporan''}
-Berikut disajikan jawaban ringkas dan terstruktur atas lima butir pertanyaan laporan Problem 1:
+Berikut disajikan jawaban ringkas dan terstruktur atas pertanyaan pada spesifikasi tugas besar.
 \begin{enumerate}
     \item \textbf{Identifikasi Persoalan dan Konsep Literatur:} Persoalan yang dihadapi adalah keterbatasan kapasitas node tunggal, ketimpangan distribusi beban geografis (\textit{data skew}), dan hilangnya data akibat musnahnya node penyimpanan. Dalam literatur sistem terdistribusi, konsep yang diterapkan adalah \textbf{\textit{Database Sharding}}, \textbf{\textit{Consistent Hashing}}, \textbf{\textit{Cross-Node Asymmetric Replication}}, dan \textbf{\textit{Graceful Degradation}}.
     \item \textbf{Mekanisme Penentuan Lokasi Data dan Perubahan Dinamis:} Data dipetakan ke unit shard berdasarkan fungsi \texttt{SHA-256(hazard\_id)} pada cincin hash 64-vnode. Saat node bertambah atau berkurang, \texttt{ConsistentHashRing} memetakan ulang hanya pecahan kunci yang relevan ($\approx 1/N$ kunci), sementara proses rekonsiliasi \texttt{RebalanceCluster} mentransfer data secara inkremental tanpa mengunci tabel.
