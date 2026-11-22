@@ -115,6 +115,11 @@
       color: #92400E;
       border: 1px solid #FCD34D;
     }
+    .pill-critical {
+      background: #FEF2F2;
+      color: #991B1B;
+      border: 1px solid #FCA5A5;
+    }
     .pill-dot {
       width: 6px;
       height: 6px;
@@ -210,6 +215,14 @@
     .outage-banner.active {
       display: flex;
     }
+    .outage-banner.critical {
+      background: #FEF2F2;
+      border-color: #DC2626;
+      color: #991B1B;
+    }
+    .outage-banner.critical .unit-tag {
+      background: rgba(220, 38, 38, 0.12);
+    }
     .outage-title {
       font-weight: 700;
       margin-bottom: 2px;
@@ -223,7 +236,7 @@
       margin-right: 4px;
     }
 
-    /* Warning badge attached to metrics during incomplete data */
+    /* Warning badge attached to metrics during partial/degraded data */
     .incomplete-badge {
       display: inline-block;
       font-size: 10px;
@@ -236,6 +249,17 @@
       border: 1px solid #FCD34D;
       vertical-align: middle;
       margin-left: 6px;
+    }
+    .stream-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: #F1F5F9;
+      color: var(--color-text-secondary);
+      border: 1px solid var(--color-border-subtle);
+      white-space: nowrap;
     }
 
     /* ==========================================================================
@@ -661,8 +685,8 @@
     <div id="outageBanner" class="outage-banner">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 1px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       <div>
-        <div id="outageTitle" class="outage-title">Incomplete Data — Storage Degradation Detected</div>
-        <div id="outageDesc">Displayed counts reflect partial shard coverage and do not match the Audit API canonical total.</div>
+        <div id="outageTitle" class="outage-title">Partial Data — Unresponsive Storage Units</div>
+        <div id="outageDesc">Displayed counts reflect surviving/local projections.</div>
       </div>
     </div>
 
@@ -673,7 +697,7 @@
       <div class="kpi-box">
         <div class="kpi-caption">
           <span>Total Hazards</span>
-          <span id="badgeTotalIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+          <span id="badgeTotalIncomplete" style="display:none;" class="incomplete-badge">Partial</span>
         </div>
         <div id="kpiTotal" class="kpi-figure">0</div>
         <div class="kpi-meta">Canonical hazard events</div>
@@ -682,7 +706,7 @@
       <div class="kpi-box">
         <div class="kpi-caption">
           <span>Critical Alerts (AWAS + SIAGA)</span>
-          <span id="badgeCriticalIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+          <span id="badgeCriticalIncomplete" style="display:none;" class="incomplete-badge">Partial</span>
         </div>
         <div id="kpiCritical" class="kpi-figure" style="color: var(--color-awas);">0</div>
         <div id="kpiCriticalShare" class="kpi-meta">0.0% of total events</div>
@@ -691,7 +715,7 @@
       <div class="kpi-box">
         <div class="kpi-caption">
           <span>Affected Regions</span>
-          <span id="badgeRegionsIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+          <span id="badgeRegionsIncomplete" style="display:none;" class="incomplete-badge">Partial</span>
         </div>
         <div id="kpiAreas" class="kpi-figure">0</div>
         <div class="kpi-meta">Distinct area_name locations</div>
@@ -700,6 +724,7 @@
       <div class="kpi-box">
         <div class="kpi-caption">
           <span>Audit API Sync</span>
+          <span id="kpiStreamBadge" class="stream-badge" title="Elapsed time since latest Kafka consumer event (relative to server timestamp)">Stream: —</span>
         </div>
         <div id="kpiSyncStatus" class="kpi-figure sync-figure">Matched • 0s lag</div>
         <div class="kpi-meta">
@@ -719,7 +744,7 @@
         <div>
           <div class="panel-heading">
             <span>Hazard Events Over Time</span>
-            <span id="badgeChartIncomplete" style="display:none;" class="incomplete-badge">Incomplete</span>
+            <span id="badgeChartIncomplete" style="display:none;" class="incomplete-badge">Partial</span>
           </div>
           <div class="panel-desc">Frequency of canonical hazard events across observation intervals</div>
         </div>
@@ -1239,6 +1264,25 @@
       }
     }
 
+    function parseServerAgeSeconds(isoTimestamp, serverNowIso) {
+      if (!isoTimestamp || !serverNowIso) return null;
+      const targetMs = Date.parse(isoTimestamp);
+      const nowMs = Date.parse(serverNowIso);
+      if (!Number.isFinite(targetMs) || !Number.isFinite(nowMs)) return null;
+      return Math.max(0, Math.floor((nowMs - targetMs) / 1000));
+    }
+
+    function formatElapsed(seconds) {
+      if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return null;
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      if (mins < 60) return `${mins}m ${secs}s`;
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return `${hrs}h ${remMins}m`;
+    }
+
     let dashboardAbort = null;
     let dashboardSeq = 0;
 
@@ -1260,35 +1304,74 @@
         if (reqSeq !== dashboardSeq) return;
         cachedSnapshot = data;
 
-        const isDegraded = Boolean(data.status.partial_data || data.status.degraded);
+        const status = data.status || {};
+        const isDegraded = Boolean(status.degraded);
+        const isPartial = Boolean(status.partial_data);
+        const isPartialOrDegraded = isDegraded || isPartial;
+
+        const staleElapsed = formatElapsed(parseServerAgeSeconds(status.stale_since, data.generated_at));
+        const kafkaElapsed = formatElapsed(parseServerAgeSeconds(status.last_kafka_event_at, data.generated_at));
+
+        const hasUnits = Array.isArray(status.unavailable_units) && status.unavailable_units.length > 0;
+        const unitsMarkup = hasUnits
+          ? status.unavailable_units.map(u => `<span class="unit-tag">${escapeHTML(u)} (unresponsive)</span>`).join(' ')
+          : '';
 
         // Tier 1: Audit Status Pill & Outage Banner
         const pill = document.getElementById('statusPill');
         const pillText = document.getElementById('statusPillText');
         const outageBanner = document.getElementById('outageBanner');
+        const outageTitle = document.getElementById('outageTitle');
         const outageDesc = document.getElementById('outageDesc');
 
-        if (isDegraded) {
-          pill.className = 'status-pill pill-degraded';
-          pillText.textContent = 'PARTIAL / DEGRADED';
+        if (isPartialOrDegraded) {
+          const parts = [];
+          if (isDegraded) {
+            pill.className = 'status-pill pill-critical';
+            pillText.textContent = 'DEGRADED';
 
-          outageBanner.className = 'outage-banner active';
-          const units = (data.status.unavailable_units && data.status.unavailable_units.length > 0)
-            ? data.status.unavailable_units.map(u => `<span class="unit-tag">${escapeHTML(u)} (offline)</span>`).join(' ')
-            : '1 or more storage units';
-          const reasonDetail = data.status.partial_reason
-            ? ` (${escapeHTML(data.status.partial_reason)})`
-            : '';
-          outageDesc.innerHTML = `Partial/degraded state detected${reasonDetail}: ${units}. Displayed counts reflect surviving nodes and may not match the Audit API canonical total.`;
+            outageBanner.className = 'outage-banner active critical';
+            outageTitle.textContent = 'Degraded — Upstream, Aggregator, or Storage Unavailable';
 
-          // Show Incomplete warning badges next to affected metrics
-          document.querySelectorAll('.incomplete-badge').forEach(b => b.style.display = 'inline-block');
+            const rawReason = typeof status.partial_reason === 'string' ? status.partial_reason.trim() : '';
+            if (rawReason && (!hasUnits || !rawReason.startsWith('Partial storage outage:'))) {
+              parts.push(rawReason.endsWith('.') ? escapeHTML(rawReason) : `${escapeHTML(rawReason)}.`);
+            }
+            if (hasUnits) {
+              parts.push(`Unresponsive units: ${unitsMarkup}.`);
+            }
+          } else {
+            pill.className = 'status-pill pill-degraded';
+            pillText.textContent = 'PARTIAL DATA';
+
+            outageBanner.className = 'outage-banner active';
+            outageTitle.textContent = 'Partial Data — Unresponsive Storage Units';
+
+            parts.push(hasUnits
+              ? `Unresponsive units: ${unitsMarkup}.`
+              : 'One or more storage units did not respond within the query deadline.');
+          }
+          if (staleElapsed !== null) {
+            parts.push(`${isDegraded ? 'Degraded' : 'Partial'} for ${staleElapsed}.`);
+          }
+          if (kafkaElapsed !== null) {
+            parts.push(isDegraded
+              ? `Last Kafka event ${kafkaElapsed} ago.`
+              : `Live Kafka stream last received an event ${kafkaElapsed} ago.`);
+          }
+          parts.push('Displayed counts reflect surviving/local projections.');
+          outageDesc.innerHTML = parts.join(' ');
         } else {
           pill.className = 'status-pill pill-reconciled';
           pillText.textContent = 'RECONCILED';
           outageBanner.className = 'outage-banner';
-          document.querySelectorAll('.incomplete-badge').forEach(b => b.style.display = 'none');
         }
+
+        // Show Partial/Degraded warning badges next to affected metrics
+        document.querySelectorAll('.incomplete-badge').forEach(b => {
+          b.style.display = isPartialOrDegraded ? 'inline-block' : 'none';
+          b.textContent = isDegraded ? 'Degraded' : 'Partial';
+        });
 
         // Tier 2: 4 KPI Metrics
         document.getElementById('kpiTotal').textContent = data.total_hazards.toLocaleString();
@@ -1300,15 +1383,23 @@
 
         document.getElementById('kpiAreas').textContent = (data.by_area || []).length.toLocaleString();
 
-        const lag = data.status.freshness_lag_seconds !== undefined && data.status.freshness_lag_seconds !== null
-          ? `${data.status.freshness_lag_seconds}s lag`
+        const streamBadge = document.getElementById('kpiStreamBadge');
+        if (streamBadge) {
+          streamBadge.textContent = kafkaElapsed !== null ? `Stream: ${kafkaElapsed} ago` : 'Stream: idle';
+        }
+
+        const syncAge = status.freshness_lag_seconds !== undefined && status.freshness_lag_seconds !== null
+          ? `${status.freshness_lag_seconds}s ago`
           : 'synced';
         const syncEl = document.getElementById('kpiSyncStatus');
         if (isDegraded) {
-          syncEl.textContent = `Degraded • ${lag}`;
+          syncEl.textContent = `Degraded • ${syncAge}`;
+          syncEl.style.color = '#991B1B';
+        } else if (isPartial) {
+          syncEl.textContent = `Partial • ${syncAge}`;
           syncEl.style.color = '#B45309';
         } else {
-          syncEl.textContent = `Matched • ${lag}`;
+          syncEl.textContent = `Matched • ${syncAge}`;
           syncEl.style.color = 'var(--color-accent)';
         }
 
@@ -1355,12 +1446,12 @@
         const pillText = document.getElementById('statusPillText');
         const syncEl = document.getElementById('kpiSyncStatus');
         if (pill && pillText) {
-          pill.className = 'status-pill pill-degraded';
+          pill.className = 'status-pill pill-critical';
           pillText.textContent = 'POLL ERROR';
         }
         if (syncEl) {
           syncEl.textContent = 'Error polling API';
-          syncEl.style.color = '#B45309';
+          syncEl.style.color = '#991B1B';
         }
       }
     }
