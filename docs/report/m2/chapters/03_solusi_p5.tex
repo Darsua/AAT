@@ -1,9 +1,19 @@
 \clearpage
-\section{Problem 5: [Judul Problem 5 M2]}
+\section{Problem 5: Pelampung yang Berbohong}
 \label{sec:problem_5}
 
 \subsection{Identifikasi Masalah}
-% [Identifikasi persoalan apa yang sebenarnya terjadi pada Problem 5 serta sebutkan nama masalah/konsep/polanya dalam literatur sistem terdistribusi.]
+Jaringan Sensor Pantai (\textit{Coastal Sensor Network}) merupakan instrumen observasi langsung di laut lepas yang sangat vital untuk mengonfirmasi anomali ketinggian muka air laut dan gelombang tsunami nyata hasil prediksi BMKG. Namun, komponen ini dibangun oleh vendor pihak ketiga dalam bentuk kontainer tertutup (\textit{black-box image}) tanpa akses kode sumber dan beroperasi di lingkungan laut yang sangat rentan gangguan, menjadikannya sumber data yang paling tidak dapat dipercaya (\textit{unreliable and adversarial dependency}).
+
+Sistem menghadapi anomali perilaku dan ketidakpastian operasional sebagai berikut:
+\begin{enumerate}
+    \item \textbf{Kegagalan Sebagian dan Perilaku Menyimpang (\textit{Byzantine-like \& Flaky Behavior}):} Sensor pantai kerap mengalami periode hening (\textit{silent/unresponsive}), lonjakan semburan data sekaligus (\textit{burst}), mengaku sehat pada endpoint \texttt{/healthz} padahal data observasinya telah kedaluwarsa berjam-jam (\textit{stale data}), atau mengirimkan muatan yang melanggar kontrak dasar. Peringatan tsunami kritis (\textit{critical events}) yang terselip di antara ribuan pesan anomali tidak boleh hilang (harus mencapai petugas dengan $p95$ latensi $\le 5$ detik).
+    \item \textbf{Penularan Kegagalan Sistem (\textit{Cascading Failures \& Thundering Herd}):} Jika Sensor Pantai mengalami perlambatan atau gangguan, permintaan klien dan poller sistem yang terus mengetuk pintu (\textit{polling}) dapat menumpuk koneksi dan menghabiskan thread kerja (\textit{thread starvation}). Hal ini berisiko melumpuhkan seluruh Aggregator dan mengganggu penarikan data dari sumber vital lain yang sedang aktif (gempa BMKG dan erupsi PVMBG).
+    \item \textbf{Kekeringan Permintaan Klien (\textit{Hanging Requests \& Degradation}):} Klien yang meminta data pesisir tidak boleh dibiarkan menunggu hingga batas waktu habis (\textit{timeout}). Sistem harus segera memberikan jawaban terdegradasi (\textit{graceful fallback}) menggunakan data valid terakhir atau status ketidaktersediaan yang jelas.
+    \item \textbf{Diferensiasi Prioritas Beban (\textit{Quality of Service \& Prioritized Load Shedding}):} Ketika sistem berada dalam kondisi kelebihan beban ekstrem (\textit{system overload}) akibat kombinasi bencana serentak, kapasitas komputasi tidak boleh terbagi rata. Jalur komunikasi kritis bagi Petugas Lapangan (BASARNAS/Pemda) harus tetap terjamin 100\% tanpa hambatan, sedangkan permintaan kelompok umum (Media) harus ditolak secara terkontrol (\textit{graceful load shedding}) melalui kuota dan status HTTP 429/503 terencana.
+\end{enumerate}
+
+Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Fault Isolation and Bulkhead Pattern}}, \textbf{\textit{Circuit Breaker Pattern}}, \textbf{\textit{Deadlines and Bounded Timeouts}}, \textbf{\textit{Quality of Service (QoS) and Prioritized Load Shedding}}, serta \textbf{\textit{Self-Healing and Autonomous Recovery}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
 % [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 5.]

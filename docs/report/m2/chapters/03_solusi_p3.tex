@@ -1,9 +1,21 @@
 \clearpage
-\section{Problem 3: [Judul Problem 3 M2]}
+\section{Problem 3: Surat dari Tetangga}
 \label{sec:problem_3}
 
 \subsection{Identifikasi Masalah}
-% [Identifikasi persoalan apa yang sebenarnya terjadi pada Problem 3 serta sebutkan nama masalah/konsep/polanya dalam literatur sistem terdistribusi.]
+Integrasi data multisumber pada sistem penanggulangan bencana menghadapi tantangan ketidakpastian tata kelola hulu yang dibangun oleh agensi eksternal independen (seperti PVMBG atau mitra daerah). Layanan eksternal kerap melakukan pembaruan skema sepihak tanpa koordinasi sebelumnya, seperti penggantian nama atribut (\textit{field renaming}), perubahan tipe data (misalnya angka menjadi string), penghapusan atribut wajib, atau bahkan pengiriman muatan data yang rusak secara struktural (JSON terpotong, struktur bersarang ekstrem, atau malformed UTF-8).
+
+Di sisi hilir, petugas lapangan yang berada di lokasi bencana mengandalkan konektivitas jaringan seluler yang sangat terbatas dan tidak stabil untuk mengirimkan laporan darurat (\textit{field reports}). Sinyal yang lemah sering kali hanya memungkinkan satu kali percobaan transmisi, sehingga laporan darurat tidak boleh hilang atau ditolak meskipun sistem pemrosesan hilir sedang mengalami kelebihan beban atau gangguan sementara.
+
+Berdasarkan butir evaluasi spesifikasi, persoalan utama yang dihadapi meliputi:
+\begin{enumerate}
+    \item \textbf{Evolusi Skema Inkompatibel (\textit{Breaking Schema Evolution}):} Perubahan kontrak data hulu yang melanggar kompatibilitas ke belakang (\textit{backward incompatibility}). Sistem tidak boleh menebak data yang hilang atau membuangnya diam-diam, melainkan harus memiliki batasan tegas antara perubahan yang dapat diterima otomatis (seperti penambahan kolom opsional baru) dan perubahan yang membutuhkan intervensi.
+    \item \textbf{Penanganan Pesan Racun Tanpa Pemblokiran (\textit{Poison Pill Handling \& Fault Isolation}):} Pesan yang rusak atau tidak dapat diurai (\textit{malformed payload}) berpotensi memicu kegagalan berulang (\textit{crash loop}) pada konsumen. Diperlukan isolasi agar pesan rusak tidak menghalangi antrean pesan valid lainnya (\textit{head-of-line blocking}).
+    \item \textbf{Karantina dan Pemulihan Terjadwal (\textit{Dead Letter Queue Parking \& Replay}):} Pesan yang gagal diproses harus disimpan secara utuh beserta metadata kegagalan (waktu, alasan kegagalan, dan sumber). Harus ada klasifikasi eksplisit antara kesalahan sementara (\textit{transient error} yang dapat dicoba lagi secara otomatis/\textit{retrying}) dan kesalahan permanen (\textit{non-retryable error} yang harus diparkir/\textit{parked} hingga sistem disesuaikan), serta kemampuan memproses ulang (\textit{replay}) tanpa menimbulkan duplikasi baris kanonis.
+    \item \textbf{Keandalan Penerimaan Laporan Lapangan (\textit{Crash-Safe Staging \& Idempotency}):} Endpoint penerimaan laporan lapangan (\texttt{POST /field-reports}) harus memberikan konfirmasi penerimaan instan (\textit{HTTP 202 Accepted}) kepada petugas tanpa menunggu pemrosesan hilir selesai. Laporan yang telah berbalas 202 tidak boleh hilang meskipun komponen penerima mati tepat setelah merespons, serta harus terlindung dari duplikasi laporan akibat transmisi ulang klien.
+\end{enumerate}
+
+Dalam literatur sistem terdistribusi, konsep dan pola yang merefleksikan persoalan ini adalah \textbf{\textit{Schema Evolution and Contract Versioning}}, \textbf{\textit{Dead Letter Queue (DLQ) Pattern}}, \textbf{\textit{Poison Message Handling}}, \textbf{\textit{Transactional Outbox / Crash-Safe Staging Pattern}}, serta \textbf{\textit{Idempotent Consumer and Deduplication}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
 % [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 3.]

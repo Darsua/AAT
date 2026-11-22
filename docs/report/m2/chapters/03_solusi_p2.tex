@@ -1,9 +1,18 @@
 \clearpage
-\section{Problem 2: [Judul Problem 2 M2]}
+\section{Problem 2: Dua Nakhoda, Satu Kapal}
 \label{sec:problem_2}
 
 \subsection{Identifikasi Masalah}
-% [Identifikasi persoalan apa yang sebenarnya terjadi pada Problem 2 serta sebutkan nama masalah/konsep/polanya dalam literatur sistem terdistribusi.]
+Ketika layanan Aggregator diskalakan secara horizontal menjadi $\ge 3$ instansi (\textit{multi-replica}) untuk menangani lonjakan permintaan pembacaan, timbul permasalahan koordinasi kritis pada jalur penarikan data hulu (\textit{upstream ingestion}). Jika seluruh replika Aggregator menjalankan penarik data (\textit{poller}) secara konkuren tanpa koordinasi, setiap instansi akan secara berulang menanyakan data ke agensi BMKG dan PVMBG. Hal ini memicu duplikasi rekaman kejadian bencana (\textit{duplicate HazardEvents}) di basis data kanonik serta membebani antarmuka agensi hulu secara berlipat ganda.
+
+Upaya membatasi pengambilan data agar hanya dilakukan oleh satu instansi (\textit{leader/nakhoda}) memunculkan dua kegagalan fundamental dalam sistem terdistribusi:
+\begin{enumerate}
+    \item \textbf{Desinkronisasi Jam Fisik (\textit{Physical Clock Drift / Skew}):} Jam perangkat keras pada kontainer di node-node yang berbeda tidak pernah sinkron secara mutlak (dapat bergeser puluhan detik, misalnya $+45$ detik atau $-30$ detik). Jika batas kedaluwarsa sewa (\textit{lease TTL}) dihitung menggunakan jam lokal node (\texttt{time.Now()}), sebuah instansi dapat mengira masa kepemimpinannya masih sah padahal instansi lain di node yang berbeda telah mengambil alih sewa tersebut. Akibatnya, dua instansi bertindak sebagai pemimpin secara bersamaan dan sama-sama menyimpan data (\textit{split-brain}).
+    \item \textbf{Jeda Proses dan Penulisan Zombie (\textit{Process Pauses \& Zombie Writes}):} Sebuah instansi yang sedang bertugas dapat mengalami jeda panjang yang tidak terduga (\textit{garbage collection pause}, penangguhan VM/tutup laptop, atau \textit{SIGSTOP}). Selama jeda tersebut, masa sewanya habis dan instansi lain dipromosikan menjadi pemimpin baru. Ketika instansi lama terbangun kembali tanpa menyadari bahwa perannya telah digantikan, ia langsung mengeksekusi penulisan data yang tertunda (\textit{zombie write}) dan menimpa status mutakhir yang baru saja ditulis oleh pemimpin sah.
+    \item \textbf{Ketersediaan Tinggi dan Alih Peran Cepat (\textit{Failover Latency}):} Ketika instansi pemimpin aktif mengalami terminasi mendadak (\textit{crash}), pengambilan data harus dilanjutkan oleh instansi siaga (\textit{standby}) dalam waktu singkat ($\le 60$ detik) tanpa menimbulkan celah kekosongan data (\textit{data gaps}) maupun duplikasi.
+\end{enumerate}
+
+Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Distributed Mutual Exclusion}}, \textbf{\textit{Leader Election and Leases}}, \textbf{\textit{Split-Brain Problem}}, \textbf{\textit{Absence of Global Physical Clock}}, serta \textbf{\textit{Fencing Tokens}} untuk memvalidasi legitimasi penulisan secara monotonik di sisi penyimpanan.
 
 \subsection{Rancangan Solusi dan Mekanisme}
 % [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 2.]

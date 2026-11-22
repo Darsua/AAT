@@ -1,9 +1,19 @@
 \clearpage
-\section{Problem 4: [Judul Problem 4 M2]}
+\section{Problem 4: Atap Seng di Siang Bolong}
 \label{sec:problem_4}
 
 \subsection{Identifikasi Masalah}
-% [Identifikasi persoalan apa yang sebenarnya terjadi pada Problem 4 serta sebutkan nama masalah/konsep/polanya dalam literatur sistem terdistribusi.]
+Pemantauan kebakaran hutan dan lahan melalui instrumen satelit penginderaan jauh menghadirkan karakteristik beban yang sangat berbeda dibandingkan pemantauan seismik atau vulkanik. Satelit pengamat termal melintasi wilayah dalam orbit berkala dan memancarkan semburan data berukuran sangat besar (\textit{bursty data}) yang mencakup ribuan deteksi titik panas (\textit{hotspot}) dalam waktu singkat, kemudian hening hingga lintasan orbit berikutnya. Sebagian besar titik panas yang terdeteksi merupakan pantulan termal non-bahaya (seperti atap seng atau permukaan batuan terbuka yang terpanggang sinar matahari), sementara kebakaran hutan nyata sering kali teramati oleh beberapa instrumen satelit sekaligus pada waktu dan koordinat yang sedikit berbeda.
+
+Pola integrasi lama berbasis tarikan berkala (\textit{polling}) tidak lagi memadai untuk menangani volume dan latensi aliran data ini. Beberapa persoalan mendasar yang dihadapi mencakup:
+\begin{enumerate}
+    \item \textbf{Pengelompokan Spasio-Temporal (\textit{Spatio-Temporal Event Aggregation}):} Satu titik panas individual belum merepresentasikan satu kejadian kebakaran hutan. Sistem harus mampu mendeteksi korelasi spasial (kedekatan koordinat geografis) dan korelasi temporal antar-deteksi dari berbagai satelit untuk diagregasikan menjadi satu entitas kejadian bahaya tunggal (\textit{HazardEvent WILDFIRE}) dengan atribut gabungan yang dinamis (seperti daya pancar radiasi kebakaran/FRP kumulatif dan tingkat keyakinan tertinggi).
+    \item \textbf{Data Terlambat dan Ketidaksepakatan Jam Satelit (\textit{Out-of-Order and Delayed Events}):} Jam pada masing-masing instrumen satelit tidak selalu tersinkronisasi sempurna, dan transmisi data dari lintasan satelit dapat mengalami keterlambatan transfer jaringan hingga beberapa jam. Pengelompokan kejadian tidak boleh didasarkan pada waktu kedatangan data di server BNPB (\textit{processing time}), melainkan harus berbasis pada waktu observasi nyata satelit (\textit{event time}). Hal ini memunculkan dilema penutupan jendela agregasi: kapan sebuah jendela waktu boleh ditutup dan dianggap selesai jika data terkait masih berpotensi datang terlambat?
+    \item \textbf{Ketahanan Aliran Data Berkecepatan Tinggi (\textit{Backpressure \& Burst Ingestion}):} Ketika aliran data dialirkan dengan akselerasi tinggi (misalnya simulasi percepatan 60$\times$), sistem harus mampu menyerap lonjakan tanpa kehilangan data (\textit{zero data loss}), membatasi degradasi latensi ($p95$), serta mengembalikan kondisi pemrosesan ke status mutakhir (\textit{near-zero lag}) secara cepat setelah lonjakan mereda.
+    \item \textbf{Konsistensi Status Aliran Terhadap Kegagalan (\textit{Fault-Tolerant Stateful Stream Processing}):} Jika komponen pemroses mengalami pemadaman mendadak di tengah proses pengenalan kebakaran hutan, status sementara (\textit{intermediate state}) tidak boleh hilang atau rusak. Sistem yang pulih harus mampu merekonstruksi status agregasi secara identik persis dengan pemrosesan tanpa gangguan (\textit{exactly-once processing semantics}), menjamin tidak ada kebakaran yang terlewat atau terduplikasi.
+\end{enumerate}
+
+Dalam literatur sistem terdistribusi dan pemrosesan data beraliran (\textit{stream processing}), persoalan ini diidentifikasi sebagai \textbf{\textit{Event-Time vs. Processing-Time Windowing}}, \textbf{\textit{Watermarking and Allowed Lateness Handling}}, \textbf{\textit{Spatial Clustering over Streaming Data}}, \textbf{\textit{Stateful Stream Checkpointing}}, dan \textbf{\textit{Backpressure Management}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
 % [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 4.]
