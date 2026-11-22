@@ -23,7 +23,8 @@ Berikut disajikan rincian pembagian tanggung jawab dan kontribusi masing-masing 
 \vspace{0.3cm}
 \begin{footnotesize}
 \begin{spacing}{1.05}
-\begin{xltabular}{\textwidth}{l p{3.8cm} X}
+\renewcommand\tabularxcolumn[1]{m{#1}}
+\begin{xltabular}{\textwidth}{>{\centering\arraybackslash}m{2.2cm} m{3.8cm} X}
 \caption{Tabel Kontribusi pada Milestone 2} \label{tab:kontribusi_m2} \\
 \toprule
 \textbf{NIM} & \textbf{Nama} & \textbf{Kontribusi} \\
@@ -41,29 +42,29 @@ Berikut disajikan rincian pembagian tanggung jawab dan kontribusi masing-masing 
 
 13523061 & Darrel Adinarya Sunanda & 
 \begin{itemize}[leftmargin=*, noitemsep, topsep=1pt, parsep=0pt]
-    \item \textbf{Sharding Storage Multi-Node (P1, \#23):} Merancang dan mengimplementasikan arsitektur \textit{database sharding} PostgreSQL 3-node dengan volume \textit{hostPath} node-lokal dan kueri agregasi \textit{scatter-gather}.
-    \item \textbf{HA Leader Leasing \& Fencing (P2, \#25):} Mengimplementasikan mekanisme \textit{distributed leader election} Aggregator dengan \textit{fencing token} monotonik dan \textit{source checkpoints} untuk mencegah \textit{split-brain} dan \textit{zombie writes}.
-    \item \textbf{Audit API \& Verifikasi Integritas (\#30):} Mengembangkan \textit{endpoint} audit kanonis (\texttt{/internal/audit/events} dan \texttt{/internal/audit/checksum}) dengan verifikasi SHA-256 dan \textit{keyset pagination}.
-    \item \textbf{Downstream Field-Report Consumer (P3, \#27, \#52):} Mengimplementasikan konsumer topik \texttt{bnpb.field-reports} pada Aggregator dengan deduplikasi \textit{payload hash} dan \textit{transactional outbox}.
-    \item \textbf{AI Situation Summarizer (Bonus M2, \#36):} Mengembangkan konsumer peringatan bencana berbasis AI \textit{non-blocking} menggunakan LLM lokal (\texttt{qwen3.5:9b}).
-    \item \textbf{Infrastruktur \& Koordinasi (\#22, \#31, \#32):} Menyusun \textit{Kubernetes manifests}, \textit{network policies}, dokumen ADR 005--008, serta koordinasi pengujian dan pelaporan.
+    \item \textbf{Sharding Storage Multi-Node (P1):} Merancang dan mengimplementasikan arsitektur \textit{database sharding} PostgreSQL 3-node dengan volume \textit{hostPath} node-lokal dan kueri agregasi \textit{scatter-gather}.
+    \item \textbf{HA Leader Leasing \& Fencing (P2):} Mengimplementasikan mekanisme \textit{distributed leader election} Aggregator dengan \textit{fencing token} monotonik dan \textit{source checkpoints} untuk mencegah \textit{split-brain} dan \textit{zombie writes}.
+    \item \textbf{Audit API \& Verifikasi Integritas:} Mengembangkan \textit{endpoint} audit kanonis (\texttt{/internal/audit/events} dan \texttt{/internal/audit/checksum}) dengan verifikasi SHA-256 dan \textit{keyset pagination}.
+    \item \textbf{Downstream Field-Report Consumer (P3):} Mengimplementasikan konsumer topik \texttt{bnpb.field-reports} pada Aggregator dengan deduplikasi \textit{payload hash} dan \textit{transactional outbox}.
+    \item \textbf{AI Situation Summarizer (Bonus M2):} Mengembangkan konsumer peringatan bencana berbasis AI \textit{non-blocking} menggunakan LLM lokal (\texttt{qwen3.5:9b}).
+    \item \textbf{Infrastruktur \& Koordinasi:} Menyusun \textit{Kubernetes manifests}, \textit{network policies}, dokumen ADR 005--008, serta koordinasi pengujian dan pelaporan.
 \end{itemize} \\
-\addlinespace
+\midrule
 13524110 & Jennifer Khang & 
 \begin{itemize}[leftmargin=*, noitemsep, topsep=1pt, parsep=0pt]
-    \item \textbf{Gateway Laporan Lapangan (P3, \#27):} Mengimplementasikan \texttt{POST /field-reports} pada Client API dengan autentikasi berbasis \textit{role}, respons instan \textit{202 Accepted}, penjaminan idempotensi (\textit{Idempotency-Key}), dan \textit{crash-safe staging} ke Redpanda.
-    \item \textbf{Web Analytics Dashboard (P1, \#24):} Mengembangkan layanan dan antarmuka dasbor analitik bencana \textit{real-time} dengan agregasi multi-sumber, sinkronisasi delta audit, dan indikator \textit{partial data}.
-    \item \textbf{Coastal Sensor Ingestion \& QoS (P5, \#29):} Mengembangkan \textit{ingestion poller} sensor pantai (\texttt{sensor-pantai}) dengan \textit{circuit breaker}, \textit{fallback cache}, koordinasi \textit{leaseGuard}, karantina ke DLQ, serta \textit{middleware QoS load shedding}.
-    \item \textbf{Unified Observability Stack (\#35):} Mengimplementasikan observabilitas terpadu mencakup \textit{dashboard} Grafana, metrik Prometheus antarlayanan, dan \textit{distributed tracing} OpenTelemetry/Tempo dengan propagasi W3C \textit{traceparent}.
-    \item \textbf{Validasi \& Pengujian (\#31, \#32):} Berkontribusi dalam pengujian beban \textit{10k VU load testing}, verifikasi \textit{chaos drills}, dan penyusunan laporan.
+    \item \textbf{Gateway Laporan Lapangan (P3):} Mengimplementasikan \texttt{POST /field-reports} pada Client API dengan autentikasi berbasis \textit{role}, respons instan \textit{202 Accepted}, penjaminan idempotensi (\textit{Idempotency-Key}), dan \textit{crash-safe staging} ke Redpanda.
+    \item \textbf{Web Analytics Dashboard (P1):} Mengembangkan layanan dan antarmuka dasbor analitik bencana \textit{real-time} dengan agregasi multi-sumber, sinkronisasi delta audit, dan indikator \textit{partial data}.
+    \item \textbf{Coastal Sensor Ingestion \& QoS (P5):} Mengembangkan \textit{ingestion poller} sensor pantai (\texttt{sensor-pantai}) dengan \textit{circuit breaker}, \textit{fallback cache}, koordinasi \textit{leaseGuard}, karantina ke DLQ, serta \textit{middleware QoS load shedding}.
+    \item \textbf{Unified Observability Stack:} Mengimplementasikan observabilitas terpadu mencakup \textit{dashboard} Grafana, metrik Prometheus antarlayanan, dan \textit{distributed tracing} OpenTelemetry/Tempo dengan propagasi W3C \textit{traceparent}.
+    \item \textbf{Pembuatan Laporan:} Berkontribusi dalam penyusunan laporan.
 \end{itemize} \\
-\addlinespace
+\midrule
 18223113 & Aldoy Fauzan Avanza & 
 \begin{itemize}[leftmargin=*, noitemsep, topsep=1pt, parsep=0pt]
-    \item \textbf{Evolusi Skema \& DLQ Parking (P3, \#26):} Mengembangkan simulasi mode perubahan skema inkompatibel pada \texttt{mock-pvmbg}, kebijakan penanganan evolusi skema pada Aggregator, penyimpanan DLQ (\texttt{dlq\_messages}), dan \textit{replay API}.
-    \item \textbf{Satellite Wildfire Ingestion (P4, \#28):} Merancang dan mengimplementasikan klien \textit{stream} satelit (SSE), algoritma pengelompokan spasio-temporal (\textit{hotspot clustering}), \textit{event-time windowing}, penanganan data terlambat, dan metrik \textit{satellite lag}.
-    \item \textbf{Horizontal Pod Autoscaler (Bonus M2, \#37):} Mengimplementasikan autoscaling horizontal (HPA) dinamis berbasis utilisasi CPU pada pod Client API dan Aggregator.
-    \item \textbf{Validasi Partisi \& Pengujian (\#31, \#32):} Berkontribusi dalam pengujian ketahanan partisi jaringan fisik antarnode, simulasi \textit{chaos engineering}, dan penyusunan laporan.
+    \item \textbf{Evolusi Skema \& DLQ Parking (P3):} Mengembangkan simulasi mode perubahan skema inkompatibel pada \texttt{mock-pvmbg}, kebijakan penanganan evolusi skema pada Aggregator, penyimpanan DLQ (\texttt{dlq\_messages}), dan \textit{replay API}.
+    \item \textbf{Satellite Wildfire Ingestion (P4):} Merancang dan mengimplementasikan klien \textit{stream} satelit (SSE), algoritma pengelompokan spasio-temporal (\textit{hotspot clustering}), \textit{event-time windowing}, penanganan data terlambat, dan metrik \textit{satellite lag}.
+    \item \textbf{Horizontal Pod Autoscaler (Bonus M2):} Mengimplementasikan autoscaling horizontal (HPA) dinamis berbasis utilisasi CPU pada pod Client API dan Aggregator.
+    \item \textbf{Pembuatan Laporan:} Berkontribusi dalam penyusunan laporan.
 \end{itemize} \\
 \end{xltabular}
 \end{spacing}
