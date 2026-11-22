@@ -1,0 +1,87 @@
+flowchart TD
+    CLIENT["External Clients"]:::actor
+    SAT["Satellite Wildfire SSE"]:::ext
+
+    subgraph MAINFRAME["mainframe (10.5.24.112)"]
+        CF["cloudflared :443"]:::svc
+        TP["tinyproxy :8888"]:::svc
+    end
+
+    subgraph K3S["Kluster Kubernetes k3s (NS: sistem-informasi-kebencanaan-bnpb)"]
+        direction LR
+
+        subgraph AQUA["aqua (10.5.27.240 | Control-Plane & Worker)"]
+            direction TB
+            TRAEFIK["Traefik Ingress :80"]:::actor
+            API_A["client-api :8080"]:::svc
+            DASH_A["dashboard-consumer :8085"]:::cons
+            AGG_A["aggregator :8083"]:::svc
+            DB_A[("store-aqua :5432<br/>shard-1 (P), shard-3-r1 (R)")]:::store
+        end
+
+        subgraph RUBY["ruby (10.5.27.241 | Worker)"]
+            direction TB
+            OBS["Prometheus :9090 | Tempo :4318 | Grafana :3000"]:::obs
+            CONS_R["dashboard :8085 | notifier :8086"]:::cons
+            SUM_R["summarizer-consumer :8087"]:::cons
+            RP[["redpanda :9092"]]:::broker
+            AGG_R["aggregator :8083"]:::svc
+            DB_R[("store-ruby :5432<br/>shard-2 (P), shard-1-r1 (R)")]:::store
+        end
+
+        subgraph AKANE["akane (10.5.27.242 | Worker)"]
+            direction TB
+            AUTH["auth :8084"]:::svc
+            API_K["client-api :8080"]:::svc
+            NOTIF_K["notifier-consumer :8086"]:::cons
+            AGG_K["aggregator :8083"]:::svc
+            HULU["mock-bmkg :8081 | mock-pvmbg :8082<br/>sensor-pantai :8080"]:::ext
+            DB_K[("store-akane :5432<br/>shard-3 (P), shard-2-r1 (R)")]:::store
+        end
+    end
+
+    subgraph LANGLEY["langley / imac-gpu (10.5.24.125)"]
+        LLM["llama-server :11434 (qwen3.5:9b)"]:::ext
+    end
+
+    CLIENT -->|"HTTPS :443"| CF
+    CF -->|"HTTP :80"| TRAEFIK
+    SAT -.->|"SSE"| TP
+    TP -.->|"HTTP_PROXY :8888"| AGG_A
+
+    TRAEFIK -->|":8080"| API_A
+    TRAEFIK -->|":8083 (audit)"| AGG_A
+    TRAEFIK -->|":8080"| API_K
+    TRAEFIK -->|":8084"| AUTH
+    TRAEFIK -->|":8085"| DASH_A
+    TRAEFIK -->|":8087"| SUM_R
+    TRAEFIK -->|":3000"| OBS
+
+    API_A -->|":8083"| AGG_A
+    API_K -->|":8083"| AGG_K
+    API_A -->|"Kafka :9092"| RP
+    API_K -->|"Kafka :9092"| RP
+    HULU -->|"HTTP poll"| AGG_K
+
+    AGG_A <-->|"TCP :5432"| DB_A
+    AGG_R <-->|"TCP :5432"| DB_R
+    AGG_K <-->|"TCP :5432"| DB_K
+    DB_A <-.->|"RF=2 sync"| DB_R
+    DB_R <-.->|"RF=2 sync"| DB_K
+    DB_K <-.->|"RF=2 sync"| DB_A
+
+    AGG_R <-->|"Kafka :9092 (Outbox / Fan-out)"| RP
+    RP -->|":9092"| DASH_A
+    RP -->|":9092"| CONS_R
+    RP -->|":9092"| NOTIF_K
+    RP -->|":9092"| SUM_R
+    SUM_R -->|"HTTP :11434 (LAN)"| LLM
+    OBS -.->|"Metrics & OTLP :4318"| AGG_R
+
+    classDef svc fill:#eaf1fb,stroke:#1f4e8c,color:#0b2545
+    classDef store fill:#e8f5e9,stroke:#2e7d32,color:#10300f
+    classDef broker fill:#fdecea,stroke:#c62828,color:#4a0d0d
+    classDef ext fill:#fff3e0,stroke:#ef6c00,color:#4a2600
+    classDef cons fill:#f3e5f5,stroke:#6a1b9a,color:#2a0a3a
+    classDef actor fill:#ffffff,stroke:#616161,color:#212121
+    classDef obs fill:#e0f2f1,stroke:#00695c,color:#00332c
