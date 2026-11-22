@@ -1,0 +1,104 @@
+\clearpage
+\section{Problem 2: Dua Nakhoda, Satu Kapal}
+\label{sec:problem_2}
+
+\subsection{Identifikasi Masalah}
+Ketika layanan Aggregator diskalakan secara horizontal menjadi $\ge 3$ instansi (\textit{multi-replica}) untuk menangani lonjakan permintaan pembacaan, timbul permasalahan koordinasi kritis pada jalur penarikan data hulu (\textit{upstream ingestion}). Jika seluruh replika Aggregator menjalankan penarik data (\textit{poller}) secara konkuren tanpa koordinasi, setiap instansi akan secara berulang menanyakan data ke agensi BMKG dan PVMBG. Hal ini memicu duplikasi rekaman kejadian bencana (\textit{duplicate HazardEvents}) di basis data kanonik serta membebani antarmuka agensi hulu secara berlipat ganda.
+
+\vspace{1em}
+
+\noindent Upaya membatasi pengambilan data agar hanya dilakukan oleh satu instansi (\textit{leader}) memunculkan dua kegagalan fundamental dalam sistem terdistribusi, dengan rincian sebagai berikut.
+\begin{enumerate}
+    \item \textbf{Desinkronisasi Jam Fisik (\textit{Physical Clock Drift / Skew}):} Jam perangkat keras pada kontainer di node-node yang berbeda tidak pernah sinkron secara mutlak (dapat bergeser puluhan detik, misalnya $+45$ detik atau $-30$ detik). Jika batas kedaluwarsa sewa (\textit{lease TTL}) dihitung menggunakan jam lokal node (\texttt{time.Now()}), sebuah instansi dapat mengira masa kepemimpinannya masih sah padahal instansi lain di node yang berbeda telah mengambil alih sewa tersebut. Akibatnya, dua instansi bertindak sebagai pemimpin secara bersamaan dan sama-sama menyimpan data (\textit{split-brain}).
+    \item \textbf{Jeda Proses dan Penulisan Zombie (\textit{Process Pauses \& Zombie Writes}):} Sebuah instansi yang sedang bertugas dapat mengalami jeda panjang yang tidak terduga (\textit{garbage collection pause}, penangguhan VM/tutup laptop, atau \textit{SIGSTOP}). Selama jeda tersebut, masa sewanya habis dan instansi lain dipromosikan menjadi pemimpin baru. Ketika instansi lama terbangun kembali tanpa menyadari bahwa perannya telah digantikan, ia langsung mengeksekusi penulisan data yang tertunda (\textit{zombie write}) dan menimpa status mutakhir yang baru saja ditulis oleh pemimpin sah.
+    \item \textbf{Ketersediaan Tinggi dan Alih Peran Cepat (\textit{Failover Latency}):} Ketika instansi pemimpin aktif mengalami terminasi mendadak (\textit{crash}), pengambilan data harus dilanjutkan oleh instansi siaga (\textit{standby}) dalam waktu singkat ($\le 60$ detik) tanpa menimbulkan celah kekosongan data (\textit{data gaps}) maupun duplikasi.
+\end{enumerate}
+
+\vspace{1em}
+
+\noindent Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Distributed Mutual Exclusion}}, \textbf{\textit{Leader Election and Leases}}, \textbf{\textit{Split-Brain Problem}}, \textbf{\textit{Absence of Global Physical Clock}}, serta \textbf{\textit{Fencing Tokens}} untuk memvalidasi legitimasi penulisan secara monotonik di sisi penyimpanan.
+
+\subsection{Rancangan Solusi dan Mekanisme}
+Untuk menyokong ketersediaan tinggi dan penskalaan horizontal Aggregator tanpa mengorbankan ketunggalan penarikan data \textit{upstream}, sistem menerapkan koordinasi kepemimpinan berbasis basis data kanonis, token pagar monotonik, dan penghentian siap-layani secara halus \cite{kleppmann2017designing,burns2018designing} sebagaimana diilustrasikan pada Gambar~\ref{fig:p2_leasing}.
+
+\begin{enumerate}
+    \item \textbf{Deployment Multi-Replika dan \textit{Graceful Readiness Draining}:} Layanan \texttt{aggregator} dijalankan dengan minimal 3~replika (dapat diskalakan otomatis melalui HPA hingga 5~replika) yang disebar merata ke node \texttt{aqua}, \texttt{ruby}, dan \texttt{akane} melalui \texttt{topologySpreadConstraints} dan \texttt{podAntiAffinity}. Pembaruan bergulir menggunakan strategi \texttt{RollingUpdate} (\texttt{maxUnavailable: 0}, \texttt{maxSurge: 1}, \texttt{terminationGracePeriodSeconds: 20}). Probe kesiapan \texttt{GET /readyz} dipisahkan dari \texttt{GET /livez} serta tidak digabungkan dengan status broker tunggal agar kegagalan broker tidak menandai seluruh replika pembaca tidak siap. Saat menerima sinyal \texttt{SIGINT}/\texttt{SIGTERM}, \texttt{HealthHandler.SetDraining(true)} seketika mengubah status \texttt{/readyz} dan \texttt{/health} menjadi HTTP~503 sehingga Kubernetes Service/Ingress berhenti mengarahkan trafik baru, lalu \textit{worker} melepas \textit{lease} secara sukarela (\texttt{ReleaseSourceLease}) dan menunggu jeda \texttt{DRAIN\_DELAY\_MS} (3.000~ms) agar permintaan HTTP aktif selesai sebelum proses berhenti.
+    \item \textbf{\textit{Storage-Clock Leader Leases} (\texttt{leader\_leases}):} Eksklusivitas penarikan data hulu dikelola per sumber melalui kunci sewa halus (\texttt{source:BMKG}, \texttt{source:PVMBG}, \texttt{source:SATELIT}, dan \texttt{source:SENSOR\_PANTAI} dengan \texttt{LEASE\_TTL\_SECS=15}~detik serta perpanjangan tiap \texttt{LEASE\_RENEW\_}\allowbreak\texttt{INTERVAL\_SECS=5}~detik; ditambah \texttt{source:SYNC} dengan TTL~60~detik untuk sinkronisasi replika). Tabel \texttt{leader\_leases} disimpan pada \textit{shard} koordinator (\texttt{shard-1} primer di \texttt{store-aqua} dengan \textit{fallback} otomatis ke replika \texttt{shard-1-r1} di \texttt{store-ruby}). Seluruh perhitungan masa berlaku dan pembaruan sewa dieksekusi di sisi SQL menggunakan fungsi jam basis data \texttt{clock\_timestamp()}, bukan jam lokal aplikasi Go.
+    \item \textbf{\textit{Monotonic Fencing Tokens} (\texttt{source\_fences}, \texttt{hazards.fencing\_token}):} Setiap perolehan atau alih tangan \textit{lease} baru mengalokasikan angka \texttt{fencing\_token} yang selalu bertambah secara ketat monoton melampaui nilai terbesar pada \texttt{leader\_leases} dan \texttt{source\_fences}. Sebelum menulis rekaman atau memajukan kursor, operasi \texttt{SaveHazardWithFence} dan \texttt{SaveSourceCheckpoint} memvalidasi token pemanggil secara atomik di dalam transaksi SQL pada tiap \textit{shard} tujuan. Jika seorang mantan pemimpin yang sempat membeku (\textit{zombie leader}) mencoba menulis menggunakan token usang yang lebih kecil daripada \texttt{source\_fences.max\_fencing\_token} atau \texttt{fencing\_token} baris terkait, transaksi ditolak dengan galat \texttt{ErrStaleFencingToken}.
+    \item \textbf{\textit{Durable Source Checkpoints} (\texttt{source\_checkpoints} \& \texttt{satellite\_checkpoints}):} Setelah setiap siklus penarikan berhasil, pemegang \textit{lease} menyimpan titik kemajuan \texttt{(source, last\_occurred\_at, last\_source\_ref\_id, fencing\_token, holder\_id)} secara monoton ke tabel \texttt{source\_checkpoints} (atau \texttt{satellite\_checkpoints} untuk aliran satelit). Apabila terjadi \textit{failover}, pemimpin pengganti membaca \textit{checkpoint} terakhir dan memulai penarikan dari \texttt{last\_occurred\_at - 10s} (\textit{overlap safety window}). Rekaman yang tumpang tindih pada jendela tersebut diserap secara idempoten melalui konstrain \texttt{UNIQUE (source, source\_ref\_id)}.
+    \item \textbf{Rekonsiliasi Koordinator Pasca-Partisi:} Apabila partisi jaringan memisahkan kedua unit koordinator (\texttt{aqua} dan \texttt{ruby}), fungsi \texttt{reconcileCoordinatorLease} menyatukan kembali status sewa ke pemegang token tertinggi saat konektivitas pulih, sementara \textit{watermark} \texttt{fencing\_token} dan \texttt{row\_version} di tiap \textit{shard} menjamin penulisan dari sisi ber-token lebih rendah tetap ditolak.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.96\textwidth]{figures/leasing.drawio.png}
+    \caption{Diagram Sekuens \textit{Storage-Clock Leader Leasing}, Pengambilalihan Sewa, dan Penolakan \textit{Zombie Write} Melalui \textit{Monotonic Fencing Token}.}
+    \label{fig:p2_leasing}
+\end{figure}
+
+\vspace{1em}
+
+\subsection{Alasan Keputusan dan Trade-Off}
+Dalam merancang koordinasi kepemimpinan dan proteksi penulisan terdistribusi, kelompok mengevaluasi tiga alternatif arsitektural sebagaimana diringkas pada Tabel~\ref{tab:p2_ha_alternatives}.
+
+\begin{footnotesize}
+\begin{xltabular}{\textwidth}{p{3.8cm} c X}
+\caption{Perbandingan Alternatif Mekanisme Koordinasi Kepemimpinan Aggregator (Problem 2)} \label{tab:p2_ha_alternatives} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:p2_ha_alternatives}}} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+\textbf{PostgreSQL \texttt{leader\_leases} + \texttt{source\_fences}} & \textbf{Dipilih} & Memanfaatkan unit penyimpanan \texttt{shard-1} (\texttt{aqua}/\texttt{ruby}) yang sudah ada tanpa menambah komponen kuorum baru dalam batas memori Lampiran~B, sekaligus menyatukan pemeriksaan \textit{fencing token} secara atomik di transaksi penulisan data. \textit{Trade-off}-nya adalah ketergantungan sementara pada ketercapaian salah satu unit koordinator (\texttt{aqua} atau \texttt{ruby}). \\
+\midrule
+Kubernetes \texttt{Lease} API (\texttt{coordination.k8s.io}) saja & Ditolak & Dapat memilih pemimpin di tingkat kluster, tetapi versi sumber daya API Kubernetes tidak ikut divalidasi oleh PostgreSQL saat penulisan baris sehingga tidak mencegah \textit{zombie write} akibat jeda proses (\texttt{SIGSTOP}). \\
+\midrule
+Kluster \texttt{etcd} atau Redis terdedikasi & Ditolak & Menambah beban memori signifikan pada kluster 3-node (melampaui anggaran memori yang efisien) dan tetap membutuhkan replikasi kuorum terpisah serta mekanisme \textit{fencing} di sisi basis data. \\
+\end{xltabular}
+\end{footnotesize}
+
+\noindent Selain pemilihan mekanisme, penetapan nilai batas waktu juga melibatkan kompromi (\textit{trade-off}) antara kecepatan deteksi kegagalan dan stabilitas operasi. Nilai \texttt{LEASE\_TTL\_SECS=15}~detik dengan pembaruan tiap \texttt{5}~detik memberi toleransi hingga dua kali keterlambatan siklus perpanjangan (misalnya akibat lonjakan beban atau \textit{garbage collection}) tanpa memicu pergantian pemimpin palsu (\textit{false failover}), sekaligus tetap menjamin alih peran jauh di bawah ambang 60~detik ketika pemegang \textit{lease} mati. Sementara itu, jeda pengeringan (\texttt{DRAIN\_DELAY\_MS=3000}~ms) cukup memberi waktu bagi pengontrol Ingress untuk memperbarui daftar endpoint tanpa memperlambat proses \textit{rolling update}.
+
+\vspace{1em}
+
+\subsection{Batasan yang Disadari}
+Implementasi solusi pada Problem 2 memiliki beberapa batasan teknis yang disadari.
+\begin{enumerate}
+    \item \textbf{Jendela \textit{Dual-Leader} Sementara Saat Partisi Koordinator:} Karena koordinasi mengutamakan ketersediaan (\textit{liveness}) selama minimal satu unit \texttt{shard-1} (\texttt{aqua} atau \texttt{ruby}) terjangkau tanpa mewajibkan kuorum mayoritas ketat antar-dua node, partisi jaringan yang memisahkan \texttt{aqua} dan \texttt{ruby} sekaligus secara teoritis dapat memicu \textit{dual-leader} sementara hingga jaringan pulih dan \texttt{reconcileCoordinatorLease} menyatukan token ke nilai tertinggi.
+    \item \textbf{Pemisahan Uji Penskalaan dan Batas CPU Kluster:} Pengujian penskalaan manual (\texttt{3 -> 5 -> 2 -> 3}) dijalankan secara terpisah dari badai beban 10.000~VU (berdurasi 30~detik), dan batas CPU bawaan 500m pada \texttt{LimitRange} membatasi \textit{throughput} kueri \textit{scatter-gather} berat (\texttt{limit=500}) ketika ratusan permintaan konkuren masuk secara bersamaan.
+    \item \textbf{Verifikasi Pembekuan Proses vs. VM Fisik:} Skenario jeda proses setara \texttt{SIGSTOP} dan pergeseran jam (\texttt{+45s}/\texttt{-30s}) diverifikasi secara deterministik melalui rangkaian uji otomatis (\texttt{TestFencing\_}\allowbreak\texttt{FrozenLeaderRejectedAtStorage} dan \texttt{TestFencing\_}\allowbreak\texttt{ClockSkewPlus45sAndMinus30s}), sedangkan pembekuan VM fisik secara manual dijalankan pada sesi demonstrasi video.
+\end{enumerate}
+
+\vspace{1em}
+
+\subsection{Bukti Penyelesaian}
+Keberhasilan penyelesaian Problem 2 dibuktikan melalui pengujian unit otomatis, latihan penskalaan langsung di kluster 3-node, serta skenario \textit{chaos engineering} yang dapat diakses pada folder evidence/m2/. Berikut merupakan rincian lebih lengkap.
+\begin{enumerate}
+    \item \textbf{Penyebaran Multi-Replika dan Pengeringan Kesiapan (Kriteria 1 \& 8):} Tiga replika \texttt{aggregator} berjalan tersebar pada node \texttt{aqua}, \texttt{ruby}, dan \texttt{akane} di belakang Service dan Ingress tunggal dengan \texttt{maxUnavailable: 0}. Probe \texttt{/readyz} bertransisi ke HTTP~503 saat penghentian sehingga trafik pembacaan dialihkan ke pod sehat tanpa memutus permintaan berjalan.
+    \item \textbf{Penskalaan \texttt{3 -> 5 -> 2 -> 3} dan Pengambilalihan Sewa (Kriteria 2, 3, \& 6):} Saat diskalakan dari 3 menjadi 5~pod (\texttt{52hx2}, \texttt{cn4s4}, \texttt{lnwrg}, \texttt{nf9ld}, \texttt{vgrrx}), inspeksi log keluar selama 15~detik menunjukkan hanya pemegang sewa (\texttt{nf9ld}) yang melakukan 11~penarikan ke hulu sementara 4~pod lain mencatat 0~penarikan. Saat diturunkan menjadi 2~pod dengan terminasi \texttt{nf9ld}, dalam 16~detik pod \texttt{lnwrg} langsung mengambil alih \texttt{BMKG} (token \texttt{345 -> 346}) dan \texttt{PVMBG} (\texttt{342 -> 343}), sedangkan \texttt{vgrrx} mengambil alih \texttt{SATELIT} (\texttt{7 -> 8}) dan \texttt{SENSOR\_PANTAI} (\texttt{23 -> 24}) tanpa duplikasi maupun celah data.
+    \item \textbf{Penghentian Mendadak Pemegang Sewa / \texttt{kill-leader} (Kriteria 3):} Pada simulasi \texttt{tester-agent} yang menghentikan pod \texttt{aggregator-796c9f59fd-vlbnp} di node \texttt{ruby}, kepemimpinan berpindah ke \texttt{jrzrd} (\texttt{PVMBG}: token \texttt{345 -> 346}) dan pod pengganti \texttt{6h48d} (\texttt{SATELIT}: token \texttt{11 -> 12}). Layanan publik tetap menjawab HTTP~200 (\texttt{degraded: false}) dan \textit{checksum} Audit API utuh pada 64.044~rekaman (\texttt{partial: false}).
+    \item \textbf{Ketahanan Terhadap Pergeseran Jam / \texttt{clock-skew} dan \textit{Zombie Write} (Kriteria 4 \& 5):} Pada skenario \texttt{clock-skew} (\texttt{shift\_clock +300s} selama 30~detik oleh \texttt{tester-agent}), seluruh kunci sewa bertahan dengan token stabil (\texttt{350, 345, 11, 27, 26}) tanpa \textit{split-brain}, API publik tetap HTTP~200 (\texttt{63.808}~rekaman, \texttt{degraded: false}), dan uji unit mengonfirmasi penolakan \textit{zombie write} dengan \texttt{ErrStaleFencingToken} pada kondisi \texttt{SIGSTOP} serta pergeseran jam \texttt{+45s}/\texttt{-30s}.
+    \item \textbf{Ketahanan Terhadap Partisi Jaringan 35~Detik (Kriteria 2 \& 4):} Saat node \texttt{akane} diisolasi melalui aturan \texttt{iptables DROP} dua arah selama 35~detik, kepemimpinan pada \texttt{aqua} dan \texttt{ruby} tetap berlanjut secara monoton (\texttt{BMKG} \texttt{351 -> 352}, \texttt{PVMBG} \texttt{347 -> 348}, \texttt{SENSOR\_PANTAI} \texttt{28 -> 29}) tanpa penulisan ganda dan kembali konvergen setelah partisi pulih (total \texttt{64.214}~rekaman, \texttt{partial: false}).
+\end{enumerate}
+
+% [Sisipkan tangkapan layar/cuplikan log leader_leases, source_fences, dan hasil uji perbandingan throughput 1 vs 3 replika Aggregator.]
+
+\vspace{1em}
+
+\subsection{Jawaban atas Butir ``Di Laporan''}
+Berikut jawaban terstruktur atas empat butir pertanyaan laporan Problem 2 pada spesifikasi Milestone 2.
+\begin{enumerate}
+    \item \textbf{Identifikasi Persoalan pada Kriteria 2, 4, dan 5 beserta Konsep Literatur:} Kriteria 2 merepresentasikan persoalan \textit{Distributed Mutual Exclusion} dan koordinasi penarikan hulu pada layanan \textit{multi-replica}. Kriteria 4 merepresentasikan persoalan ketidaksinkronan jam fisik (\textit{Absence of Global Physical Clock / Clock Skew}) yang dapat memicu pelanggaran kepemimpinan ganda (\textit{Split-Brain}). Kriteria 5 merepresentasikan persoalan jeda proses tak terduga (\textit{Process Pauses / SIGSTOP}) dan penulisan tertunda oleh mantan pemimpin (\textit{Zombie Writes}), yang dalam literatur diatasi menggunakan pola \textit{Leader Election with Leases} dan \textit{Monotonic Fencing Tokens} \cite{kleppmann2017designing}.
+    \item \textbf{Mekanisme Terpilih, Sumber Kebenaran Waktu, dan Alasan Keamanan:} Sistem menggunakan mekanisme \textit{storage-clock leader leases} pada tabel \texttt{leader\_leases} yang dipadukan dengan \textit{fencing token} monotonik pada tabel \texttt{source\_fences} dan kolom \texttt{hazards.fencing\_token}. \textbf{Sumber kebenaran waktu} tunggal adalah jam basis data PostgreSQL koordinator (\texttt{clock\_timestamp()}). Karena pemeriksaan kedaluwarsa maupun perpanjangan sewa selalu merujuk pada \texttt{clock\_timestamp()} dalam transaksi SQL yang sama, pergeseran jam kontainer di node aplikasi (\texttt{+45s}, \texttt{-30s}, maupun \texttt{+300s}) pada Kriteria 4 tidak pernah memengaruhi perhitungan masa sewa. Pada Kriteria 5, bila pemimpin lama membeku hingga sewanya diambil alih pemimpin baru (yang memperoleh token $N+1$), setiap upaya penulisan atau pembaruan \textit{checkpoint} oleh pemimpin lama saat bangun akan membawa token $N < N+1$ sehingga langsung ditolak di lapisan penyimpanan sebelum mengubah data kanonis.
+    \item \textbf{Batas Waktu yang Ditetapkan dan \textit{Trade-Off}:} Sistem menetapkan masa sewa ingesti \texttt{LEASE\_TTL\_SECS=15}~detik dengan interval perpanjangan \texttt{LEASE\_RENEW\_INTERVAL\_SECS=5}~detik (memberi jendela 3 kali pembaruan sebelum kedaluwarsa), masa sewa sinkronisasi replika \texttt{source:SYNC=60}~detik, batas waktu pengeringan koneksi \texttt{DRAIN\_DELAY\_MS=3000}~ms dengan \texttt{terminationGracePeriodSeconds=20}~detik, serta probe kesiapan \texttt{/readyz} tiap 5~detik (\texttt{failureThreshold=2}). \textit{Trade-off}-nya, TTL 15~detik tidak secepat TTL 2--3~detik saat pemegang sewa mati mendadak tanpa melepas sewa, namun nilai 15~detik jauh memadai untuk memenuhi target failover $\le 60$~detik sekaligus menghindarkan sistem dari pergantian pemimpin palsu akibat lonjakan latensi GC atau beban CPU.
+    \item \textbf{Konfigurasi \textit{Load Testing} dan \textit{Tooling} yang Dipakai:} Pengujian beban menggunakan kombinasi tiga perangkat sesuai skenario: (a) \textbf{Grafana k6} (\path{scripts/load_test.js}) untuk uji \textit{baseline} 50~VU (25~VU \texttt{SEISMIC} + 25~VU \texttt{VOLCANIC} + 5~VU langsung ke \texttt{mock-pvmbg}) dengan rotasi JWT tiap 40~detik; (b) penguji beban HTTP konkuren internal (240~pekerja dan 200~pekerja dengan \texttt{limit=500}) untuk memverifikasi penskalaan HPA dan pembuangan beban QoS; serta (c) \textbf{\textit{Go Concurrent Stress Runner}} (\path{scripts/load_test_10k_qos.go}, target \texttt{make load-test-10k}) yang dijalankan dari host gerbang eksternal \texttt{mainframe} dengan \texttt{ulimit -n 65536}, mengerahkan \textbf{10.000~VU serentak} (9.500~VU \texttt{media} pada \texttt{type=VOLCANIC} + 500~VU \texttt{field} pada \texttt{type=SEISMIC}, pembaruan token JWT otomatis tiap 20~detik, distribusi ke IP node \texttt{aqua}/\texttt{ruby}/\texttt{akane} dengan header \texttt{Host: aat.darsu.dev}).
+\end{enumerate}

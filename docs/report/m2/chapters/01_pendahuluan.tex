@@ -1,0 +1,70 @@
+\chapter{Pendahuluan}
+
+\section{Deskripsi Umum Sistem}
+\textit{Platform Koordinasi Kebencanaan BNPB} merupakan sistem terdistribusi multi-node di atas kluster Kubernetes (k3s) yang mengintegrasikan informasi kebencanaan dari lima sumber data heterogen: simulasi gempa bumi dan tsunami BMKG, laporan aktivitas gunung api PVMBG, aliran titik api satelit berbasis \textit{Server-Sent Events} (SSE), jaringan sensor pantai, serta laporan darurat dari petugas lapangan. Seluruh data dihimpun oleh layanan agregator, diseragamkan ke dalam skema kanonis, dan disimpan agar dapat diakses melalui antarmuka yang konsisten.
+
+\vspace{1em}
+
+\noindent Fungsi utama sistem mencakup pengumpulan dan normalisasi data, pengayaan referensi lokasi, penyediaan API publik berbatas akses, serta distribusi kejadian asinkron melalui mekanisme \textit{publish--subscribe}. Pengguna dibedakan menjadi kelompok media yang memperoleh informasi ringkasan, serta petugas lapangan dan pengguna internal yang memperoleh akses data lengkap beserta kanal pengiriman laporan lapangan.
+
+\vspace{1em}
+
+\noindent Pada Milestone 2, sistem diperluas menuju arsitektur berketahanan tinggi melalui pemartisian basis data PostgreSQL lintas node ($RF=2$), penskalaan horizontal agregator dengan koordinasi \textit{leader lease} dan \textit{fencing token}, serta penanganan evolusi skema berbasis \textit{Dead Letter Queue} (DLQ) dan \textit{replay}. Selain itu, platform dilengkapi proteksi beban ekstrem melalui \textit{Quality of Service} (QoS), dasbor analitik dan notifikasi \textit{real-time}, perangkuman bencana berbasis LLM lokal, serta observabilitas terpadu dan Internal Audit API untuk verifikasi integritas data.
+
+\section{Tujuan Sistem}
+Sistem dikembangkan dengan tujuan sebagai berikut.
+\begin{enumerate}
+    \item Memahami perancangan arsitektur aplikasi terdistribusi multi-node di atas Kubernetes dengan isolasi jaringan, kepemilikan penyimpanan independen antarlayanan, serta tata kelola sumber daya kontainer yang terukur.
+    \item Menganalisis keputusan arsitektur beserta alternatif dan \textit{trade-off}-nya dalam menangani pemartisian basis data, ketersediaan tinggi dan koordinasi terdistribusi, evolusi skema toleran kegagalan, pemrosesan aliran data \textit{real-time}, serta perlindungan beban ekstrem melalui \textit{Quality of Service} (QoS).
+    \item Memvalidasi ketahanan dan integritas arsitektur secara empiris melalui implementasi \textit{proof-of-concept}, pengujian kegagalan kluster (\textit{chaos engineering}), pengujian beban tinggi, serta verifikasi konsistensi data lintas shard melalui Audit API.
+\end{enumerate}
+
+\section{Asumsi Perancangan dan Implementasi}
+Dalam perancangan dan implementasi Milestone 2, ditetapkan asumsi dan batasan oleh tim sebagai berikut.
+\begin{enumerate}
+    \item \textbf{Topologi dan Lingkungan Kluster:} Sistem berjalan di atas kluster Kubernetes (k3s) beranggotakan tiga node berkernel Linux terpisah (\texttt{aqua} sebagai \textit{control-plane} sekaligus \textit{worker}, serta \texttt{ruby} dan \texttt{akane} sebagai \textit{worker}). Skenario kegagalan node hanya dikenakan pada node \textit{worker} non-\textit{control-plane}.
+    \item \textbf{Tata Kelola Sumber Daya:} Seluruh pod wajib mematuhi batas alokasi CPU dan memori sesuai spesifikasi melalui \texttt{LimitRange} kluster guna menjaga konsistensi pengukuran dan mencegah \textit{resource starvation}.
+    \item \textbf{Isolasi Penyimpanan:} Kepemilikan basis data eksklusif ditegakkan di tingkat jaringan melalui Kubernetes \texttt{NetworkPolicy}, sehingga akses ke basis data hanya diizinkan bagi \texttt{aggregator} dan agen penguji, sementara layanan lain diblokir.
+    \item \textbf{Asumsi Jam dan Jaringan:} Jam lokal antarnode diasumsikan dapat mengalami pergeseran (\textit{clock skew}) hingga puluhan detik, sehingga koordinasi \textit{leader lease} disandarkan pada jam basis data kanonis dan \textit{fencing token} monotonik. Jaringan antarnode juga diasumsikan dapat mengalami latensi, \textit{packet loss}, maupun partisi parsial.
+    \item \textbf{Karakteristik Sumber Data Hulu:}
+    \begin{itemize}
+        \item BMKG dan PVMBG menyediakan data melalui HTTP REST pasif yang ditarik berkala (\textit{polling}) dengan jendela tumpang tindih.
+        \item Satelit kebakaran mendorong data secara aktif melalui SSE dengan lonjakan titik api, potensi data terlambat (\textit{out-of-order}), serta kebutuhan pengelompokan spasio-temporal.
+        \item Sensor pantai (\textit{black-box}) bersifat fluktuatif, berpotensi mengirim data usang (\textit{stale}), dan mewajibkan autentikasi \textit{Bearer token}.
+        \item Laporan lapangan dikirim oleh petugas terautentikasi via HTTP POST dengan jaminan idempotensi (\texttt{Idempotency-Key}) dan \textit{durable staging} melalui broker pesan.
+    \end{itemize}
+\end{enumerate}
+
+\section{Perubahan dari Milestone 1}
+Transisi dari Milestone 1 ke Milestone 2 menandai evolusi arsitektur dari prototipe kontainer tunggal menuju sistem terdistribusi multi-node di atas Kubernetes guna memenuhi seluruh tuntutan spesifikasi Milestone 2. Ringkasan perubahan keputusan arsitektur dan teknologinya disajikan pada Tabel \ref{tab:perubahan_m1_m2}.
+
+\begin{small}
+\begin{xltabular}{\textwidth}{p{3.2cm} c p{4cm} X}
+\caption{Ringkasan Perubahan Keputusan dari Milestone 1 ke Milestone 2} \label{tab:perubahan_m1_m2} \\
+\toprule
+\textbf{Komponen} & \textbf{Status} & \textbf{Perubahan pada M2} & \textbf{Alasan} \\
+\midrule
+\endfirsthead
+
+\multicolumn{4}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:perubahan_m1_m2}}} \\
+\toprule
+\textbf{Keputusan / Komponen} & \textbf{Status} & \textbf{Perubahan pada M2} & \textbf{Alasan} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+Platform \textit{Deployment} & Diubah & Migrasi dari Docker Compose \textit{single-node} ke Kubernetes (k3s) kluster 3-node dengan kernel terpisah. & Mendukung orkestrasi otomatis, tata kelola sumber daya, dan pengujian kegagalan node fisik secara nyata. \\
+\midrule
+Basis Data Kanonik & Diubah & Dari PostgreSQL \textit{single-instance} menjadi \textit{sharded} PostgreSQL (3 unit shard) dengan replikasi \textit{cross-node} ($RF=2$). & Menghilangkan \textit{single point of failure}, mendistribusikan beban I/O, dan mencegah kehilangan data saat satu node musnah. \\
+\midrule
+Layanan Aggregator & Diubah & Dari \textit{single-instance poller} menjadi kluster \textit{multi-replica} (3 pod) dengan \textit{leader leasing} dan \textit{fencing token}. & Mencegah \textit{split-brain}, duplikasi kueri ke hulu, dan \textit{zombie writes} saat terjadi \textit{failover} atau pergeseran jam. \\
+\midrule
+Penanganan Evolusi Skema & Diubah & Dari validasi kaku lokal menjadi \textit{Dead Letter Queue} (DLQ) \textit{parking} dengan \textit{Replay API}. & Menjamin pesan inkompatibel tidak hilang, dapat dikarantina, dan diproses ulang setelah skema diperbarui. \\
+\midrule
+Ragam Sumber Bencana & Diubah & Dari 2 sumber (BMKG \& PVMBG) menjadi 5 sumber terpadu dengan tambahan sumber dari Satelit Kebakaran, Sensor Pantai, dan Laporan Lapangan. & Sesuai spesifikasi. \\
+\midrule
+Observabilitas dan Audit & Diubah & Dari log kontainer dasar menjadi tumpukan observabilitas terpadu (Prometheus, Grafana, Tempo) dan Internal Audit API kanonis. & Memungkinkan pelacakan latensi terdistribusi (\textit{distributed tracing}), inspeksi metrik \textit{real-time}, dan verifikasi SHA-256 (Audit API). \\
+\end{xltabular}
+\end{small}

@@ -1,0 +1,48 @@
+\chapter{Petunjuk Menjalankan Sistem}
+\label{chap:petunjuk}
+
+Panduan langkah demi langkah, daftar variabel lingkungan, pemetaan \textit{endpoint}, serta petunjuk \textit{troubleshooting} lengkap terdokumentasi pada berkas \texttt{README.md} di direktori utama repositori beserta rujukan operasionalnya pada \path{k8s/README.md} dan \path{docs/development.md}.
+
+\section{Prasyarat dan Konfigurasi Lingkungan}
+\label{sec:petunjuk_prasyarat}
+
+\begin{itemize}
+    \item \textbf{Lingkungan Utama (Kubernetes):} Kluster k3s multi-node ($\ge 2$~node berkernel Linux terpisah) dengan \texttt{metrics-server} serta utilitas \texttt{kubectl}.
+    \item \textbf{Lingkungan Lokal dan Pengujian:} Docker Engine~24.0+ beserta Docker Compose~v2, \texttt{make}, \texttt{curl}, \texttt{jq}, serta Go~1.22+ dan Python~3 untuk pengujian lokal.
+    \item \textbf{Konfigurasi Kredensial:} Isi \texttt{.env} serta \texttt{KUBECONFIG} dari \path{k8s/kubeconfig.template.yaml} untuk inspeksi kluster Kubernetes (sesuai panduan pada \texttt{README.md} dan \path{k8s/README.md}).
+\end{itemize}
+
+\section{Langkah Menjalankan Sistem}
+\label{sec:petunjuk_menjalankan}
+
+Seluruh proses validasi manifes, \textit{deployment}, dan simulasi lokal diringkas melalui target \texttt{Makefile} berikut:
+
+\begin{lstlisting}[language=bash, caption={Ringkasan Perintah Menjalankan Sistem (Kubernetes dan Docker Compose)}]
+# 1. Konfigurasi awal kredensial
+cp .env.example .env
+
+# 2. Deployment satu perintah di Kubernetes (lingkungan utama M2)
+make k8s-validate     # validasi manifes Kustomize
+make k8s-deploy       # deploy stack M2 via scripts/deploy_k8s.sh
+
+# 3. Simulasi lokal Docker Compose (pengembangan)
+make up               # stack standar (single-node)
+make up-sharded       # simulasi 3-shard PostgreSQL + 3 Aggregator
+make down-sharded     # hentikan stack sharded & hapus volume
+\end{lstlisting}
+
+\noindent Setelah sistem aktif, kesiapan layanan dapat diperiksa melalui \texttt{kubectl get pods} pada namespace aplikasi serta \textit{endpoint} \path{/health} pada Ingress publik (\nolinkurl{https://aat.darsu.dev/health}) maupun lokal (\nolinkurl{http://localhost:8080/health}). Rincian alamat seluruh layanan, akses dasbor Grafana/Tempo, dan pemasangan \texttt{tester-agent} merujuk pada \texttt{README.md} dan \path{k8s/README.md}.
+
+\section{Ringkasan Verifikasi dan Demonstrasi}
+\label{sec:petunjuk_verifikasi}
+
+Verifikasi kualitas kode dan skenario pengujian Milestone~2 (P1--P5 serta fitur bonus) dirangkum ke dalam empat jalur utama:
+
+\begin{itemize}
+    \item \textbf{Pengujian Unit dan Validasi Repositori:} Jalankan \texttt{make test} serta \path{scripts/check_repository.py} untuk memvalidasi seluruh modul Go, dokumentasi, dan konfigurasi.
+    \item \textbf{Verifikasi Sharding, Audit API, dan Beban Ekstrem (P1 \& P5):} Gunakan \texttt{make catalog-bench} dan \texttt{make audit-verify} untuk menguji distribusi shard serta paritas checksum SHA-256, serta \texttt{make load-test-10k} untuk menguji proteksi \textit{Priority QoS} pada beban tinggi.
+    \item \textbf{Pengujian Gangguan Kluster (\textit{Chaos Engineering}, P1--P5):} Eksekusi skenario latihan melalui \texttt{tester-agent} (\texttt{wipe-node}, \texttt{kill-leader}, \texttt{clock-skew}, \texttt{partition}, \texttt{schema}) dan verifikasi rute \path{/internal/audit/*}, \path{/internal/coastal/*}, serta \texttt{POST /api/v1/field-reports}.
+    \item \textbf{Observabilitas dan Fitur Bonus:} Pantau metrik, jejak \textit{distributed tracing}, ringkasan AI (\path{/summaries/latest}), dan penskalaan otomatis (\texttt{kubectl get hpa}) melalui Grafana dan Tempo.
+\end{itemize}
+
+\noindent Prosedur eksekusi rinci per skenario, contoh perintah \texttt{curl}, serta arsip bukti pengujian lengkap (\path{docs/evidence/m2/}) dapat dilihat langsung pada \texttt{README.md}, \path{docs/development.md}, dan \path{k8s/README.md}.
