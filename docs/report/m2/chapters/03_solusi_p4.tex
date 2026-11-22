@@ -16,16 +16,79 @@ Pola integrasi lama berbasis tarikan berkala (\textit{polling}) tidak lagi memad
 Dalam literatur sistem terdistribusi dan pemrosesan data beraliran (\textit{stream processing}), persoalan ini diidentifikasi sebagai \textbf{\textit{Event-Time vs. Processing-Time Windowing}}, \textbf{\textit{Watermarking and Allowed Lateness Handling}}, \textbf{\textit{Spatial Clustering over Streaming Data}}, \textbf{\textit{Stateful Stream Checkpointing}}, dan \textbf{\textit{Backpressure Management}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
-% [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 4.]
+Untuk menangani semburan data titik panas satelit VIIRS secara presisi, tahan keterlambatan, dan konsisten terhadap kegagalan, Aggregator meninggalkan pola \textit{polling} M1 dan mengimplementasikan pipa pemrosesan aliran berkeadaan (\textit{stateful stream processing}) \cite{kleppmann2017designing,akidau2015dataflow}:
+
+\begin{enumerate}
+    \item \textbf{Klien Aliran SSE Berbasis Offset Monoton:} Klien SSE (\path{services/aggregator/internal/satellite/stream.go}) membuka koneksi persisten \texttt{GET} \path{/v1/stream?from=<offset>}, mengabaikan \textit{offset} yang sudah diterapkan, dan menyambung ulang apabila mendeteksi celah \textit{offset} alih-alih melompatinya. Respons HTTP~401, 403, dan 400 menghentikan aliran agar tidak memicu kesalahan berulang, sedangkan HTTP~429 dan 503 memicu \textit{backoff} yang menghormati \textit{header} \texttt{Retry-After}. Pesan \textit{heartbeat} yang membawa \texttt{id} turut memajukan posisi \textit{offset} karena memakai urutan \textit{offset} yang sama.
+    \item \textbf{Identitas Deteksi Deterministik:} Kunci deteksi dibentuk dari gabungan teks mentah \path{satellite|acq_date|acq_time|latitude|longitude} persis seperti yang dikirim feed tanpa pembulatan numerik. Koordinat dalam notasi eksponen (misalnya \texttt{1.9e-4}) dinormalisasi menjadi desimal biasa (\texttt{0.00019}) melalui pergeseran titik desimal agar cocok dengan format kunci pada event \texttt{update} dan \texttt{retract}. Deteksi identik yang diterima berulang hanya dihitung satu kali.
+    \item \textbf{Mesin Pengelompokan Inkremental (\textit{Connected Components}):} Mesin kebakaran (\path{services/aggregator/internal/satellite/engine.go}) mengindeks deteksi berdasarkan pita lintang selebar $0,01^\circ$ sehingga pencarian tetangga dalam radius $\le 1,0$~km dan selisih waktu kejadian $\le 360$~menit cukup memeriksa pita berdekatan. Himpunan komponen terhubung dengan $\ge 2$ deteksi membentuk satu kebakaran (\texttt{HazardEvent} \texttt{SATELIT}/\texttt{WILDFIRE}). Deteksi baru yang menjembatani beberapa komponen menggabungkan kebakaran terkait: kebakaran terbesar mempertahankan ID-nya sementara lainnya dipensiunkan (\texttt{retired\_reason = "merged"}). Pada peristiwa \texttt{retract} yang memecah komponen, potongan terbesar mempertahankan ID dan komponen yang menyusut menjadi $<2$ deteksi dipensiunkan (\texttt{below\_threshold}). ID kebakaran baru diturunkan dari SHA-256 kunci jangkar agar pemrosesan ulang menghasilkan ID identik. Deteksi ber-\textit{confidence} rendah (\texttt{l}) tetap disimpan tanpa membentuk kebakaran sehingga event \texttt{update} yang menaikkan \textit{confidence} tetap dapat diterapkan.
+    \item \textbf{\textit{Event-Time Watermark} dan Penanganan Data Terlambat:} \textit{Watermark} dihitung sebagai waktu kejadian deteksi terbaru dikurangi \path{SATELLITE_LATENESS_MINUTES} (bawaan 360~menit). Deteksi terlambat yang masih berada dalam batas \textit{watermark} langsung memperbarui kebakaran terkait, sedangkan deteksi di luar batas disimpan terpisah dan dicatat pada metrik \texttt{late\_beyond\_watermark} tanpa dibuang diam-diam.
+    \item \textbf{Pemetaan Kontrak dan Siklus Hidup Kebakaran:} Setiap perubahan kebakaran disimpan ke penyimpanan terpartisi melalui jalur \textit{transactional outbox} dengan tingkat keparahan sesuai ambang spesifikasi. Karena kontrak \texttt{HazardEvent} tidak memiliki kolom siklus hidup khusus, kebakaran yang dipensiunkan tetap tersimpan dengan severity \texttt{NORMAL} serta metadata eksplisit \texttt{attributes.lifecycle\_status = "retired"}, \texttt{retired\_reason}, \texttt{merged\_into}, dan \texttt{severity\_before\_retire}.
+    \item \textbf{\textit{Checkpointing} Berkeadaan dan Koordinasi HA:} Keadaan mesin disimpan sebagai \textit{snapshot} JSON bersama \textit{offset} terakhir ke tabel \texttt{satellite\_checkpoints} pada unit koordinator \textit{shard} setiap 5~detik dan saat proses berhenti. \textit{Hazard} selalu dipersistensikan sebelum \textit{checkpoint} diperbarui, dan \textit{checkpoint} tidak pernah mundur. Hanya satu replika Aggregator pemegang \textit{lease} \texttt{source:SATELIT} yang membuka aliran SSE dan seluruh penulisannya dipagari \textit{fencing token}, sekaligus mematuhi batasan satu koneksi aktif per token kelompok pada feed satelit.
+    \item \textbf{Keadaan Memori Terbatas (\textit{Bounded State}) dan Observabilitas:} Sebelum setiap \textit{checkpoint}, kebakaran yang deteksi terbarunya tertinggal melebihi \path{SATELLITE_STATE_RETENTION_HOURS} (bawaan 48~jam) dari waktu kejadian terbaru ditutup dan deteksinya dikeluarkan dari memori (\texttt{satellite\_state\_evicted}). Karena deteksi baru hanya diterima dalam jendela 6~jam \textit{watermark} dan terhubung dalam 360~menit, kebakaran yang tertinggal $>12$~jam tidak mungkin tumbuh lagi. Aggregator mengekspor metrik \textit{lag} event, \textit{offset} terapan/terbaru, histogram latensi persistensi, jumlah kebakaran aktif/singleton, deteksi terlambat, serta ukuran \textit{checkpoint} ke \texttt{/metrics} dan divisualisasikan pada dasbor Grafana (\textit{Satellite wildfire stream}).
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Alasan Keputusan dan Trade-Off}
-% [Uraikan alternatif solusi yang dipertimbangkan serta trade-off dari pilihan yang diambil pada Problem 4.]
+Pemilihan mekanisme pengelompokan dan penyanggaan aliran satelit dievaluasi terhadap beberapa alternatif sebagaimana diringkas pada Tabel~\ref{tab:p4_tradeoff}.
+
+\begin{footnotesize}
+\begin{xltabular}{\textwidth}{p{3.5cm} c X}
+\caption{Perbandingan Alternatif Pemrosesan Aliran Kebakaran Satelit (Problem 4)} \label{tab:p4_tradeoff} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:p4_tradeoff}}} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+DBSCAN per jendela tetap (\textit{tumbling window}) & Ditolak & Sederhana, tetapi memotong kebakaran yang berlangsung melintasi batas jendela dan tidak mendukung operasi \texttt{update}/\texttt{retract} secara inkremental. \\
+\midrule
+Pemrosesan ulang penuh pada setiap event masuk & Ditolak & Menjamin kebenaran absolut, namun kompleksitas waktu tumbuh linier terhadap seluruh riwayat aliran sehingga gagal mengejar percepatan 60$\times$. \\
+\midrule
+Menyangga feed satelit ke Kafka sebelum diproses & Ditolak & Redundan karena feed SSE sudah menyediakan pemutaran ulang berbasis \textit{offset} monoton; \textit{checkpoint} lokal pada penyimpanan Aggregator sudah memadai. \\
+\midrule
+\textbf{Komponen terhubung inkremental + indeks pita lintang + \textit{watermark} \& retensi} & \textbf{Dipilih} & Setiap event hanya memutakhirkan komponen terdampak dengan hasil identik terhadap eksekusi tanpa gangguan. \textit{Trade-off}-nya adalah perlunya \textit{snapshot checkpoint} dan kebijakan retensi 48~jam agar memori tetap terbatas. \\
+\end{xltabular}
+\end{footnotesize}
+
+\vspace{1em}
 
 \subsection{Batasan yang Disadari}
-% [Jelaskan hal-hal yang secara sadar tidak ditangani pada Problem 4, beserta alasannya.]
+Implementasi Problem 4 memiliki beberapa batasan teknis yang disadari:
+\begin{enumerate}
+    \item \textbf{Pemetaan Nama Wilayah Provinsi:} Berkas referensi titik pusat provinsi BNPB belum tersedia secara bawaan di repositori; tanpa konfigurasi \path{SATELLITE_PROVINCE_CENTROIDS_FILE}, kolom \texttt{area\_name} diisi dengan label koordinat geografis.
+    \item \textbf{Revisi Setelah Jendela Retensi:} Event \texttt{update} atau \texttt{retract} yang tiba setelah kebakarannya ditutup oleh batas retensi 48~jam tetap dicatat pada metrik, namun tidak lagi mengubah kebakaran yang telah ditutup.
+    \item \textbf{Pengiriman Event Hilir Saat Pemulihan:} Pemutaran ulang dari \textit{checkpoint} setelah \textit{crash} dapat mengirim ulang event ke topik Kafka (\textit{at-least-once}), yang aman karena konsumen hilir melakukan deduplikasi.
+    \item \textbf{Penutupan Berbasis Waktu Kejadian:} Kebijakan retensi menutup kebakaran semata berdasarkan jeda waktu kejadian dari deteksi terbaru, sehingga kebakaran yang benar-benar padam dan kebakaran yang sekadar tidak teramati satelit diperlakukan sama.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Bukti Penyelesaian}
-% [Sertakan bukti penyelesaian per kriteria pada Problem 4 berupa tangkapan layar, potongan log ber-correlation ID, hasil pengukuran, atau keluaran load testing.]
+Keberhasilan Problem 4 dibuktikan melalui sesi latihan feed langsung, uji lonjakan sintetis, uji pemulihan \textit{crash}, serta pengamatan langsung pada klaster 3-node:
+\begin{enumerate}
+    \item \textbf{Pemrosesan Feed Live pada Klaster 3-Node (20 November 2026, \path{docs/evidence/m2/p1-p4-baseline/satellite-coastal.log}):} Dari 3 replika Aggregator aktif, hanya pemegang \textit{lease} (\texttt{aggregator-547cc65b86-nf9ld}) yang mengalirkan feed SSE hingga \textit{offset} 2.127.952 dengan \texttt{lag\_events: 0}, \texttt{p95\_persist\_ms: 0,17--0,18~ms}, 394 kebakaran aktif dalam memori, 33.560 total rekaman \texttt{WILDFIRE} terpersistensi, 0 \texttt{rejected\_events}, dan 0 \texttt{late\_beyond\_watermark}. Ketika koneksi mengalami \texttt{unexpected EOF} pada \textit{offset} 2.127.952, klien menyambung ulang dalam 500~ms dan kembali ke \texttt{lag\_events: 0}. Eviksi keadaan terbatas (\texttt{satellite\_state\_evicted}, retensi 48~jam) teramati aktif membersihkan kebakaran usang (1 kebakaran ditutup / 39--64 deteksi dikeluarkan per siklus). Dua replika cadangan tetap siaga tanpa membuka koneksi ganda.
+    \item \textbf{Sesi Latihan Feed Live Lokal (17--18 November 2026):} Dengan 1 Aggregator dan 3~\textit{shard} $\times$ 2 unit PostgreSQL, \textit{backlog} 119.142 event terkejar dalam $\approx 4,5$~menit hingga \textit{lag} 0 (0 ditolak, 0 terlambat, $p95$ 3,7--5,1~ms), menghasilkan 1.872 kebakaran aktif dan 12 kebakaran pensiun yang identik antara primer dan replika tanpa satu pun deteksi ganda di dua kebakaran. Pemutusan koneksi pada \textit{offset} 112.671 dan \textit{restart} pada \textit{offset} 120.311 berhasil memulihkan 1.889 kebakaran dan kembali ke \textit{lag} 0 dalam hitungan detik.
+    \item \textbf{Ketahanan Lonjakan (\textit{Burst Catch-Up}, Kriteria 4):} Pengujian feed sintetis 57.821 event yang dikirim sekaligus selesai diproses dalam 23,8~detik ($\approx 2.400$~event/detik) dan mencapai kondisi mutakhir 3,9~detik setelah pengiriman berakhir. Optimasi pelacakan progres pada PR~\#46 menghilangkan \textit{bottleneck} pembangunan ulang seluruh kebakaran per event (yang sebelumnya menurunkan laju dari 370 menjadi 40~event/detik).
+    \item \textbf{Ketahanan Terhadap \textit{Crash} dan Koordinasi HA (Kriteria 5 \& 8):} Uji \texttt{TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun} menyuntikkan kegagalan pada setiap \textit{offset} penulisan dengan dua interval \textit{checkpoint}; seluruh pemulihan menghasilkan himpunan \textit{hazard} yang identik dengan eksekusi tanpa gangguan dan \textit{checkpoint} tidak pernah melampaui \textit{offset} gagal. Uji dua \textit{worker} membuktikan replika cadangan tidak mengalirkan feed saat \textit{lease} dipegang dan langsung melanjutkan dari \textit{offset} 8 setelah pemegang awal berhenti.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Jawaban atas Butir ``Di Laporan''}
-% [Jawab seluruh butir "Di laporan" yang diminta pada spesifikasi Problem 4 Milestone 2.]
+Berikut jawaban ringkas atas seluruh butir ``Di laporan'' spesifikasi Problem 4:
+\begin{enumerate}
+    \item \textbf{Identifikasi Persoalan dan Konsep Literatur:} Kriteria 2 merupakan persoalan \textit{event time} vs. \textit{processing time}, \textit{watermark}, dan \textit{allowed lateness} \cite{akidau2015dataflow,kleppmann2017designing}. Kriteria 4 merupakan \textit{backpressure} dan pengejaran \textit{backlog} (\textit{catch-up}). Kriteria 5 merupakan \textit{stateful stream processing} dengan \textit{checkpointing} yang konsisten terhadap \textit{offset} sumber.
+    \item \textbf{Evaluasi Pola Pengambilan M1:} Pola \textit{polling} M1 ditinggalkan untuk sumber satelit. Feed satelit bersifat dorong (SSE) dengan \textit{offset} monoton tanpa celah; \textit{polling} berkala hanya menambah latensi dan risiko celah, sedangkan aliran SSE berbasis \textit{offset} memberikan titik lanjut yang presisi dan hemat sumber daya.
+    \item \textbf{Kriteria Finalisasi Kebakaran, Penanganan Keterlambatan, dan Lokasi Penyimpanan Keadaan:} Kebakaran diterbitkan begitu memenuhi syarat ($\ge 2$ deteksi terhubung) dan diperbarui setiap ada perubahan. Kebakaran dianggap final dan ditutup dari memori setelah deteksi terbarunya tertinggal melampaui jendela retensi 48~jam dari waktu kejadian terbaru (karena tidak mungkin lagi terhubung dalam batas 360~menit maupun 6~jam \textit{watermark}). Deteksi terlambat ditangani oleh \textit{watermark} 360~menit (diterapkan bila masih dalam batas, dicatat terpisah bila melampaui). Seluruh keadaan sementara (deteksi, komponen terhubung, peta ID, \textit{watermark}, dan statistik) disimpan sebagai \textit{snapshot} JSON bersama \textit{offset}-nya di tabel \texttt{satellite\_checkpoints} pada unit koordinator \textit{shard}.
+    \item \textbf{Jaminan Semantik Pemrosesan:} Sistem memberikan jaminan \textit{effectively-once} pada penyimpanan kanonis: \textit{hazard} selalu dipersistensikan sebelum \textit{checkpoint}, pemulihan pasca-\textit{crash} memutar ulang aliran tepat dari \textit{offset} \textit{checkpoint}, dan operasi \textit{upsert} bersifat idempoten (dibuktikan melalui uji \textit{crash} di setiap \textit{offset} dan pemulihan feed live). Pengiriman ke topik Kafka bersifat \textit{at-least-once} dengan deduplikasi di sisi konsumen.
+\end{enumerate}

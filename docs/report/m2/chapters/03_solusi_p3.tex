@@ -18,16 +18,83 @@ Berdasarkan butir evaluasi spesifikasi, persoalan utama yang dihadapi meliputi:
 Dalam literatur sistem terdistribusi, konsep dan pola yang merefleksikan persoalan ini adalah \textbf{\textit{Schema Evolution and Contract Versioning}}, \textbf{\textit{Dead Letter Queue (DLQ) Pattern}}, \textbf{\textit{Poison Message Handling}}, \textbf{\textit{Transactional Outbox / Crash-Safe Staging Pattern}}, serta \textbf{\textit{Idempotent Consumer and Deduplication}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
-% [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 3.]
+Untuk menangani perubahan skema PVMBG yang merusak kompatibilitas (\texttt{rename\_field}, \texttt{type\_change}, \texttt{missing\_required\_field}) sekaligus pesan racun tanpa menghentikan aliran data yang sah, Aggregator menerapkan validasi per rekaman, karantina \textit{Dead Letter Queue} (DLQ) yang tahan replika, serta kebijakan pemulihan berbasis konfigurasi \cite{kleppmann2017designing,hohpe2003enterprise}.
+
+\begin{enumerate}
+    \item \textbf{Validasi Per Rekaman dan Isolasi Pesan Racun:} Adapter PVMBG (\path{services/aggregator/internal/adapter/pvmbg_batch.go}) membaca respons hulu dengan batas maksimal 8~MiB, lalu memecah \textit{array} JSON tingkat atas menjadi elemen bita mentah menggunakan \texttt{splitTopLevelArray}. Pemecah ini hanya melacak tanda kurung dan string sehingga elemen yang bersarang terlalu dalam bagi \texttt{encoding/json} tetap terisolasi sebagai satu rekaman yang ditolak tanpa memicu \textit{crash} atau memblokir rekaman lain. Setiap elemen diperiksa validitas UTF-8 pada bita mentahnya (karena \texttt{encoding/json} diam-diam mengganti bita cacat), lalu divalidasi secara ketat terhadap \textit{field} wajib dan tipe datanya. Rekaman gagal diklasifikasikan dengan alasan bertipe: \texttt{schema\_incompatible:}, \texttt{invalid\_utf8}, \texttt{malformed\_json}, atau \texttt{oversized\_payload}.
+    \item \textbf{Penyimpanan DLQ Persisten Sebelum Pergerakan Kursor:} Rekaman yang ditolak disimpan secara utuh (bita mentah) ke tabel \texttt{dlq\_messages} pada \textit{shard} pemilik \texttt{message\_id} bersama sumber, alasan kegagalan, \texttt{received\_at}, jumlah percobaan, dan status. Penulisan DLQ selalu dieksekusi \textbf{sebelum} kursor atau \textit{checkpoint} poller dimajukan; jika penulisan DLQ gagal, seluruh siklus poll ikut gagal agar tidak ada rekaman yang terlewat diam-diam. Nilai \texttt{message\_id} dibentuk dari awalan \texttt{pvmbg-} diikuti 16~bita pertama SHA-256 bita mentah sehingga poll ulang pada jendela tumpang tindih selalu memetakan ke baris yang sama secara idempoten.
+    \item \textbf{Pembedaan \texttt{retrying} dan \texttt{parked}:} Kegagalan tubuh respons menyeluruh (misalnya JSON terpotong akibat gangguan jaringan sementara) diklasifikasikan sebagai \textit{retryable}: status dicatat \texttt{retrying}, kursor ditahan, dan percobaan dihitung terhadap \texttt{DLQ\_RETRY\_BUDGET} (bawaan 5) sebelum dipindahkan ke \texttt{parked} bila anggaran habis. Sebaliknya, rekaman yang melanggar kontrak skema atau rusak permanen langsung diberi status \texttt{parked} (\texttt{retryable=false}) dan tidak ditulis ulang pada poll berikutnya sehingga tidak menimbulkan \textit{hot loop}.
+    \item \textbf{Kebijakan Evolusi Skema Berbasis Konfigurasi:} Tanpa mengubah kode sumber, operator dapat menyesuaikan Aggregator terhadap perubahan hulu yang masih dapat dipetakan secara deterministik melalui dua variabel konfigurasi: \texttt{PVMBG\_FIELD\_ALIASES} (misalnya \texttt{event\_id=report\_id}) dan \texttt{PVMBG\_COERCE\_NUMERIC\_STRINGS} (konversi teks bilangan bulat menjadi angka). Tidak ada kebijakan yang mengizinkan penerimaan rekaman tanpa \texttt{volcano\_id} karena atribut wajib tersebut tidak boleh ditebak.
+    \item \textbf{Pemrosesan Ulang (\textit{Replay}) Idempoten dan Berurutan:} Pemegang \textit{lease} PVMBG memindai dan memvalidasi ulang pesan DLQ aktif setiap 30~detik (maksimal 200 pesan per siklus, diurutkan dari \texttt{received\_at} terlama). Pesan yang kini lolos validasi ditulis melalui jalur penulisan berpagar (\textit{fenced write}) yang sama dengan poller utama, lalu ditandai \texttt{recovered} dan menghilang dari \texttt{GET /internal/audit/unprocessed}. Jika rekaman yang diputar ulang ternyata lebih tua daripada \textit{hazard} yang sudah tersimpan untuk \texttt{source\_ref\_id} yang sama, sistem menandainya \texttt{recovered} tanpa menimpa data agar versi tidak pernah mundur.
+    \item \textbf{Konsistensi Status \texttt{recovered} Lintas Replika dan Keamanan Akses:} Status \texttt{recovered} bersifat final. Kueri penyimpanan menolak menimpa baris \texttt{recovered} (\texttt{WHERE dlq\_messages.status <> 'recovered'}), unit yang gagal diperbarui ditandai \textit{stale}, dan Audit API hanya membaca unit \textit{stale} bila tidak ada unit segar pada \textit{shard} yang sama sehingga sinkronisasi replika tidak pernah membuka kembali pesan yang sudah pulih. Seluruh inspeksi DLQ hanya dibuka lewat Audit API internal dengan perbandingan token Bearer secara \textit{constant-time} (token kosong menolak seluruh permintaan); Client API publik tidak mengekspos DLQ.
+    \item \textbf{Jalur Penerimaan Laporan Lapangan (Kriteria 6):} Di sisi hilir, \texttt{POST /field-reports} (dan \path{/api/v1/field-reports}) pada Client API memverifikasi JWT ber-\textit{scope} petugas lapangan, menerima \texttt{Idempotency-Key} (mengembalikan HTTP~202 dengan \texttt{report\_id} identik pada transmisi ulang yang sama atau HTTP~409 bila muatan berbeda), dan memublikasikan laporan ke topik Redpanda \path{bnpb.field-reports} dengan \texttt{RequireAll} sebelum membalas \texttt{202 Accepted} untuk dipersistensikan oleh konsumen Aggregator.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Alasan Keputusan dan Trade-Off}
-% [Uraikan alternatif solusi yang dipertimbangkan serta trade-off dari pilihan yang diambil pada Problem 3.]
+Dalam merancang penanganan evolusi skema dan pesan rusak pada Problem 3, dipertimbangkan empat pendekatan utama sebagaimana diringkas pada Tabel~\ref{tab:p3_tradeoff}.
+
+\begin{footnotesize}
+\begin{xltabular}{\textwidth}{p{3.4cm} c X}
+\caption{Perbandingan Alternatif Penanganan Evolusi Skema dan Pesan Racun (Problem 3)} \label{tab:p3_tradeoff} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:p3_tradeoff}}} \\
+\toprule
+\textbf{Alternatif Pendekatan} & \textbf{Keputusan} & \textbf{Evaluasi dan \textit{Trade-Off}} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+Menebak atau mengisi nilai bawaan (\textit{default}) untuk atribut wajib yang hilang & Ditolak & Menghasilkan rekaman \textit{hazard} yang tampak sah namun keliru secara faktual (misalnya identitas gunung berapi palsu) dan membahayakan keputusan darurat. \\
+\midrule
+Membuang diam-diam rekaman yang gagal divalidasi & Ditolak & Melanggar kriteria keutuhan data dan menghilangkan kemungkinan pemulihan (\textit{replay}) setelah sistem disesuaikan. \\
+\midrule
+Menolak seluruh respons \textit{batch} jika satu rekaman rusak & Ditolak & Memicu \textit{head-of-line blocking}: satu pesan racun akan menghentikan seluruh aliran data PVMBG lain yang sah. \\
+\midrule
+\textbf{Validasi per rekaman + DLQ persisten + kebijakan berbasis konfigurasi} & \textbf{Dipilih} & Rekaman sah tetap mengalir, pesan gagal tersimpan utuh per rekaman, dan adaptasi cukup berupa perubahan konfigurasi. \textit{Trade-off}-nya adalah kebijakan alias/konversi harus diaktifkan secara sadar oleh operator dan bita mentah disimpan pada setiap unit \textit{shard}. \\
+\end{xltabular}
+\end{footnotesize}
+
+\vspace{1em}
 
 \subsection{Batasan yang Disadari}
-% [Jelaskan hal-hal yang secara sadar tidak ditangani pada Problem 3, beserta alasannya.]
+Implementasi Problem 3 secara sadar menetapkan beberapa batasan teknis:
+\begin{enumerate}
+    \item \textbf{Cakupan Adapter DLQ:} Validasi per rekaman dan penyimpanan DLQ diterapkan pada adapter PVMBG sesuai fokus evolusi skema spesifikasi; adapter BMKG tidak diubah.
+    \item \textbf{Batas Konversi Tipe:} Konversi \path{PVMBG_COERCE_NUMERIC_STRINGS} dibatasi pada teks bilangan bulat (\textit{integer}); teks bilangan pecahan atau tipe non-numerik lain tetap ditolak ke DLQ.
+    \item \textbf{Semantik Event Hilir Saat \textit{Crash} di Tengah \textit{Replay}:} Jika Aggregator mati tepat di antara penulisan \textit{hazard} dan penandaan \texttt{recovered} pada tabel \texttt{dlq\_messages}, pemulihan dapat memicu satu event Kafka ulang (\textit{at-least-once}), yang aman karena seluruh konsumen telah melakukan deduplikasi.
+    \item \textbf{Batas Ukuran Muatan Tunggal:} Respons hulu yang melebihi 8~MiB dipotong dan disimpan di DLQ sebatas 8~MiB pertama sebagai pesan \texttt{oversized\_payload} non-\textit{retryable} demi menjaga batas memori kontainer.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Bukti Penyelesaian}
-% [Sertakan bukti penyelesaian per kriteria pada Problem 3 berupa tangkapan layar, potongan log ber-correlation ID, hasil pengukuran, atau keluaran load testing.]
+Verifikasi Problem 3 dilakukan melalui kombinasi gladi lokal terkontrol, uji unit otomatis, dan latihan langsung pada klaster 3-node:
+\begin{enumerate}
+    \item \textbf{Gladi Evolusi Skema dan \textit{Replay} (17 November 2026, \path{docs/evidence/m2/p3-schema-rehearsal/README.md}):} Pengujian menjalankan \texttt{mock-pvmbg} dan Aggregator dengan satu unit PostgreSQL pada tiga mode skema inkompatibel (masing-masing 25~detik):
+    \begin{itemize}
+        \item \textit{Kebijakan ketat bawaan:} mode \texttt{rename\_field} memarkir 4 rekaman (\texttt{missing required field 'report\_id'}), \texttt{type\_change} memarkir 7 rekaman (\texttt{'eruption\_count\_24h' changed from integer to string}), dan \path{missing_required_field} memarkir 9 rekaman (\texttt{missing required field 'volcano\_id'}). Jumlah \textit{hazard} PVMBG bertahan pada 22 selama ketiga mode, lalu naik ke 31 saat kembali ke mode \texttt{additive} karena kursor tidak melompati rekaman yang ditolak.
+        \item \textit{Penyesuaian konfigurasi dan replay:} Aggregator dijalankan ulang dengan \path{PVMBG_FIELD_ALIASES=event_id=report_id} dan \path{PVMBG_COERCE_NUMERIC_STRINGS=true}. Siklus \textit{replay} pertama memindai 20 pesan DLQ dan memulihkan 11 pesan ($4 + 7$); 9 pesan tanpa \texttt{volcano\_id} tetap \texttt{parked} dan menjadi satu-satunya entri yang tersisa pada \texttt{GET} \path{/internal/audit/unprocessed}.
+        \item \textit{Tanpa duplikat:} Akhir gladi menghasilkan 41 \textit{hazard} PVMBG dengan 41 \texttt{source\_ref\_id} unik; lalu lintas \texttt{rename\_field} baru langsung tersimpan tanpa memicu baris DLQ baru.
+    \end{itemize}
+    \item \textbf{Latihan Langsung Klaster 3-Node (20 November 2026, \path{docs/evidence/m2/chaos-drills/02-schema.log}):} Pengalihan \texttt{mock-pvmbg} ke mode \texttt{rename\_field} melalui \texttt{POST} \path{/admin/schema-version} (terautentikasi Bearer token) memarkir 3 rekaman ke tabel \texttt{dlq\_messages} di \texttt{store-akane-0} (\path{pvmbg-68048b74fe4e64b4f6d236cbb369f08e}, \path{pvmbg-4dd5732e0b9341968259ba7fa7d6b43b}, dan \path{pvmbg-b4db3622942a215487f86c0bbcc57835}) dengan status \texttt{parked} dan alasan \texttt{schema\_incompatible: missing required field 'report\_id'}, terlihat langsung pada \texttt{GET} \path{/internal/audit/unprocessed?source=PVMBG}. Setelah dikembalikan ke mode \texttt{additive}, layanan tetap sehat (\texttt{"degraded": false}, total \texttt{VOLCANIC} 2.197 dan \texttt{ALL} 64.021 dengan \texttt{"partial": false}).
+    \item \textbf{Isolasi Pesan Racun dan Konsistensi Replika (Uji Otomatis \path{pvmbg_batch_test.go}):} \path{TestPoisonInputsDoNotBlockValidReports} memverifikasi rekaman ber-UTF-8 cacat dan JSON bersarang 20.000 tingkat ditolak per rekaman sementara laporan sah dalam respons yang sama tetap tersimpan. \path{TestWholeBodyFailures} memverifikasi respons terpotong berstatus \texttt{retrying} dan respons $>8$~MiB diparkir sebatas 8~MiB pertama. \path{TestRecoveredDLQMessageIsNotReopenedByStaleReplica} membuktikan penjagaan \texttt{status <> 'recovered'} mencegah replika usang membuka kembali pesan yang telah pulih.
+    \item \textbf{Verifikasi \textit{End-to-End} Laporan Lapangan (20 November 2026, \path{docs/evidence/m2/p5-qos-field-reports-hpa/field-reports-e2e.log}):} \texttt{POST} \path{/api/v1/field-reports} menolak token Media dengan HTTP~403, menerima laporan petugas ber-\texttt{Idempotency-Key} dengan HTTP~202 (\path{rep-idem-ce1d6666ada4d230}), mengembalikan \texttt{report\_id} identik pada pengiriman ulang, menolak muatan yang diubah pada kunci sama dengan HTTP~409, serta memverifikasi persistensi kanonis pada \texttt{shard-2} (\texttt{ruby}/\texttt{akane}) dan \texttt{GET} \path{/api/v1/hazards/<id>} dengan \texttt{correlation\_id} \path{m2-cert-fr-201}.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Jawaban atas Butir ``Di Laporan''}
-% [Jawab seluruh butir "Di laporan" yang diminta pada spesifikasi Problem 3 Milestone 2.]
+Berikut jawaban terstruktur atas butir spesifikasi Problem 3:
+\begin{enumerate}
+    \item \textbf{Identifikasi Persoalan dan Konsep Literatur:} Kriteria 2 merepresentasikan pola \textit{Dead Letter Queue} (\textit{parking lot}) dengan pemisahan kegagalan sementara (\textit{retryable}) dan permanen (\textit{non-retryable}) \cite{hohpe2003enterprise}. Kriteria 3 merupakan penanganan \textit{poison message} dan isolasi kegagalan (\textit{bulkhead}) per rekaman. Kriteria 4 merupakan \textit{idempotent replay} dan penjagaan keterurutan per kunci di atas pengiriman \textit{at-least-once} \cite{kleppmann2017designing}. Kriteria 6 merupakan \textit{crash-safe staging} dan \textit{idempotent producer/consumer} untuk jalur laporan darurat lapangan.
+    \item \textbf{Kebijakan Evolusi Skema:} Perubahan yang diterima otomatis adalah penambahan \textit{field} opsional baru (disimpan ke kolom JSONB \texttt{attributes}). Perubahan yang diterima setelah konfigurasi sadar operator adalah penggantian nama \textit{field} melalui \texttt{PVMBG\_FIELD\_ALIASES} dan teks bilangan bulat melalui \texttt{PVMBG\_COERCE\_NUMERIC\_STRINGS}. Perubahan yang tidak pernah diterima adalah hilangnya \textit{field} wajib (seperti \texttt{volcano\_id}) dan perubahan tipe lain yang tidak dapat dipetakan tanpa menebak nilai, karena menebak data berisiko menghasilkan peringatan bencana yang keliru.
+    \item \textbf{Penyimpanan, Pemeriksaan, Pemrosesan Ulang, dan Pencegahan Duplikat:} Pesan gagal disimpan utuh dalam bita mentah di tabel \texttt{dlq\_messages} pada \textit{shard} pemilik \texttt{message\_id}, diperiksa operator atau penguji melalui \texttt{GET /internal/audit/unprocessed} (dilindungi token Bearer internal), dan diproses ulang berkala oleh pemegang \textit{lease} PVMBG. Duplikasi dan kemunduran versi dicegah melalui \texttt{message\_id} berbasis SHA-256 isi mentah, \textit{upsert} idempoten pada \texttt{(source, source\_ref\_id)}, pemeriksaan waktu kejadian sebelum penulisan ulang, serta penjagaan status final \texttt{recovered} lintas replika.
+\end{enumerate}
