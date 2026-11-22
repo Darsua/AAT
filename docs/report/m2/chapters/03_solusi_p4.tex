@@ -5,7 +5,9 @@
 \subsection{Identifikasi Masalah}
 Pemantauan kebakaran hutan dan lahan melalui instrumen satelit penginderaan jauh menghadirkan karakteristik beban yang sangat berbeda dibandingkan pemantauan seismik atau vulkanik. Satelit pengamat termal melintasi wilayah dalam orbit berkala dan memancarkan semburan data berukuran sangat besar (\textit{bursty data}) yang mencakup ribuan deteksi titik panas (\textit{hotspot}) dalam waktu singkat, kemudian hening hingga lintasan orbit berikutnya. Sebagian besar titik panas yang terdeteksi merupakan pantulan termal non-bahaya (seperti atap seng atau permukaan batuan terbuka yang terpanggang sinar matahari), sementara kebakaran hutan nyata sering kali teramati oleh beberapa instrumen satelit sekaligus pada waktu dan koordinat yang sedikit berbeda.
 
-Pola integrasi lama berbasis tarikan berkala (\textit{polling}) tidak lagi memadai untuk menangani volume dan latensi aliran data ini. Beberapa persoalan mendasar yang dihadapi mencakup:
+\vspace{1em}
+
+\noindent Pola integrasi lama berbasis tarikan berkala (\textit{polling}) tidak lagi memadai untuk menangani volume dan latensi aliran data ini. Beberapa persoalan mendasar yang dihadapi mencakup hal-hal berikut.
 \begin{enumerate}
     \item \textbf{Pengelompokan Spasio-Temporal (\textit{Spatio-Temporal Event Aggregation}):} Satu titik panas individual belum merepresentasikan satu kejadian kebakaran hutan. Sistem harus mampu mendeteksi korelasi spasial (kedekatan koordinat geografis) dan korelasi temporal antar-deteksi dari berbagai satelit untuk diagregasikan menjadi satu entitas kejadian bahaya tunggal (\textit{HazardEvent WILDFIRE}) dengan atribut gabungan yang dinamis (seperti daya pancar radiasi kebakaran/FRP kumulatif dan tingkat keyakinan tertinggi).
     \item \textbf{Data Terlambat dan Ketidaksepakatan Jam Satelit (\textit{Out-of-Order and Delayed Events}):} Jam pada masing-masing instrumen satelit tidak selalu tersinkronisasi sempurna, dan transmisi data dari lintasan satelit dapat mengalami keterlambatan transfer jaringan hingga beberapa jam. Pengelompokan kejadian tidak boleh didasarkan pada waktu kedatangan data di server BNPB (\textit{processing time}), melainkan harus berbasis pada waktu observasi nyata satelit (\textit{event time}). Hal ini memunculkan dilema penutupan jendela agregasi: kapan sebuah jendela waktu boleh ditutup dan dianggap selesai jika data terkait masih berpotensi datang terlambat?
@@ -13,10 +15,10 @@ Pola integrasi lama berbasis tarikan berkala (\textit{polling}) tidak lagi memad
     \item \textbf{Konsistensi Status Aliran Terhadap Kegagalan (\textit{Fault-Tolerant Stateful Stream Processing}):} Jika komponen pemroses mengalami pemadaman mendadak di tengah proses pengenalan kebakaran hutan, status sementara (\textit{intermediate state}) tidak boleh hilang atau rusak. Sistem yang pulih harus mampu merekonstruksi status agregasi secara identik persis dengan pemrosesan tanpa gangguan (\textit{exactly-once processing semantics}), menjamin tidak ada kebakaran yang terlewat atau terduplikasi.
 \end{enumerate}
 
-Dalam literatur sistem terdistribusi dan pemrosesan data beraliran (\textit{stream processing}), persoalan ini diidentifikasi sebagai \textbf{\textit{Event-Time vs. Processing-Time Windowing}}, \textbf{\textit{Watermarking and Allowed Lateness Handling}}, \textbf{\textit{Spatial Clustering over Streaming Data}}, \textbf{\textit{Stateful Stream Checkpointing}}, dan \textbf{\textit{Backpressure Management}}.
+\noindent Dalam literatur sistem terdistribusi dan pemrosesan data beraliran (\textit{stream processing}), persoalan ini diidentifikasi sebagai \textbf{\textit{Event-Time vs. Processing-Time Windowing}}, \textbf{\textit{Watermarking and Allowed Lateness Handling}}, \textbf{\textit{Spatial Clustering over Streaming Data}}, \textbf{\textit{Stateful Stream Checkpointing}}, dan \textbf{\textit{Backpressure Management}}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
-Untuk menangani semburan data titik panas satelit VIIRS secara presisi, tahan keterlambatan, dan konsisten terhadap kegagalan, Aggregator meninggalkan pola \textit{polling} M1 dan mengimplementasikan pipa pemrosesan aliran berkeadaan (\textit{stateful stream processing}) \cite{kleppmann2017designing,akidau2015dataflow}:
+Untuk menangani semburan data titik panas satelit VIIRS secara presisi, tahan keterlambatan, dan konsisten terhadap kegagalan, Aggregator meninggalkan pola \textit{polling} M1 dan mengimplementasikan pipa pemrosesan aliran berkeadaan (\textit{stateful stream processing}) \cite{kleppmann2017designing,akidau2015dataflow}.
 
 \begin{enumerate}
     \item \textbf{Klien Aliran SSE Berbasis Offset Monoton:} Klien SSE (\path{services/aggregator/internal/satellite/stream.go}) membuka koneksi persisten \texttt{GET} \path{/v1/stream?from=<offset>}, mengabaikan \textit{offset} yang sudah diterapkan, dan menyambung ulang apabila mendeteksi celah \textit{offset} alih-alih melompatinya. Respons HTTP~401, 403, dan 400 menghentikan aliran agar tidak memicu kesalahan berulang, sedangkan HTTP~429 dan 503 memicu \textit{backoff} yang menghormati \textit{header} \texttt{Retry-After}. Pesan \textit{heartbeat} yang membawa \texttt{id} turut memajukan posisi \textit{offset} karena memakai urutan \textit{offset} yang sama.
@@ -63,7 +65,7 @@ Menyangga feed satelit ke Kafka sebelum diproses & Ditolak & Redundan karena fee
 \vspace{1em}
 
 \subsection{Batasan yang Disadari}
-Implementasi Problem 4 memiliki beberapa batasan teknis yang disadari:
+Implementasi Problem 4 memiliki beberapa batasan teknis yang disadari adalah sebagai berikut.
 \begin{enumerate}
     \item \textbf{Pemetaan Nama Wilayah Provinsi:} Berkas referensi titik pusat provinsi BNPB belum tersedia secara bawaan di repositori; tanpa konfigurasi \path{SATELLITE_PROVINCE_CENTROIDS_FILE}, kolom \texttt{area\_name} diisi dengan label koordinat geografis.
     \item \textbf{Revisi Setelah Jendela Retensi:} Event \texttt{update} atau \texttt{retract} yang tiba setelah kebakarannya ditutup oleh batas retensi 48~jam tetap dicatat pada metrik, namun tidak lagi mengubah kebakaran yang telah ditutup.
@@ -74,7 +76,7 @@ Implementasi Problem 4 memiliki beberapa batasan teknis yang disadari:
 \vspace{1em}
 
 \subsection{Bukti Penyelesaian}
-Keberhasilan Problem 4 dibuktikan melalui sesi latihan feed langsung, uji lonjakan sintetis, uji pemulihan \textit{crash}, serta pengamatan langsung pada klaster 3-node:
+Keberhasilan Problem 4 dibuktikan melalui sesi latihan feed langsung, uji lonjakan sintetis, uji pemulihan \textit{crash}, serta pengamatan langsung pada klaster 3-node (Gambar~\ref{fig:p4_grafana_upstream}) dengan rincian sebagai berikut.
 \begin{enumerate}
     \item \textbf{Pemrosesan Feed Live pada Klaster 3-Node (20 November 2026, \path{docs/evidence/m2/p1-p4-baseline/satellite-coastal.log}):} Dari 3 replika Aggregator aktif, hanya pemegang \textit{lease} (\texttt{aggregator-547cc65b86-nf9ld}) yang mengalirkan feed SSE hingga \textit{offset} 2.127.952 dengan \texttt{lag\_events: 0}, \texttt{p95\_persist\_ms: 0,17--0,18~ms}, 394 kebakaran aktif dalam memori, 33.560 total rekaman \texttt{WILDFIRE} terpersistensi, 0 \texttt{rejected\_events}, dan 0 \texttt{late\_beyond\_watermark}. Ketika koneksi mengalami \texttt{unexpected EOF} pada \textit{offset} 2.127.952, klien menyambung ulang dalam 500~ms dan kembali ke \texttt{lag\_events: 0}. Eviksi keadaan terbatas (\texttt{satellite\_state\_evicted}, retensi 48~jam) teramati aktif membersihkan kebakaran usang (1 kebakaran ditutup / 39--64 deteksi dikeluarkan per siklus). Dua replika cadangan tetap siaga tanpa membuka koneksi ganda.
     \item \textbf{Sesi Latihan Feed Live Lokal (17--18 November 2026):} Dengan 1 Aggregator dan 3~\textit{shard} $\times$ 2 unit PostgreSQL, \textit{backlog} 119.142 event terkejar dalam $\approx 4,5$~menit hingga \textit{lag} 0 (0 ditolak, 0 terlambat, $p95$ 3,7--5,1~ms), menghasilkan 1.872 kebakaran aktif dan 12 kebakaran pensiun yang identik antara primer dan replika tanpa satu pun deteksi ganda di dua kebakaran. Pemutusan koneksi pada \textit{offset} 112.671 dan \textit{restart} pada \textit{offset} 120.311 berhasil memulihkan 1.889 kebakaran dan kembali ke \textit{lag} 0 dalam hitungan detik.
@@ -82,10 +84,17 @@ Keberhasilan Problem 4 dibuktikan melalui sesi latihan feed langsung, uji lonjak
     \item \textbf{Ketahanan Terhadap \textit{Crash} dan Koordinasi HA (Kriteria 5 \& 8):} Uji \texttt{TestSatelliteWorkerCrashRecoveryMatchesUninterruptedRun} menyuntikkan kegagalan pada setiap \textit{offset} penulisan dengan dua interval \textit{checkpoint}; seluruh pemulihan menghasilkan himpunan \textit{hazard} yang identik dengan eksekusi tanpa gangguan dan \textit{checkpoint} tidak pernah melampaui \textit{offset} gagal. Uji dua \textit{worker} membuktikan replika cadangan tidak mengalirkan feed saat \textit{lease} dipegang dan langsung melanjutkan dari \textit{offset} 8 setelah pemegang awal berhenti.
 \end{enumerate}
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.94\textwidth]{figures/dash-upstream.png}
+    \caption{Tangkapan layar dasbor Grafana \textit{Satellite Wildfire \& Upstream Ingestion} yang memperlihatkan hanya 1~\textit{active streaming instance}, \textit{satellite lag}, ukuran \textit{fenced checkpoint}, latensi persistensi $p95$, serta penarikan BMKG/PVMBG.}
+    \label{fig:p4_grafana_upstream}
+\end{figure}
+
 \vspace{1em}
 
 \subsection{Jawaban atas Butir ``Di Laporan''}
-Berikut jawaban ringkas atas seluruh butir ``Di laporan'' spesifikasi Problem 4:
+Berikut jawaban ringkas atas seluruh butir ``Di laporan'' spesifikasi Problem 4.
 \begin{enumerate}
     \item \textbf{Identifikasi Persoalan dan Konsep Literatur:} Kriteria 2 merupakan persoalan \textit{event time} vs. \textit{processing time}, \textit{watermark}, dan \textit{allowed lateness} \cite{akidau2015dataflow,kleppmann2017designing}. Kriteria 4 merupakan \textit{backpressure} dan pengejaran \textit{backlog} (\textit{catch-up}). Kriteria 5 merupakan \textit{stateful stream processing} dengan \textit{checkpointing} yang konsisten terhadap \textit{offset} sumber.
     \item \textbf{Evaluasi Pola Pengambilan M1:} Pola \textit{polling} M1 ditinggalkan untuk sumber satelit. Feed satelit bersifat dorong (SSE) dengan \textit{offset} monoton tanpa celah; \textit{polling} berkala hanya menambah latensi dan risiko celah, sedangkan aliran SSE berbasis \textit{offset} memberikan titik lanjut yang presisi dan hemat sumber daya.

@@ -5,7 +5,9 @@
 \subsection{Identifikasi Masalah}
 Jaringan Sensor Pantai (\textit{Coastal Sensor Network}) merupakan instrumen observasi langsung di laut lepas yang sangat vital untuk mengonfirmasi anomali ketinggian muka air laut dan gelombang tsunami nyata hasil prediksi BMKG. Namun, komponen ini dibangun oleh vendor pihak ketiga dalam bentuk kontainer tertutup (\textit{black-box image}) tanpa akses kode sumber dan beroperasi di lingkungan laut yang sangat rentan gangguan, menjadikannya sumber data yang paling tidak dapat dipercaya (\textit{unreliable and adversarial dependency}).
 
-Sistem menghadapi anomali perilaku dan ketidakpastian operasional sebagai berikut:
+\vspace{1em}
+
+\noindent Sistem menghadapi anomali perilaku dan ketidakpastian operasional sebagai berikut.
 \begin{enumerate}
     \item \textbf{Kegagalan Sebagian dan Perilaku Menyimpang (\textit{Byzantine-like \& Flaky Behavior}):} Sensor pantai kerap mengalami periode hening (\textit{silent/unresponsive}), lonjakan semburan data sekaligus (\textit{burst}), mengaku sehat pada endpoint \texttt{/healthz} padahal data observasinya telah kedaluwarsa berjam-jam (\textit{stale data}), atau mengirimkan muatan yang melanggar kontrak dasar. Peringatan tsunami kritis (\textit{critical events}) yang terselip di antara ribuan pesan anomali tidak boleh hilang (harus mencapai petugas dengan $p95$ latensi $\le 5$ detik).
     \item \textbf{Penularan Kegagalan Sistem (\textit{Cascading Failures \& Thundering Herd}):} Jika Sensor Pantai mengalami perlambatan atau gangguan, permintaan klien dan poller sistem yang terus mengetuk pintu (\textit{polling}) dapat menumpuk koneksi dan menghabiskan thread kerja (\textit{thread starvation}). Hal ini berisiko melumpuhkan seluruh Aggregator dan mengganggu penarikan data dari sumber vital lain yang sedang aktif (gempa BMKG dan erupsi PVMBG).
@@ -13,19 +15,122 @@ Sistem menghadapi anomali perilaku dan ketidakpastian operasional sebagai beriku
     \item \textbf{Diferensiasi Prioritas Beban (\textit{Quality of Service \& Prioritized Load Shedding}):} Ketika sistem berada dalam kondisi kelebihan beban ekstrem (\textit{system overload}) akibat kombinasi bencana serentak, kapasitas komputasi tidak boleh terbagi rata. Jalur komunikasi kritis bagi Petugas Lapangan (BASARNAS/Pemda) harus tetap terjamin 100\% tanpa hambatan, sedangkan permintaan kelompok umum (Media) harus ditolak secara terkontrol (\textit{graceful load shedding}) melalui kuota dan status HTTP 429/503 terencana.
 \end{enumerate}
 
-Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Fault Isolation and Bulkhead Pattern}}, \textbf{\textit{Circuit Breaker Pattern}}, \textbf{\textit{Deadlines and Bounded Timeouts}}, \textbf{\textit{Quality of Service (QoS) and Prioritized Load Shedding}}, serta \textbf{\textit{Self-Healing and Autonomous Recovery}}.
+\vspace{1em}
+
+\noindent Dalam literatur sistem terdistribusi, persoalan ini mencakup konsep \textbf{\textit{Fault Isolation and Bulkhead Pattern}}, \textbf{\textit{Circuit Breaker Pattern}}, \textbf{\textit{Deadlines and Bounded Timeouts}}, \textbf{\textit{Quality of Service (QoS) and Prioritized Load Shedding}}, serta \textbf{\textit{Self-Healing and Autonomous Recovery}}~\cite{nygard2018release,beyer2016sre}.
 
 \subsection{Rancangan Solusi dan Mekanisme}
-% [Jelaskan rancangan solusi dan mekanisme yang dipilih untuk menyelesaikan Problem 5.]
+Untuk mengisolasi ketidakandalan sumber eksternal \texttt{sensor-pantai}, melindungi jalur peringatan kritis bagi Tim Lapangan, serta menjamin diferensiasi prioritas saat beban ekstrem, sistem mengimplementasikan pertahanan berlapis pada lapisan ingesti, perutean gateway, dan konsumen hilir~\cite{nygard2018release,beyer2016sre,newman2021building,richardson2018microservices,kleppmann2017designing}:
+
+\begin{enumerate}
+    \item \textbf{\textit{Bulkhead Isolation} dan Validasi Kontrak Ketat (\texttt{CoastalAdapter} \& \texttt{CoastalPoller}):} Penarikan \texttt{sensor-pantai} diisolasi pada \textit{goroutine} dan \texttt{http.Client} terdedikasi terpisah dari jalur BMKG maupun PVMBG, dengan interval polling \texttt{COASTAL\_POLL\_INTERVAL\_SECS=2}~detik, batas waktu per permintaan \texttt{COASTAL\_TIMEOUT\_MS=2000}~ms, batas pembacaan tubuh respons 4~MiB (\texttt{maxCoastalBodyBytes}), paginasi dibatasi maksimal 5~halaman ($\times 100$~item), serta pelacakan himpunan kursor (\texttt{seenCursors}) guna memutus siklus kursor berulang. Eksklusivitas penarikan dijaga oleh \textit{lease} \texttt{source:SENSOR\_PANTAI}. Setiap item dari \texttt{/v1/observations} divalidasi secara ketat: wajib memiliki tujuh atribut kontrak tidak bernilai \texttt{null}, panjang \texttt{observation\_id} $\le 117$~karakter, \texttt{station\_id} terdaftar pada \texttt{/v1/stations}, \texttt{observed\_at} berformat RFC3339 dan tidak melampaui 5~menit di masa depan, nilai numerik \textit{finite} dengan \texttt{wave\_height\_m >= 0}, serta \texttt{quality} tidak kosong. Item menyimpang langsung disisihkan ke penyimpanan karantina terbatas \texttt{CoastalQuarantineStore} (kapasitas 500~entri, terekspos pada \texttt{GET /internal/coastal/quarantine}) sekaligus dipersistenkan ke tabel \texttt{dlq\_messages} (ID deterministik \texttt{pantai-<sha256[:8]>}, status \texttt{parked}).
+    \item \textbf{\textit{3-State Circuit Breaker} dan \textit{Freshness-Bounded Fallback Cache}:} \texttt{CoastalPoller} menerapkan pemutus sirkuit tiga keadaan: beroperasi pada status \texttt{closed}, membuka sirkuit (\texttt{open}) setelah \texttt{3}~kegagalan beruntun untuk menghentikan panggilan ke hulu yang mati, bertransisi ke \texttt{half\_open} setelah masa tunggu \texttt{10}~detik untuk mengirimkan tepat satu permintaan uji (\textit{single probe}), dan pulih otomatis ke \texttt{closed} bila permintaan uji berhasil. Di saat yang sama, hasil valid terakhir disimpan pada \texttt{CoastalFallbackCache} (kapasitas 500~entri, batas kesegaran \texttt{COASTAL\_}\allowbreak\texttt{FRESHNESS\_TTL\_SECS=30}~detik) yang disajikan melalui \texttt{GET /internal/coastal/fallback} beserta penanda \texttt{stale}, \texttt{last\_success\_at}, dan \texttt{breaker\_state}, sementara \texttt{status.Tracker} menandai metadata respons publik sebagai \texttt{degraded: true}.
+    \item \textbf{Jalur Peringatan Kritis Tim Lapangan (\texttt{notifier-consumer}):} Observasi pesisir berlabel \texttt{critical == true} (atau \texttt{wave\_height\_m >= 4,0}~m atau \texttt{sea\_level\_anomaly\_m >= 1,5}~m) diklasifikasikan sebagai keparahan \texttt{AWAS} dan dipublikasikan melalui \textit{transactional outbox} ke topik \texttt{bnpb.hazard-events}. Konsumen \texttt{notifier-consumer} mengevaluasi kondisi darurat, melakukan deduplikasi sidik jari payload SHA-256 (kapasitas 50.000~entri), menulis tanda terima permanen ke \texttt{NOTIFIER\_RECEIPT\_LOG} (\path{/tmp/notifier-receipts.jsonl}), dan mengirimkan panggilan webhook opsional ke \texttt{FIELD\_TEAM\_RECEIVER\_URL} (hingga 2~percobaan dengan propagasi \texttt{X-Correlation-ID} dan \texttt{traceparent}) sebelum melakukan \textit{manual offset commit}.
+    \item \textbf{\textit{Priority QoS Load Shedding} dan Penskalaan Adaptif (\texttt{QoSLimiter} \& HPA):} Pada gerbang publik \texttt{client-api} (\path{services/client-api/qos.go}), \textit{middleware} atomik membatasi permintaan terautentikasi konkuren per pod dengan \texttt{QOS\_MAX\_CONCURRENT=100} dan ambang pemangkasan Media \texttt{QOS\_MEDIA\_SHED\_THRESHOLD=70}. Ketika jumlah permintaan aktif melampaui 70, permintaan ber-\textit{scope} \texttt{hazards:read:summary} (\texttt{media}) langsung ditolak dengan HTTP~429 (\texttt{Retry-After: 1}) serta langsung mengurangi penghitung \texttt{in\_flight} sebelum menulis respons ke soket, sehingga 30~slot kapasitas tersisa dicadangkan eksklusif bagi lalu lintas kritis \texttt{hazards:read:all} (\texttt{field}/\texttt{internal}) yang hanya ditolak (HTTP~503) jika seluruh 100~slot jenuh. Mekanisme ini dipadukan dengan HPA pada \texttt{client-api} (2--6~replika) dan \texttt{aggregator} (3--5~replika).
+    \item \textbf{Observabilitas Terpadu dan Target Keandalan (SLO):} Seluruh 14~target metrik dipantau via Prometheus (interval \textit{scrape} 5~detik), 3~dasbor operasional pada Grafana, dan penelusuran terdistribusi OpenTelemetry pada Tempo (\texttt{:4318}). Untuk jalur peringatan Tim Lapangan, tim menetapkan \textit{Service Level Objective} (SLO): tingkat keberhasilan penyampaian event kritis $\ge 99{,}9\%$ (0~kehilangan event kritis, toleransi \textit{error budget} $\le 0{,}1\%$), latensi pengiriman peringatan $p95 \le 5$~detik, dan 0\% penolakan HTTP~429 pada lalu lintas terautentikasi \texttt{field} saat saturasi~\cite{beyer2016sre}.
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Alasan Keputusan dan Trade-Off}
-% [Uraikan alternatif solusi yang dipertimbangkan serta trade-off dari pilihan yang diambil pada Problem 5.]
+Tabel~\ref{tab:p5_resilience_config} merangkum pilihan mekanisme ketahanan, parameter konfigurasi yang ditetapkan, alasan teknis, serta \textit{trade-off} masing-masing nilai.
+
+\begin{footnotesize}
+\begin{xltabular}{\textwidth}{p{3.0cm} p{2.8cm} X}
+\caption{Konfigurasi Mekanisme Ketahanan dan \textit{Trade-Off} (Problem 5)} \label{tab:p5_resilience_config} \\
+\toprule
+\textbf{Mekanisme} & \textbf{Konfigurasi} & \textbf{Alasan Pemilihan dan \textit{Trade-Off}} \\
+\midrule
+\endfirsthead
+
+\multicolumn{3}{l}{\textit{\footnotesize Lanjutan Tabel \ref{tab:p5_resilience_config}}} \\
+\toprule
+\textbf{Mekanisme} & \textbf{Konfigurasi} & \textbf{Alasan Pemilihan dan \textit{Trade-Off}} \\
+\midrule
+\endhead
+
+\bottomrule
+\endfoot
+
+Timeout Klien Pesisir & \texttt{2000~ms}, maks. 5 halaman/siklus & Mencegah koneksi menggantung lebih lama dari interval polling 2~detik dan melindungi \textit{worker} dari hulu lambat. \textit{Trade-off}-nya, lonjakan latensi $>2$~detik dihitung sebagai kegagalan. \\
+\midrule
+\textit{Circuit Breaker} & Ambang \texttt{3} gagal, \textit{cooldown} \texttt{10~s}, \textit{single probe} & Menghindari pembukaan sirkuit akibat satu gangguan sesaat sekaligus menghentikan \textit{retry storm} dalam maksimal 6~detik, dengan waktu pemulihan otomatis tercepat 10~detik. \\
+\midrule
+\textit{Fallback Cache} & Kapasitas \texttt{500}, \texttt{TTL 30~s} & Menyajikan data valid terakhir secara instan tanpa menunggu timeout hulu sambil tetap menandai \texttt{stale=true} ketika umur cache melewati 30~detik atau sirkuit terbuka. \\
+\midrule
+\textit{Priority QoS Limiter} & \texttt{max=100}, \texttt{media\_shed=70} per pod & Menjamin 30\% ruang eksklusif bagi \texttt{field}/\texttt{internal} dan menjaga penggunaan memori goroutine per pod di bawah batas 256Mi dengan mengorbankan akses publik (\texttt{media}) saat saturasi. \\
+\midrule
+Probe \texttt{/readyz} Terpisah & Diputus dari \textit{ping} broker tunggal & Menjaga replika pembaca \texttt{aggregator} tetap melayani permintaan baca dari basis data meski Redpanda replika tunggal mengalami gangguan sementara. \\
+\end{xltabular}
+\end{footnotesize}
+
+\vspace{1em}
 
 \subsection{Batasan yang Disadari}
-% [Jelaskan hal-hal yang secara sadar tidak ditangani pada Problem 5, beserta alasannya.]
+Implementasi Problem 5 memiliki beberapa batasan yang disadari oleh tim adalah sebagai berikut.
+\begin{enumerate}
+    \item \textbf{Penyimpanan Cache dan Karantina Pesisir Lokal Pod:} \texttt{CoastalQuarantineStore} dan \texttt{CoastalFallbackCache} (masing-masing maks. 500~entri) tersimpan di memori tiap pod Aggregator sehingga tidak dibagikan lintas replika; namun seluruh observasi yang ditolak tetap dipersistenkan ke tabel terpartisi \texttt{dlq\_messages} agar dapat diaudit lintas replika. Hal yang sama berlaku pada pelacak kesehatan sumber hulu (\texttt{status.Tracker}) yang menyetel \texttt{meta.degraded} pada respons publik: keadaannya juga bersifat lokal per pod Aggregator, sehingga saat sumber hulu terganggu hanya pod pemegang \textit{leader lease} yang menandai \texttt{meta.degraded = true}, sedangkan pod \textit{standby} tetap melaporkan status sehat.
+    \item \textbf{Saturasi Lapisan Transport pada Badai 10.000~VU:} Ketika 10.000~koneksi serentak ditembakkan dari satu host ke batas CPU 500m pod \texttt{client-api}, sebagian permintaan mengalami \textit{transport timeout} di antrean soket/Ingress sebelum sempat mencapai \textit{middleware} QoS; meski demikian, lalu lintas \texttt{field} tetap tidak pernah terkena penolakan HTTP~429.
+    \item \textbf{Ketersediaan Broker Redpanda Replika Tunggal:} Redpanda berjalan sebagai satu pod pada node \texttt{ruby}; pemadaman total node \texttt{ruby} menghentikan penerimaan pesan broker sementara hingga node pulih kembali (walaupun jalur baca HTTP tetap berjalan berkat pemisahan probe \texttt{/readyz}).
+\end{enumerate}
+
+\vspace{1em}
 
 \subsection{Bukti Penyelesaian}
-% [Sertakan bukti penyelesaian per kriteria pada Problem 5 berupa tangkapan layar, potongan log ber-correlation ID, hasil pengukuran, atau keluaran load testing.]
+Penyelesaian Problem 5 divalidasi melalui pengujian unit, baseline kluster 3-node, uji saturasi bertingkat hingga 10.000~VU, rangkaian 6~\textit{chaos drill}, dan pemeriksaan observabilitas. Rincian uji coba tersebut adalah sebagai berikut.
+\begin{enumerate}
+    \item \textbf{Ingesti Pesisir Terisolasi dan Karantina Kontrak (Kriteria 1, 2, \& 3):} Pada pengamatan baseline kluster 3-node, pemegang \textit{lease} \texttt{aggregator-547cc65b86-nf9ld} mengeksekusi penarikan eksklusif \texttt{sensor-pantai} (\texttt{HTTP 200}, latensi 1--5~ms), mengakumulasi 13.300~rekaman \texttt{COASTAL} sehat (\texttt{degraded: false}) berdampingan dengan 1.953~rekaman \texttt{BMKG} dan 1.953~rekaman \texttt{PVMBG} tanpa mengganggu latensi sumber lain. Pengujian unit \textit{race-enabled} memverifikasi transisi \textit{circuit breaker} (\texttt{closed -> open -> half\_open -> closed}), penyajian \texttt{fallback cache}, dan isolasi observasi menyimpang ke karantina/DLQ.
+    \item \textbf{Baseline Beban Konkuren 50~VU dan Uji Saturasi \texttt{120 Field + 80 Media} (Kriteria 5):} Pada baseline 50~VU (25~Field + 25~Media selama 24,02~detik dengan delay PVMBG 500--3.000~ms), sistem melayani 4.825~permintaan (\texttt{200,87 req/s}) dengan \texttt{0,00\%} error ($p95 = 328,42$~ms). Pada uji saturasi \texttt{120 Field + 80 Media} (45~detik pasca-\textit{hardening}), \texttt{client-api} langsung memangkas \texttt{13.881} dari \texttt{14.417}~permintaan \texttt{media} dengan HTTP~429 sementara seluruh \texttt{1.084}~permintaan \texttt{field} diterima tanpa satu pun HTTP~429, serta memicu penskalaan HPA \texttt{client-api} \texttt{2 -> 3} pod lalu turun kembali \texttt{3 -> 2} setelah jendela stabilisasi 120~detik.
+    \item \textbf{Uji Badai Konkurensi 10.000~VU (Kriteria 5):} Pengujian menggunakan 9.500~VU \texttt{media} dan 500~VU \texttt{field} selama 30,01~detik dari host \texttt{mainframe} mencatat penambahan penghitung \texttt{media\_shed} sebesar \texttt{+27.426} pada dua pod \texttt{client-api}. Meskipun 9.500~VU \texttt{media} mengirimkan 365.574~percobaan permintaan, kelompok 500~VU \texttt{field} menerima \textbf{0~penolakan HTTP~429} dan berhasil menyelesaikan \textbf{551~respons HTTP~200 OK} (lebih banyak daripada 437~respons HTTP~200 OK dari seluruh 9.500~VU \texttt{media}), dengan 0~\textit{pod restart} dan nilai \texttt{in\_flight} langsung kembali ke \texttt{0} begitu beban berakhir.
+    \item \textbf{Observabilitas Terpadu dan Pelacakan \textit{Correlation ID} (Kriteria 6 \& 7):} Seluruh 14/14~target Prometheus berstatus \texttt{UP} melalui \textit{headless DNS discovery}, 3~dasbor Grafana menyajikan metrik seluruh komponen secara langsung (Gambar~\ref{fig:p5_grafana_obs} dan Gambar~\ref{fig:p4_grafana_upstream}), dan Tempo mengonfirmasi pohon \textit{span} OTLP baik untuk pembacaan HTTP sinkron (3~\textit{span} lintas \texttt{client-api} dan \texttt{aggregator}) maupun jalur laporan lapangan asinkron (3~\textit{span} lintas \texttt{aggregator}, \texttt{dashboard-consumer}, dan \texttt{notifier-consumer} dengan \texttt{correlation\_id} yang sama).
+    \item \textbf{Pemulihan Mandiri pada Enam Skenario \textit{Chaos Engineering} (Kriteria 6):} Seluruh enam skenario gangguan (\texttt{clock-skew}, \texttt{schema}, \texttt{kill-leader}, \texttt{kill-store}, partisi jaringan 35~detik, dan \texttt{wipe-node}) berhasil dilalui dengan pemulihan otomatis hingga \texttt{partial: false}, \texttt{degraded: false}, dan seluruh pod \texttt{1/1 Running}.
+\end{enumerate}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.88\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/dash-platform.png}
+        \caption{Dasbor \textit{Platform Overview \& API Gateway} (14/14~target \texttt{UP}, 3~replika Aggregator, 2~replika Gateway, QoS \textit{load shedding}, dan keseimbangan permintaan per replika).}
+        \label{fig:p5_grafana_platform}
+    \end{subfigure}
+    \par\medskip
+    \begin{subfigure}[b]{0.88\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figures/dash-queue.png}
+        \caption{Dasbor \textit{Event Pipeline, Redpanda \& Consumers} (\textit{throughput} Redpanda, \textit{consumer group lag}, \textit{outbox relay}, dan metrik \textit{AI Summarizer}).}
+        \label{fig:p5_grafana_queue}
+    \end{subfigure}
+    \caption{Tangkapan layar pemantauan terpadu Grafana pada kluster 3-node Milestone~2.}
+    \label{fig:p5_grafana_obs}
+\end{figure}
+
+% [Opsional: sisipkan tangkapan layar trace Tempo ber-correlation ID jika tersedia.]
+
+\vspace{1em}
 
 \subsection{Jawaban atas Butir ``Di Laporan''}
-% [Jawab seluruh butir "Di laporan" yang diminta pada spesifikasi Problem 5 Milestone 2.]
+Berikut jawaban terstruktur atas empat butir pertanyaan laporan Problem 5 pada spesifikasi Milestone 2.
+\begin{enumerate}
+    \item \textbf{Identifikasi Persoalan pada Kriteria 2--5 beserta Konsep Literatur:} Kriteria 2 merupakan persoalan validasi kontrak skema defensif dan karantina \textit{Poison Message} / \textit{Dead Letter Queue}~\cite{hohpe2003enterprise}. Kriteria 3 merupakan persoalan isolasi kegagalan (\textit{Bulkhead Pattern} / \textit{Fault Isolation}) agar ketergantungan bermasalah tidak memicu kegagalan berantai (\textit{Cascading Failure})~\cite{nygard2018release}. Kriteria 4 merupakan persoalan pencegahan \textit{Thundering Herd} dan penantian tak terbatas (\textit{Hanging Requests}) yang diselesaikan dengan pola \textit{Circuit Breaker}, \textit{Bounded Timeouts}, \textit{Fallback Cache}, dan \textit{Self-Healing}~\cite{nygard2018release,newman2021building}. Kriteria 5 merupakan persoalan manajemen kelebihan beban (\textit{Overload Protection}) melalui pola \textit{Quality of Service} (QoS) dan \textit{Prioritized Load Shedding}~\cite{beyer2016sre}.
+    \item \textbf{Daftar Mekanisme Ketahanan, Konfigurasi, dan Alasan Penetapan Nilai:} Rincian mekanisme mencakup: (a) \textit{Bulkhead goroutine/client} terpisah dengan \texttt{COASTAL\_TIMEOUT\_MS=2000}~ms dan \texttt{COASTAL\_POLL\_INTERVAL\_SECS=2}~detik agar satu siklus gagal tidak menumpuk ke siklus berikutnya; (b) batas muatan 4~MiB, 5~halaman $\times$ 100~item, dan \texttt{seenCursors} untuk mencegah konsumsi memori dan loop tak berujung; (c) \textit{3-state circuit breaker} (ambang 3~kegagalan, \textit{cooldown} 10~detik) agar gangguan sesaat tidak langsung membuka sirkuit, tetapi gangguan berkelanjutan langsung diisolasi dengan pemulihan otomatis tiap 10~detik; (d) \textit{Fallback Cache} (kapasitas 500, \texttt{COASTAL\_FRESHNESS\_TTL\_SECS=30}~detik) untuk respons instan saat hulu mati dengan indikator kesegaran eksplisit; serta (e) \textit{Priority QoS} (\texttt{QOS\_MAX\_CONCURRENT=100}, \texttt{QOS\_MEDIA\_SHED\_THRESHOLD=70}) guna menyisihkan 30\% ruang tetap bagi lalu lintas \texttt{field}/\texttt{internal} dalam batas memori 256Mi.
+    \item \textbf{Perilaku Menyimpang Sensor Pantai, Cara Menemukan, dan Penanganannya:} Berdasarkan inspeksi dokumen kontrak Lampiran~C, \textit{probing} langsung ke endpoint \texttt{/v1/stations} dan \texttt{/v1/observations}, serta pemantauan metrik/log \texttt{coastal-poller}, ditemukan dan diantisipasi sembilan kelas perilaku menyimpang:
+    \begin{itemize}
+        \item \textit{Field wajib hilang atau bernilai \texttt{null}} $\to$ ditolak per item oleh \texttt{parseAndValidate}\allowbreak\texttt{Observation} dan dikarantina ke \texttt{CoastalQuarantine}\allowbreak\texttt{Store} serta \texttt{dlq\_messages}.
+        \item \textit{Tipe data salah atau panjang ID melebihi 117~karakter} $\to$ ditolak pada dekode JSON/pengecekan panjang ke karantina dan DLQ.
+        \item \textit{\texttt{station\_id} asing (tidak terdaftar di \texttt{/v1/stations})} $\to$ dicocokkan terhadap peta katalog stasiun yang di-\textit{refresh} berkala dan dikarantina bila tidak dikenal.
+        \item \textit{Timestamp masa depan (\texttt{observed\_at} $> \text{now} + 5$~menit) atau format cacat} $\to$ ditolak pada validasi batas waktu ke karantina/DLQ.
+        \item \textit{Data kedaluwarsa (\textit{stale}) meski \texttt{/healthz} mengembalikan 200 OK} $\to$ dideteksi melalui pemeriksaan kesegaran (\texttt{COASTAL\_FRESHNESS\_TTL\_SECS=30}~detik) pada \texttt{FallbackCache} dan pelaporan \texttt{stale: true}.
+        \item \textit{Nilai anomali fisik (\texttt{wave\_height\_m < 0}, \texttt{NaN}, atau \texttt{Inf})} $\to$ divalidasi dengan \texttt{math.IsNaN}/\texttt{math.IsInf} serta batas non-negatif sebelum diproses.
+        \item \textit{Kegagalan HTTP~503, jeda panjang, atau keheningan endpoint} $\to$ ditangani melalui \textit{timeout} 2000~ms dan \textit{circuit breaker} (3~gagal $\to$ \texttt{open} 10~detik $\to$ \texttt{half\_open}) disertai \textit{fallback cache}.
+        \item \textit{Semburan (\textit{burst}) halaman dan kursor berulang} $\to$ dibatasi maksimal 5~halaman $\times$ 100~item per siklus dengan deteksi siklus pada \texttt{seenCursors}.
+        \item \textit{Muatan berukuran berlebih} $\to$ dibatasi oleh \texttt{io.LimitReader} maksimal 4~MiB per respons HTTP.
+    \end{itemize}
+    \item \textbf{\textit{Post-Mortem} Singkat \textit{Game Day} dan Evaluasi Target Keandalan:}
+    \begin{itemize}
+        \item \textbf{Deteksi:} Selama latihan \textit{chaos} tanggal 20--21 November 2026 ditemukan tiga temuan operasional utama: (1) pada \texttt{wipe-node} \texttt{ruby}, metrik dan probe kesiapan menunjukkan seluruh pod \texttt{aggregator} yang tersisa menjadi \texttt{0/1 Ready} sehingga Audit dan Public API mengembalikan HTTP~503/500 sementara; (2) pada uji saturasi awal (240~pekerja), pengurangan penghitung \texttt{in\_flight} baru dilakukan setelah penulisan respons dan \texttt{aggregator} mengalami timeout 5~detik; serta (3) saat partisi \texttt{akane}, panggilan \texttt{/auth/token} sempat \textit{timeout} karena pod tunggal \texttt{auth} berada pada node terisolasi.
+        \item \textbf{Dampak:} Saat \texttt{ruby} mati bersama satu-satunya pod \texttt{redpanda-0}, ketersediaan jalur baca ikut terhenti $\approx 3$--4~menit sebelum node pulih meski \textit{shard} PostgreSQL lain masih sehat; pada saturasi awal, 1.436 permintaan \texttt{field} terkena HTTP~500 di hilir; dan selama 35~detik partisi \texttt{akane}, klien publik tidak dapat memperbarui token dari \texttt{auth}.
+        \item \textbf{Mitigasi:} Selama kejadian, \texttt{Priority QoS} membuang 3.141 permintaan \texttt{media} (HTTP~429), layanan \texttt{systemd} host diperbarui ke \texttt{Restart=always} untuk membangkitkan \texttt{ruby}, serta \texttt{SyncShardReplicas} memulihkan 100\% paritas \textit{shard} dalam 57~detik.
+        \item \textbf{Perbaikan dan Pencapaian SLO:} (1) Memisahkan probe kesiapan \texttt{aggregator} ke \texttt{GET /readyz} (bebas dari \textit{ping} broker tunggal) agar pembacaan bertahan saat gangguan Redpanda; (2) memperbaiki \texttt{QoSLimiter} agar melepas \texttt{in\_flight} sebelum menulis respons 429/503; dan (3) mengevaluasi SLO jalur Tim Lapangan pada pengujian ulang pasca-perbaikan: tercapai \textbf{0~penolakan HTTP~429} dan \textbf{100\% penerimaan} pada uji saturasi 120+80~pekerja (serta 551~\texttt{200 OK} berbanding 0~\texttt{429} pada badai 10.000~VU), dengan 0~kehilangan event kritis di seluruh pengujian fungsional. \textit{Error budget} terpakai pada insiden uji pertama terutama berasal dari keterbatasan CPU 500m saat badai \texttt{limit=500} dan ketergantungan pod tunggal \texttt{auth}/\texttt{redpanda}.
+    \end{itemize}
+\end{enumerate}
